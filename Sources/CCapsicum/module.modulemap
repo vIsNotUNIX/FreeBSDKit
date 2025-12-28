@@ -1,0 +1,4 @@
+module CCapsicum [system] {
+    header "include/capsicum.h"
+    export *
+}
