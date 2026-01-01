@@ -13,7 +13,7 @@ FreeBSDKit aims to:
 
 ## Targets
 
-FreeBSDKit currently exposes two targets:
+FreeBSDKit currently exposes:
 
 ### 1. CCapsicum
 
