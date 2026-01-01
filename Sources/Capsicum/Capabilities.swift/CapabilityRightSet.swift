@@ -6,109 +6,78 @@ public struct CapabilityRightSet {
 
     /// Initilizes an empty CapabilityRightSet
     public init() {
-        var r = cap_rights_t()
-        ccapsicum_rights_init(&r)
-        self.rights = r
+        var rights = cap_rights_t()
+        ccapsicum_rights_init(&rights)
+        self.rights = rights
     }
 
     /// Initialize from a cap_rights_t.
-    public init(from rights: cap_rights_t) {
+    public init(rights: cap_rights_t) {
         self.rights = rights
     }
     /// Initialize from an array of `Capability`.
-    public init(rights: [CapabilityRight]) {
+    public init(rights inRights: [CapabilityRight]) {
         self.rights = {
-            var r = cap_rights_t()
-            ccapsicum_rights_init(&r)
-            for right in rights {
-                switch right {
-                case .read:
-                    ccaspsicum_cap_set(&r, right.bridged)
-                case .write:
-                    ccaspsicum_cap_set(&r, right.bridged)
-                case .seek:
-                    ccaspsicum_cap_set(&r, right.bridged)
-                }
+            var rights = cap_rights_t()
+            ccapsicum_rights_init(&rights)
+            for right in inRights {
+                ccaspsicum_cap_set(&rights, right.bridged)
             }
-            return r
+            return rights
         }()
     }
 
     public mutating func add(capability: CapabilityRight) {
-            switch capability {
-            case .read:
-                ccaspsicum_cap_set(&rights, capability.bridged)
-            case .write:
-                ccaspsicum_cap_set(&rights, capability.bridged)
-            case .seek:
-                ccaspsicum_cap_set(&rights, capability.bridged)
-            }
+        ccaspsicum_cap_set(&self.rights, capability.bridged)
     }
 
     public mutating func add(capabilites: [CapabilityRight]) {
         for cap in capabilites {
-            switch cap {
-            case .read:
-                ccaspsicum_cap_set(&rights, cap.bridged)
-            case .write:
-                ccaspsicum_cap_set(&rights, cap.bridged)
-            case .seek:
-                ccaspsicum_cap_set(&rights, cap.bridged)
-            }
+            ccaspsicum_cap_set(&self.rights, cap.bridged)
         }
     }
 
+    public mutating func clear(capability: CapabilityRight) {            
+        ccapsicum_rights_clear(&self.rights, capability.bridged)
+    }
+
     public mutating func clear(capabilites: [CapabilityRight]) {
-        for cap in capabilites {
-            switch cap {
-            case .read:
-                ccap_rights_clear(&rights, cap.bridged)
-            case .write:
-                ccap_rights_clear(&rights, cap.bridged)
-            case .seek:                
-                ccap_rights_clear(&rights, cap.bridged)
-            }  
+        for cap in capabilites {               
+            ccapsicum_rights_clear(&self.rights, cap.bridged)
         }
     }
 
     public mutating func contains(capability: CapabilityRight) -> Bool {
-        switch capability {
-        case .read:
-            return ccapsicum_right_is_set(&rights, capability.bridged)
-        case .write:
-            return ccapsicum_right_is_set(&rights, capability.bridged)
-        case .seek:
-            return ccapsicum_right_is_set(&rights, capability.bridged)
-        }
+        return ccapsicum_right_is_set(&self.rights, capability.bridged)
     }
 
     public mutating func contains(right other: CapabilityRightSet) -> Bool {
         var contains = false
         withUnsafePointer(to: other.rights) { otherRights in
-            contains = ccap_rights_contains(&rights, otherRights)
+            contains = ccapsicum_rights_contains(&self.rights, otherRights)
         }
         return contains
     }
 
     /// Returns a new merged `CapabilityRightSet`` instance.
-    public mutating func merge(with other: CapabilityRightSet) -> CapabilityRightSet {
+    public mutating func merge(with other: CapabilityRightSet) {
         withUnsafePointer(to: other.rights) { srcPtr in
-            _ = ccapsicum_cap_rights_merge(&rights, srcPtr)
+            _ = ccapsicum_cap_rights_merge(&self.rights, srcPtr)
         }
-        return other
     }
-    public mutating func remove(matching right: CapabilityRightSet) -> CapabilityRightSet {
+
+    /// Removes rights matching `right`
+    public mutating func remove(matching right: CapabilityRightSet) {
         withUnsafePointer(to: right.rights) { srcPtr in
-            _ = ccap_rights_remove(&rights, srcPtr)
+            _ = ccapsicum_rights_remove(&self.rights, srcPtr)
         }
-        return right
+    }
+    /// Validates the right.
+    public mutating func validate() -> Bool {
+        return ccapsicum_rights_valid(&rights)
     }
 
-    public mutating func valid() -> Bool {
-        return ccap_rights_valid(&rights)
-    }
-
-    public func asCRights() -> cap_rights_t {
+    public func asCapRightsT() -> cap_rights_t {
         return rights
     }
 
