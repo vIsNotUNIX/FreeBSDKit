@@ -88,7 +88,6 @@ public enum Capsicum {
         }
 
         if result == -1 {
-            // Capture errno immediately
             let err = errno
             throw CapsicumError.errorFromErrno(err)
         }

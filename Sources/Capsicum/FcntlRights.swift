@@ -45,7 +45,7 @@ public struct FcntlRights: OptionSet {
 
     /// Creates a new set of fcntl rights from a raw bitmask.
     ///
-    /// - Parameter rawValue: A bitmask of fcntl rights as returned by
+    /// - Parameter rawValue: A bitmask of fcntl rights.
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
     }

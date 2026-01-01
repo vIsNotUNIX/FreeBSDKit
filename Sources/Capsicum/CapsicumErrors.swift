@@ -90,7 +90,6 @@ public enum CapsicumFcntlError: Error {
 
 /// Errors that can occur when querying or interpreting the list of
 /// allowed `ioctl(2)` commands on a file descriptor under Capsicum.
-///
 public enum CapsicumIoctlError: Error {
     /// The file descriptor is invalid (EBADF).
     case invalidDescriptor
