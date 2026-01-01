@@ -25,22 +25,34 @@
 
 import CCapsicum
 
-/// CapabilityRightSet
+/// A set of capability rights for a file descriptor, wrapping `cap_rights_t`.
+///
+/// `CapabilityRightSet` allows you to manage, merge, and validate Capsicum
+/// capability rights in a type-safe Swift way.
 public struct CapabilityRightSet {
     private var rights: cap_rights_t
 
-    /// Initilizes an empty CapabilityRightSet
+    // MARK: - Initializers
+
+    /// Initializes an empty `CapabilityRightSet`.
+    ///
+    /// All rights are cleared initially. Use `add(capability:)` to add rights.
     public init() {
         var rights = cap_rights_t()
         ccapsicum_rights_init(&rights)
         self.rights = rights
     }
 
-    /// Initialize from a cap_rights_t.
+    /// Initializes a `CapabilityRightSet` from an existing `cap_rights_t`.
+    ///
+    /// - Parameter rights: A `cap_rights_t` structure representing the rights.
     public init(rights: cap_rights_t) {
         self.rights = rights
     }
-    /// Initialize from an array of `Capability`.
+
+    /// Initializes a `CapabilityRightSet` from an array of `CapabilityRight`.
+    ///
+    /// - Parameter rights: An array of `CapabilityRight` to include in the set.
     public init(rights inRights: [CapabilityRight]) {
         self.rights = {
             var rights = cap_rights_t()
@@ -52,30 +64,54 @@ public struct CapabilityRightSet {
         }()
     }
 
+    // MARK: - Modifiers
+
+    /// Adds a single capability to the set.
+    ///
+    /// - Parameter capability: The capability to add.
     public mutating func add(capability: CapabilityRight) {
         ccaspsicum_cap_set(&self.rights, capability.bridged)
     }
 
+    /// Adds multiple capabilities to the set.
+    ///
+    /// - Parameter capabilities: An array of capabilities to add.
     public mutating func add(capabilites: [CapabilityRight]) {
         for cap in capabilites {
             ccaspsicum_cap_set(&self.rights, cap.bridged)
         }
     }
 
-    public mutating func clear(capability: CapabilityRight) {            
+    /// Removes a single capability from the set.
+    ///
+    /// - Parameter capability: The capability to remove.
+    public mutating func clear(capability: CapabilityRight) {
         ccapsicum_rights_clear(&self.rights, capability.bridged)
     }
 
+    /// Removes multiple capabilities from the set.
+    ///
+    /// - Parameter capabilities: An array of capabilities to remove.
     public mutating func clear(capabilites: [CapabilityRight]) {
-        for cap in capabilites {               
+        for cap in capabilites {
             ccapsicum_rights_clear(&self.rights, cap.bridged)
         }
     }
 
+    // MARK: - Queries
+
+    /// Checks whether the set contains a given capability.
+    ///
+    /// - Parameter capability: The capability to check for.
+    /// - Returns: `true` if the capability is present; otherwise, `false`.
     public mutating func contains(capability: CapabilityRight) -> Bool {
         return ccapsicum_right_is_set(&self.rights, capability.bridged)
     }
 
+    /// Checks whether the set contains all rights from another `CapabilityRightSet`.
+    ///
+    /// - Parameter other: Another `CapabilityRightSet` to check.
+    /// - Returns: `true` if all rights from `other` are included in this set.
     public mutating func contains(right other: CapabilityRightSet) -> Bool {
         var contains = false
         withUnsafePointer(to: other.rights) { otherRights in
@@ -84,24 +120,40 @@ public struct CapabilityRightSet {
         return contains
     }
 
-    /// Returns a new merged `CapabilityRightSet`` instance.
+    // MARK: - Set Operations
+
+    /// Merges rights from another `CapabilityRightSet` into this set.
+    ///
+    /// - Parameter other: The set of rights to merge.
     public mutating func merge(with other: CapabilityRightSet) {
         withUnsafePointer(to: other.rights) { srcPtr in
             _ = ccapsicum_cap_rights_merge(&self.rights, srcPtr)
         }
     }
 
-    /// Removes rights matching `right`
+    /// Removes rights that match another `CapabilityRightSet`.
+    ///
+    /// - Parameter right: The set of rights to remove from this set.
     public mutating func remove(matching right: CapabilityRightSet) {
         withUnsafePointer(to: right.rights) { srcPtr in
             _ = ccapsicum_rights_remove(&self.rights, srcPtr)
         }
     }
-    /// Validates the right.
+
+    // MARK: - Validation
+
+    /// Validates that the rights set is well-formed.
+    ///
+    /// - Returns: `true` if the set is valid; otherwise, `false`.
     public mutating func validate() -> Bool {
         return ccapsicum_rights_valid(&rights)
     }
 
+    // MARK: - Accessors
+
+    /// Returns the underlying `cap_rights_t` structure.
+    ///
+    /// - Returns: The raw `cap_rights_t` representing this set.
     public func asCapRightsT() -> cap_rights_t {
         return rights
     }

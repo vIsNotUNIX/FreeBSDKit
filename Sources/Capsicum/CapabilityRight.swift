@@ -269,7 +269,6 @@ public enum CapabilityRight {
 
     /// Maps this Swift enum case to the corresponding C
     /// `ccapsicum_right_bridge` value used by the Capsicum bridge functions.
-    ///
     @inline(__always)
     var bridged: ccapsicum_right_bridge {
         switch self {

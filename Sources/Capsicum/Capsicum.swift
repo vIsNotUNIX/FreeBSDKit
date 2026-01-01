@@ -26,54 +26,6 @@
 import CCapsicum
 import Glibc
 
-/// Errors that can occur when working with Capsicum capabilities.
-public enum CapsicumError: Error, Equatable {
-
-    /// Capsicum is not supported on the current system.
-    case capsicumUnsupported
-
-    /// Casper (Capsicum sandbox helpers) is not supported on the current system.
-    case casperUnsupported
-
-    /// The file descriptor provided was invalid.
-    case badFileDescriptor
-
-    /// One or more arguments (flags, options) were invalid.
-    case invalidArgument
-
-    /// Attempted to expand capability rights, which is not allowed.
-    case notCapable
-
-    /// Operation not permitted in capability mode.
-    case capabilityModeViolation
-
-    /// Other errno not covered by specific cases.
-    case underlyingFailure(errno: Int32)
-
-    static func errorFromErrno(_ code: Int32, isCasper: Bool = false) -> CapsicumError {
-        switch code {
-        case ENOSYS:
-            return isCasper ? .casperUnsupported : .capsicumUnsupported
-        
-        case EBADF:
-            return .badFileDescriptor
-        
-        case EINVAL:
-            return .invalidArgument
-        
-        case ENOTCAPABLE:
-            return .notCapable
-        
-        case ECAPMODE:
-            return .capabilityModeViolation
-        
-        default:
-            return .underlyingFailure(errno: code)
-        }
-    }
-}
-
-
 /// A Swift interface to the FreeBSD Capsicum sandboxing API.
 ///
 /// Capsicum is a capability and sandbox framework built into FreeBSD that

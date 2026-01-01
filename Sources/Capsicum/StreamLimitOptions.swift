@@ -23,30 +23,22 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
- import CCapsicum
- import Glibc
+import CCapsicum
+import Glibc
 
-/// A set of flags representing the fcntl commands that may be
-/// permitted on a file descriptor when using Capsicum’s fcntl limits.
-public struct FcntlRights: OptionSet {
-    public let rawValue: UInt32
+public struct StreamLimitOptions: OptionSet {
+    public let rawValue: Int32
 
-    /// Permits the `F_GETFL` fcntl command.
-    public static let getFlags = FcntlRights(rawValue: UInt32(CAP_FCNTL_GETFL))
-
-    /// Permits the `F_SETFL` fcntl command.
-    public static let setFlags = FcntlRights(rawValue: UInt32(CAP_FCNTL_SETFL))
-
-    /// Permits the `F_GETOWN` fcntl command.
-    public static let getOwner = FcntlRights(rawValue: UInt32(CAP_FCNTL_GETOWN))
-
-    /// Permits the `F_SETOWN` fcntl command.
-    public static let setOwner = FcntlRights(rawValue: UInt32(CAP_FCNTL_SETOWN))
-
-    /// Creates a new set of fcntl rights from a raw bitmask.
-    ///
-    /// - Parameter rawValue: A bitmask of fcntl rights as returned by
-    public init(rawValue: UInt32) {
+    public init(rawValue: Int32) {
         self.rawValue = rawValue
     }
+
+    public static let ignoreBadFileDescriptor =
+        StreamLimitOptions(rawValue: CAPH_IGNORE_EBADF)
+
+    public static let read =
+        StreamLimitOptions(rawValue: CAPH_READ)
+
+    public static let write =
+        StreamLimitOptions(rawValue: CAPH_WRITE)
 }
