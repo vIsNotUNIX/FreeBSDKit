@@ -1,32 +1,33 @@
 // swift-tools-version: 5.10
-// The swift-tools-version declares the minimum version of Swift required to build this package.
+// The FreeBSD ports tree still uses 5.10. You can build with 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "FreeBSDKit",
     products: [
-        .library(
-            name: "FreeBSDKit",
-            targets: ["FreeBSDKit"]
-        ),
+        // Reserved. The Swift project hasn't decided on `import FreeBSD`
+        // or `import Glibc`, or something else as expsing libc. If we 
+        // can't come to consensues in 2026 we will expose a `libc` overlay
+        // .library(
+        //     name: "FreeBSDKit",
+        //     targets: ["FreeBSDKit"]
+        // ),
         .library(
             name: "Capsicum",
             targets: ["Capsicum"]
-        ),
-        .executable(
-            name: "CapsicumTool",
-            targets: ["CapsicumTool"]
         )
+    
     ],
     targets: [
-        .target(
-            name: "FreeBSDKit"
-        ),
-        .testTarget(
-            name: "FreeBSDKitTests",
-            dependencies: ["FreeBSDKit"]
-        ),
+        // Reserved. See above.
+        // .target(
+        //     name: "FreeBSDKit"
+        // ),
+        // .testTarget(
+        //     name: "FreeBSDKitTests",
+        //     dependencies: ["FreeBSDKit"]
+        // ),
         .target(
             name: "CCapsicum",
             path: "Sources/CCapsicum"
@@ -34,10 +35,6 @@ let package = Package(
         .target(
             name: "Capsicum",
             dependencies: ["CCapsicum"]
-        ),
-        .executableTarget(
-            name: "CapsicumTool",
-            dependencies: ["Capsicum", "CCapsicum"]
         )
     ]
 )
