@@ -4,7 +4,7 @@ enum CapsicumError: Error {
     case sandboxUnspported
 }
 
-/// A Swift interface to Capsicum capability mode.
+/// A Swift interface to capability mode.
 public enum Capsicum {
     /// Enters capability mode.
     public static func enter() throws {
