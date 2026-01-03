@@ -3,19 +3,18 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// BSD process descriptor flags used with `pdfork`.
+/// BSD process descriptor flags.
 public struct ProcessFlags: OptionSet {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
-    public static let pdwait    = ProcessFlags(rawValue: 0x01) // wait for child to exit
-    public static let pdtraced  = ProcessFlags(rawValue: 0x02) // child traced
-    public static let pdnowait  = ProcessFlags(rawValue: 0x04) // don't wait
-    // Add other flags from <sys/procdesc.h> as needed
+    public static let pdwait    = ProcessFlags(rawValue: 0x01)
+    public static let pdtraced  = ProcessFlags(rawValue: 0x02)
+    public static let pdnowait  = ProcessFlags(rawValue: 0x04)
 }
 
 public struct ForkResult: ~Copyable {
-    let descriptor: ProcessDescriptor
+    let descriptor: ProcessDescriptor?
     let isChild: Bool
 }
 
@@ -44,10 +43,10 @@ struct ProcessDescriptor: Capability, ~Copyable {
         return try block(fd)
     }
 
-    /// Forks a new process using pdfork.
+    /// Forks a new process.
     ///
     /// - Returns: Tuple containing:
-    ///   - `descriptor`: ProcessDescriptor for child (parent sees child descriptor, child sees self)
+    ///   - `Optional<descriptor>`: ProcessDescriptor for child (parent sees child descriptor, child sees nil)
     ///   - `isChild`: Bool indicating if the current context is child process
     static func fork(flags: ProcessFlags = []) throws -> ForkResult {
         var fd: Int32 = 0
@@ -56,14 +55,14 @@ struct ProcessDescriptor: Capability, ~Copyable {
 
         if pid == 0 {
             // We are in the child
-            return ForkResult(descriptor: ProcessDescriptor(fd), isChild: true)
+            return ForkResult(descriptor: nil, isChild: true)
         } else {
             // We are in the parent
             return ForkResult(descriptor: ProcessDescriptor(fd), isChild: false)
         }
     }
 
-    /// Wait for the process to exit using `waitpid`
+    /// Wait for the process to exit.
     func wait() throws -> Int32 {
         let pid = try getPID()
         var status: Int32 = 0
