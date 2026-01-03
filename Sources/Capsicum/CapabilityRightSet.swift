@@ -29,7 +29,7 @@ import CCapsicum
 ///
 /// `CapabilityRightSet` allows you to manage, merge, and validate Capsicum
 /// capability rights in a type-safe Swift way.
-public struct CapabilityRightSet {
+public struct CapabilityRightSet: Sendable {
     private var rights: cap_rights_t
 
     // MARK: - Initializers

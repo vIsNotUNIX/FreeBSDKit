@@ -19,6 +19,26 @@
             "target": "CapsicumTool",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release CapsicumTool"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FreeBSDKit}",
+            "name": "Debug testtool",
+            "target": "testtool",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug testtool"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FreeBSDKit}",
+            "name": "Release testtool",
+            "target": "testtool",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release testtool"
         }
     ]
 }

@@ -28,7 +28,7 @@
 
 /// A set of flags representing the fcntl commands that may be
 /// permitted on a file descriptor when using Capsicum’s fcntl limits.
-public struct FcntlRights: OptionSet {
+public struct FcntlRights: OptionSet, Sendable {
     public let rawValue: UInt32
 
     /// Permits the `F_GETFL` fcntl command.

@@ -16,6 +16,18 @@ let package = Package(
         .library(
             name: "Capsicum",
             targets: ["Capsicum"]
+        ),
+        .library(
+            name: "CCapsicum",
+            targets: ["CCapsicum"]
+        ),
+        .library(
+            name: "Descriptors",
+            targets: ["Descriptors"]
+        ),
+        .executable(
+            name: "testtool",
+            targets: ["TestTool"]
         )
     
     ],
@@ -35,6 +47,15 @@ let package = Package(
         .target(
             name: "Capsicum",
             dependencies: ["CCapsicum"]
+        ),
+        .target(
+            name: "Descriptors",
+            dependencies: ["Capsicum"]
+        ),
+        .executableTarget(
+            name: "TestTool",
+            dependencies: ["Capsicum", "Descriptors"]
         )
+
     ]
 )

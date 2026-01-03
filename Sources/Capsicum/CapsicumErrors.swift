@@ -27,7 +27,7 @@ import CCapsicum
 import Glibc
 
 /// Errors that can occur when working with Capsicum capabilities.
-public enum CapsicumError: Error, Equatable {
+public enum CapsicumError: Error, Equatable, Sendable {
 
     /// Capsicum is not supported on the current system.
     case capsicumUnsupported
@@ -50,7 +50,7 @@ public enum CapsicumError: Error, Equatable {
     /// Other errno not covered by specific cases.
     case underlyingFailure(errno: Int32)
 
-    static func errorFromErrno(_ code: Int32, isCasper: Bool = false) -> CapsicumError {
+    public static func errorFromErrno(_ code: Int32, isCasper: Bool = false) -> CapsicumError {
         switch code {
         case ENOSYS:
             return isCasper ? .casperUnsupported : .capsicumUnsupported

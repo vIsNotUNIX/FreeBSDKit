@@ -30,7 +30,7 @@ import Glibc
 ///
 /// `StreamLimitOptions` is used with `Capsicum.limitStream(fd:options:)` to
 /// specify which operations are allowed on a given file descriptor.
-public struct StreamLimitOptions: OptionSet {
+public struct StreamLimitOptions: OptionSet, Sendable {
     public let rawValue: Int32
 
     /// Creates a new `StreamLimitOptions` from the raw value.
@@ -56,4 +56,3 @@ public struct StreamLimitOptions: OptionSet {
     public static let write =
         StreamLimitOptions(rawValue: CAPH_WRITE)
 }
-

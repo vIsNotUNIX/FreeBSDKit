@@ -28,7 +28,7 @@ import CCapsicum
 /// Individual Capsicum capability rights for file descriptors.
 ///
 /// Use `CapabilityRight` in conjunction with `CapabilityRightSet` for limiting rights on a descriptor.
-public enum CapabilityRight {
+public enum CapabilityRight: Sendable {
     /// Permit read operations such as `read(2)`, `pread(2)`, etc.
     case read
     
