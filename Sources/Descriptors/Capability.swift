@@ -117,8 +117,7 @@ extension Capability {
     /// Fetches the set of currently allowed ioctl commands for a descriptor.
     ///
     /// - Parameter maxCount: A buffer size hint for how many commands to buffer.
-    /// - Throws: `CapsicumIoctlError` for invalid descriptors, bad buffers,
-    ///   insufficient buffer size, “all allowed” state, or other errno conditions.
+    /// - Throws: `CapsicumIoctlError`.
     /// - Returns: An array of permitted `IoctlCommand` values.
     public func getIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
         var rawBuffer = [UInt](repeating: 0, count: maxCount)

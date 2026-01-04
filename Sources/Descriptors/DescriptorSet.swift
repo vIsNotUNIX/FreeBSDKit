@@ -46,10 +46,10 @@ public struct DescriptorSet: Sendable {
         }
     }
 
-    public func unsafe<R>(at index: Int, _ body: (DescriptorKind, Int32) throws -> R) rethrows -> R {
+    public func unsafe<R>(at index: Int, _ block: (DescriptorKind, Int32) throws -> R) rethrows -> R {
         let descriptor = descriptors[index]
         return try descriptor.unsafe {
-            try body(descriptor.kind, $0)
+            try block(descriptor.kind, $0)
         }
     }
 }

@@ -64,7 +64,7 @@ struct ProcessDescriptor: Capability, ~Copyable {
 
     /// Wait for the process to exit.
     func wait() throws -> Int32 {
-        let pid = try getPID()
+        let pid = try pid()
         var status: Int32 = 0
         let ret = Glibc.waitpid(pid, &status, 0)
         guard ret >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
@@ -79,7 +79,7 @@ struct ProcessDescriptor: Capability, ~Copyable {
     }
 
     /// Get the PID of the process
-    func getPID() throws -> pid_t {
+    func pid() throws -> pid_t {
         var pid: pid_t = 0
         let ret = pdgetpid(fd, &pid)
         guard ret >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
