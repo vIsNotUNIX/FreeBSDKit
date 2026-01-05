@@ -27,29 +27,12 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// BSD process descriptor flags.
-public struct ProcessDescriptorFlags: OptionSet {
-    public let rawValue: Int32
-    public init(rawValue: Int32) { self.rawValue = rawValue }
-
-    public static let pdwait    = ProcessDescriptorFlags(rawValue: 0x01)
-    public static let pdtraced  = ProcessDescriptorFlags(rawValue: 0x02)
-    public static let pdnowait  = ProcessDescriptorFlags(rawValue: 0x04)
+public protocol ReadableDescriptor: ~Copyable {
+    func read(count: Int) throws -> Data
 }
 
-public struct ProcessDescriptorForkResult: ~Copyable {
-    public let descriptor: (any ProcessDescriptor & ~Copyable)?
-    public let isChild: Bool
-
-    public init(descriptor: consuming (any ProcessDescriptor & ~Copyable)?, isChild: Bool) {
-        self.descriptor = descriptor
-        self.isChild = isChild
-    }
+public protocol WritableDescriptor: ~Copyable {
+    func write(_ data: Data) throws -> Int
 }
 
-public protocol ProcessDescriptor: ~Copyable {
-    static func fork(flags: ProcessDescriptorFlags) throws -> ProcessDescriptorForkResult
-    func wait() throws -> Int32
-    func kill(signal: ProcessSignal) throws
-    func pid() throws -> pid_t
-}
+typealias ReadWriteDescriptor = ReadableDescriptor & WritableDescriptor

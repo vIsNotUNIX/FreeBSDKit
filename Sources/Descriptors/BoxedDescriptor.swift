@@ -27,7 +27,12 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
+
 // TODO: Make this thread safe?
+/// Copyable so no capsicum.
+/// Type Erased reference counted file descriptor.
+/// Useful for storing many descriptors in collections,
+/// and eventually in KQueue.
 public final class BoxedDescriptor: Descriptor, @unchecked Sendable {
     public let kind: DescriptorKind
     private var fd: Int32

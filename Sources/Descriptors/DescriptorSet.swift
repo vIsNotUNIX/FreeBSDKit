@@ -40,16 +40,10 @@ public struct DescriptorSet: Sendable {
         )
     }
 
+    // TODO: Implement one of the Swift Iterator protocls.
     public func forEach(where kind: DescriptorKind, _ block: (Int32) -> Void) {
         for descriptor in descriptors where descriptor.kind == kind {
             descriptor.unsafe(block)
-        }
-    }
-
-    public func unsafe<R>(at index: Int, _ block: (DescriptorKind, Int32) throws -> R) rethrows -> R {
-        let descriptor = descriptors[index]
-        return try descriptor.unsafe {
-            try block(descriptor.kind, $0)
         }
     }
 }

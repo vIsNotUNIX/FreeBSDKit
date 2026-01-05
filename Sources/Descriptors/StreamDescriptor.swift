@@ -27,29 +27,18 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// BSD process descriptor flags.
-public struct ProcessDescriptorFlags: OptionSet {
-    public let rawValue: Int32
-    public init(rawValue: Int32) { self.rawValue = rawValue }
+public protocol StreamDescriptor: ReadableDescriptor, WritableDescriptor, ~Copyable {}
 
-    public static let pdwait    = ProcessDescriptorFlags(rawValue: 0x01)
-    public static let pdtraced  = ProcessDescriptorFlags(rawValue: 0x02)
-    public static let pdnowait  = ProcessDescriptorFlags(rawValue: 0x04)
-}
+public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
+    static func socket(domain: Int32, type: Int32, proto: Int32) throws -> Self
 
-public struct ProcessDescriptorForkResult: ~Copyable {
-    public let descriptor: (any ProcessDescriptor & ~Copyable)?
-    public let isChild: Bool
+    func bind(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
+    func listen(backlog: Int32) throws
+    func accept() throws -> Self
+    func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
 
-    public init(descriptor: consuming (any ProcessDescriptor & ~Copyable)?, isChild: Bool) {
-        self.descriptor = descriptor
-        self.isChild = isChild
-    }
-}
+    func send(_ data: Data, flags: Int32) throws -> Int
+    func recv(count: Int, flags: Int32) throws -> Data
 
-public protocol ProcessDescriptor: ~Copyable {
-    static func fork(flags: ProcessDescriptorFlags) throws -> ProcessDescriptorForkResult
-    func wait() throws -> Int32
-    func kill(signal: ProcessSignal) throws
-    func pid() throws -> pid_t
+    func shutdown(how: Int32) throws
 }

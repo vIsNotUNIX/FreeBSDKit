@@ -72,6 +72,10 @@ let package = Package(
             name: "DescriptorsTests",
             dependencies: ["Capsicum", "CProcessDescriptor", "Descriptors"]
         ),
+        .target(
+            name: "Capabilities",
+            dependencies: ["Capsicum", "CProcessDescriptor", "Descriptors"]
+        ),
         .executableTarget(
             name: "TestTool",
             dependencies: ["Capsicum", "Descriptors"]

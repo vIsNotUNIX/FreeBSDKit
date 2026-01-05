@@ -27,29 +27,16 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// BSD process descriptor flags.
-public struct ProcessDescriptorFlags: OptionSet {
-    public let rawValue: Int32
-    public init(rawValue: Int32) { self.rawValue = rawValue }
-
-    public static let pdwait    = ProcessDescriptorFlags(rawValue: 0x01)
-    public static let pdtraced  = ProcessDescriptorFlags(rawValue: 0x02)
-    public static let pdnowait  = ProcessDescriptorFlags(rawValue: 0x04)
-}
-
-public struct ProcessDescriptorForkResult: ~Copyable {
-    public let descriptor: (any ProcessDescriptor & ~Copyable)?
-    public let isChild: Bool
-
-    public init(descriptor: consuming (any ProcessDescriptor & ~Copyable)?, isChild: Bool) {
-        self.descriptor = descriptor
-        self.isChild = isChild
-    }
-}
-
-public protocol ProcessDescriptor: ~Copyable {
-    static func fork(flags: ProcessDescriptorFlags) throws -> ProcessDescriptorForkResult
-    func wait() throws -> Int32
-    func kill(signal: ProcessSignal) throws
-    func pid() throws -> pid_t
+public protocol FileDescriptor:
+    ReadableDescriptor,
+    WritableDescriptor,
+    ~Copyable {
+    // static func open(_ path: String, flags: Int32, mode: mode_t) throws -> Self
+    // // openAt
+    // static func open(relativeTo dir: borrowing Self, path: String, flags: Int32, mode: mode_t) throws -> Self
+    // func seek(offset: off_t, whence: Int32) throws -> off_t
+    // func pread(count: Int, offset: off_t) throws -> Data
+    // func pwrite(_ data: Data, offset: off_t) throws -> Int
+    // func truncate(to length: off_t) throws
+    // func sync() throws
 }

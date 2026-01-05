@@ -24,10 +24,13 @@
  */
 
 import Glibc
+import Descriptors
 import Foundation
 import FreeBSDKit
 
-struct FileDescriptor: Capability, ~Copyable {
+
+// TODO: A seperate protocol should be used to describe file operations.
+struct FileCapability: Capability, FileDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var fd: RAWBSD
 
@@ -76,10 +79,10 @@ struct FileDescriptor: Capability, ~Copyable {
         return bytesWritten
     }
 
-    public func duplicate() throws -> FileDescriptor {
+    public func duplicate() throws -> Self {
         let dupFD = Glibc.dup(fd)
         guard dupFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-        return FileDescriptor(dupFD)
+        return Self(dupFD)
     }
 
     public func setNonBlocking(_ nonBlocking: Bool = true) throws {

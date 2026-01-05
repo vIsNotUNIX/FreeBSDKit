@@ -23,6 +23,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+import Glibc
 import Foundation
 import FreeBSDKit
 
@@ -48,4 +49,10 @@ where RAWBSD == Int32 {
     ///
     /// After calling this method, the descriptor should no longer be used.
     consuming func close()
+    // func duplicate() -> Self
+    // func fstat() throws -> stat     // metadata via fstat(2)
+    // func getFlags() throws -> Int32  // fcntl(F_GETFL)
+    // func setFlags(_ flags: Int32) throws // fcntl(F_SETFL)
+    // func setCloseOnExec(_ enabled: Bool) throws // fcntl(F_SETFD/FD_CLOEXEC)
+    // func getCloseOnExec() throws -> Bool      // fcntl(F_GETFD)
 }

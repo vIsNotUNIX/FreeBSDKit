@@ -25,8 +25,11 @@
 
 import Capsicum
 import CCapsicum
-import Glibc
+import Descriptors
 import FreeBSDKit
+import Glibc
+
+
 
 /// `Capability` inherits from `Descriptor`, meaning it represents a resource
 /// with a raw `Int32` descriptor that can be closed and managed safely.
@@ -47,8 +50,8 @@ extension Capability where Self: ~Copyable{
     ///
     /// - Parameter rights: A `CapabilityRightSet` representing the rights to permit.
     /// - Returns: `true` if the rights were successfully applied; `false` on failure.
-    public func limit(rights: CapabilityRightSet) -> Bool {
-        var mutableRights: cap_rights_t = cap_rights_t()
+    public func limit(rights: CapabilityRightSet) -> Bool { // TODO: throws
+        var mutableRights = cap_rights_t()
         rights.unsafe { borrowedRights in
             mutableRights = borrowedRights
         }
@@ -127,7 +130,6 @@ extension Capability where Self: ~Copyable{
         self.unsafe { fd in
             // Step 2: safely access the array memory
             rawBuffer.withUnsafeMutableBufferPointer { bufPtr in
-                // C function returns Int32
                 result = ccapsicum_get_ioctls(fd, bufPtr.baseAddress, bufPtr.count)
             }
         }
