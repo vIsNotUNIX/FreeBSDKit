@@ -24,6 +24,7 @@ FreeBSDKit currently exposes:
 `Capsicum` is a Swift package built on top of `CCapsicum`. It offers a Swift-native API to interact with Capsicum, allowing developers to adopt the FreeBSD capability model in Swift projects without dealing directly with C macros or platform-specific details.
 
 ### Experimental modules - Compile but not test and possible incomplete APIS.
+`FreeBSDKit` Catchall for things that don't neatly fit into one module.
 `CProcessDescritpors` is a wrapper for the process descritpor APIs.
 `Desciptors` Defines the descriptor protocols
 `Capabilites` Defines concrete implementations of the Capable Descriptors.
