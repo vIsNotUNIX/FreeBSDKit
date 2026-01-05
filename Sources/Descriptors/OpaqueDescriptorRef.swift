@@ -34,7 +34,7 @@ import FreeBSDKit
 /// Useful for storing many descriptors in collections,
 /// and eventually in KQueue.
 public final class OpaqueDescriptorRef: CustomDebugStringConvertible, Descriptor, @unchecked Sendable {
-    public let kind: DescriptorKind
+    public var kind: DescriptorKind
     fileprivate var fd: Int32
 
     public init(_ value: RAWBSD) {
