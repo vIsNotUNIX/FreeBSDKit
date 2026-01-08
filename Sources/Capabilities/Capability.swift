@@ -51,14 +51,8 @@ extension Capability where Self: ~Copyable{
     /// - Parameter rights: A `CapabilityRightSet` representing the rights to permit.
     /// - Returns: `true` if the rights were successfully applied; `false` on failure.
     public func limit(rights: CapabilityRightSet) -> Bool { // TODO: throws
-        var mutableRights = cap_rights_t()
-        rights.unsafe { borrowedRights in
-            mutableRights = borrowedRights
-        }
-
-        return self.unsafe { fd in
-            return ccapsicum_cap_limit(fd, &mutableRights) == 0
-        }
+        var mutableRights = rights.asBSDType()
+        return self.unsafe { fd in return ccapsicum_cap_limit(fd, &mutableRights) == 0 }
     }
 
     /// Restricts a stream (file descriptor) according to the specified options.

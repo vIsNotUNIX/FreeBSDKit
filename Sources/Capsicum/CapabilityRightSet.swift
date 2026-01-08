@@ -30,8 +30,9 @@ import FreeBSDKit
 ///
 /// `CapabilityRightSet` allows you to manage, merge, and validate Capsicum
 /// capability rights in a type-safe Swift way.
-public struct CapabilityRightSet: BSDResource, Sendable {
-    private var rights: cap_rights_t
+public struct CapabilityRightSet: BSDValue, Sendable {
+    public typealias RAWBSD = cap_rights_t
+    private var rights: RAWBSD
 
     // MARK: - Initializers
 
@@ -156,16 +157,7 @@ public struct CapabilityRightSet: BSDResource, Sendable {
         return ccapsicum_rights_valid(&rights)
     }
 
-    // MARK: - Accessors
-
-    /// Returns the underlying `cap_rights_t` structure.
-    ///
-    /// - Returns: The raw `cap_rights_t` representing this set.
-    public consuming func take() -> cap_rights_t {
-        return rights
-    }
-
-    public func unsafe<R>(_ block: (RAWBSD) throws -> R) rethrows -> R {
-        return try block(self.rights)
+    public func asBSDType() -> RAWBSD {
+        return self.rights
     }
 }
