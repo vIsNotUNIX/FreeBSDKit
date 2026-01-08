@@ -49,10 +49,20 @@ where RAWBSD == Int32 {
     ///
     /// After calling this method, the descriptor should no longer be used.
     consuming func close()
+
+    func fstat() throws -> stat
+
+    func getFlags() throws -> Int32
+
+    func setFlags(_ flags: Int32) throws
+
+    func setCloseOnExec(_ enabled: Bool) throws
+
+    func getCloseOnExec() throws -> Bool
 }
 
 
-extension Descriptor  {
+extension Descriptor where Self: ~Copyable  {
     /// Duplicate the descriptor.
     ///
     /// Returns a new descriptor referring to the same kernel resource.
