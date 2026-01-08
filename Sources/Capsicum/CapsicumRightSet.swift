@@ -28,9 +28,9 @@ import FreeBSDKit
 
 /// A set of capability rights for a file descriptor, wrapping `cap_rights_t`.
 ///
-/// `CapabilityRightSet` allows you to manage, merge, and validate Capsicum
-/// capability rights in a type-safe Swift way.
-public struct CapabilityRightSet: BSDValue, Sendable {
+/// `CapsicumRightSet` allows you to manage, merge, and validate Capsicum
+/// capsicum rights in a type-safe Swift way.
+public struct CapsicumRightSet: BSDValue, Sendable {
     public typealias RAWBSD = cap_rights_t
     public var rawBSD: cap_rights_t {
         return self.rights
@@ -39,7 +39,7 @@ public struct CapabilityRightSet: BSDValue, Sendable {
 
     // MARK: - Initializers
 
-    /// Initializes an empty `CapabilityRightSet`.
+    /// Initializes an empty `CapsicumRightSet`.
     ///
     /// All rights are cleared initially. Use `add(capability:)` to add rights.
     public init() {
@@ -48,17 +48,17 @@ public struct CapabilityRightSet: BSDValue, Sendable {
         self.rights = rights
     }
 
-    /// Initializes a `CapabilityRightSet` from an existing `cap_rights_t`.
+    /// Initializes a `CapsicumRightSet` from an existing `cap_rights_t`.
     ///
     /// - Parameter rights: A `cap_rights_t` structure representing the rights.
     public init(rights: cap_rights_t) {
         self.rights = rights
     }
 
-    /// Initializes a `CapabilityRightSet` from an array of `CapabilityRight`.
+    /// Initializes a `CapsicumRightSet` from an array of `CapsicumRight`.
     ///
-    /// - Parameter rights: An array of `CapabilityRight` to include in the set.
-    public init(rights inRights: [CapabilityRight]) {
+    /// - Parameter rights: An array of `CapsicumRight` to include in the set.
+    public init(rights inRights: [CapsicumRight]) {
         self.rights = {
             var rights = cap_rights_t()
             ccapsicum_rights_init(&rights)
@@ -69,7 +69,7 @@ public struct CapabilityRightSet: BSDValue, Sendable {
         }()
     }
 
-    public init(from other: borrowing CapabilityRightSet) {
+    public init(from other: borrowing CapsicumRightSet) {
         self.rights = other.rights
     }
 
@@ -78,14 +78,14 @@ public struct CapabilityRightSet: BSDValue, Sendable {
     /// Adds a single capability to the set.
     ///
     /// - Parameter capability: The capability to add.
-    public mutating func add(capability: CapabilityRight) {
+    public mutating func add(capability: CapsicumRight) {
         ccapsicum_cap_set(&self.rights, capability.bridged)
     }
 
     /// Adds multiple capabilities to the set.
     ///
     /// - Parameter capabilities: An array of capabilities to add.
-    public mutating func add(capabilities: [CapabilityRight]) {
+    public mutating func add(capabilities: [CapsicumRight]) {
         for cap in capabilities {
             ccapsicum_cap_set(&self.rights, cap.bridged)
         }
@@ -94,14 +94,14 @@ public struct CapabilityRightSet: BSDValue, Sendable {
     /// Removes a single capability from the set.
     ///
     /// - Parameter capability: The capability to remove.
-    public mutating func clear(capability: CapabilityRight) {
+    public mutating func clear(capability: CapsicumRight) {
         ccapsicum_rights_clear(&self.rights, capability.bridged)
     }
 
     /// Removes multiple capabilities from the set.
     ///
     /// - Parameter capabilities: An array of capabilities to remove.
-    public mutating func clear(capabilities: [CapabilityRight]) {
+    public mutating func clear(capabilities: [CapsicumRight]) {
         for cap in capabilities {
             ccapsicum_rights_clear(&self.rights, cap.bridged)
         }
@@ -113,16 +113,16 @@ public struct CapabilityRightSet: BSDValue, Sendable {
     ///
     /// - Parameter capability: The capability to check for.
     /// - Returns: `true` if the capability is present; otherwise, `false`.
-    public func contains(capability: CapabilityRight) -> Bool {
+    public func contains(capability: CapsicumRight) -> Bool {
         var rightsCopy = self.rights
         return ccapsicum_right_is_set(&rightsCopy, capability.bridged)
     }
 
-    /// Checks whether the set contains all rights from another `CapabilityRightSet`.
+    /// Checks whether the set contains all rights from another `CapsicumRightSet`.
     ///
-    /// - Parameter other: Another `CapabilityRightSet` to check.
+    /// - Parameter other: Another `CapsicumRightSet` to check.
     /// - Returns: `true` if all rights from `other` are included in this set.
-    public func contains(right other: borrowing CapabilityRightSet) -> Bool {
+    public func contains(right other: borrowing CapsicumRightSet) -> Bool {
         var rightsCopy = self.rights
         var contains = false
         withUnsafePointer(to: other.rights) { otherRights in
@@ -133,19 +133,19 @@ public struct CapabilityRightSet: BSDValue, Sendable {
 
     // MARK: - Set Operations
 
-    /// Merges rights from another `CapabilityRightSet` into this set.
+    /// Merges rights from another `CapsicumRightSet` into this set.
     ///
     /// - Parameter other: The set of rights to merge.
-    public mutating func merge(with other: CapabilityRightSet) {
+    public mutating func merge(with other: CapsicumRightSet) {
         withUnsafePointer(to: other.rights) { otherRights in
             _ = ccapsicum_cap_rights_merge(&self.rights, otherRights)
         }
     }
 
-    /// Removes rights that match another `CapabilityRightSet`.
+    /// Removes rights that match another `CapsicumRightSet`.
     ///
     /// - Parameter right: The set of rights to remove from this set.
-    public mutating func remove(matching right: CapabilityRightSet) {
+    public mutating func remove(matching right: CapsicumRightSet) {
         withUnsafePointer(to: right.rights) { otherRights in
             _ = ccapsicum_rights_remove(&self.rights, otherRights)
         }

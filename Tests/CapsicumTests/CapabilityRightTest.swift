@@ -26,9 +26,9 @@
 import XCTest
 @testable import Capsicum
 
-final class CapabilityRightTests: XCTestCase {
-    func testAllCapabilityRightsHaveValidBridgeValue() {
-        for right in CapabilityRight.allCases {
+final class CapsicumRightTests: XCTestCase {
+    func testAllCapsicumRightsHaveValidBridgeValue() {
+        for right in CapsicumRight.allCases {
             XCTAssertNotNil(right.bridged)
         }
     }
