@@ -126,32 +126,12 @@ final class CapabilityRightSetTests: XCTestCase {
         set.add(capability: .read)
         set.add(capability: .write)
         
-        let raw = set.take()
+        let raw = set.asBSDType()
         
         // Create a new set from the raw struct and check it contains same rights
         let newSet = CapabilityRightSet(rights: raw)
         XCTAssertTrue(newSet.contains(capability: .read))
         XCTAssertTrue(newSet.contains(capability: .write))
         XCTAssertFalse(newSet.contains(capability: .seek))
-    }
-
-    func testUnsafeClosureAccess() {
-        var set = CapabilityRightSet()
-        set.add(capability: .read)
-        
-        // Use unsafe to access the underlying rights and check via ccapsicum
-        let containsRead = set.unsafe { rawRights -> Bool in
-            var rightCopy = rawRights
-            return ccapsicum_right_is_set(&rightCopy, CapabilityRight.read.bridged)
-        }
-        
-        XCTAssertTrue(containsRead)
-        
-        let containsWrite = set.unsafe { rawRights -> Bool in
-            var rightCopy = rawRights
-            return ccapsicum_right_is_set(&rightCopy, CapabilityRight.write.bridged)
-        }
-        
-        XCTAssertFalse(containsWrite)
     }
 }

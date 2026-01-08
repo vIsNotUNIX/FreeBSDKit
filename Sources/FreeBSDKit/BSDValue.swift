@@ -23,36 +23,25 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/// Standard signals for process descriptors.
-public enum BSDSignal: Int32 {
-    case hangup       = 1
-    case interrupt    = 2
-    case quit         = 3
-    case illegal      = 4
-    case trap         = 5
-    case abort        = 6
-    case bus          = 7
-    case floatingPoint = 8
-    case kill         = 9
-    case user1        = 10
-    case segmentationFault = 11
-    case user2        = 12
-    case pipe         = 13
-    case alarm        = 14
-    case terminate    = 15
-    case urgent       = 16
-    case stop         = 17
-    case ttyStop      = 18
-    case continueRun  = 19
-    case child        = 20
-    case ttin         = 21
-    case ttou         = 22
-    case io           = 23
-    case xcpu         = 24
-    case xfsz         = 25
-    case virtualAlarm = 26
-    case profiling    = 27
-    case winch        = 28
-    case usr1         = 30
-    case usr2         = 31
+/// A protocol representing a trivial, copyable BSD value type.
+///
+/// `BSDValue` models plain data structures originating from BSD APIs that:
+/// - have **value semantics**
+/// - are **trivially copyable**
+/// - do **not** represent ownership of kernel resources
+///
+/// Examples include:
+/// - `cap_rights_t`
+/// - `struct stat`
+/// - `sockaddr`
+/// - `timespec`
+public protocol BSDValue {
+    /// The underlying BSD type represented by this value.
+    ///
+    /// This is typically a C struct or scalar imported from a BSD header,
+    /// such as `cap_rights_t` or `struct stat`.
+    associatedtype RAWBSD
+
+    /// Returns the underlying BSD value.
+    func asBSDType() -> RAWBSD
 }
