@@ -47,7 +47,7 @@ public protocol KqueueDescriptor: Descriptor, ~Copyable {
     ) throws -> (Int, [kevent])
 }
 
-// The Glibc doesn't understand the difference between the struct kevent init and the function call.
+// The Glibc doesn't understand the difference between the struct kevent and the function call.
 @_silgen_name("kevent")
 func _kevent_c(
     _ kq: Int32,

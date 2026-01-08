@@ -24,7 +24,6 @@
  */
 
 import Capsicum
-import CCapsicum
 import Descriptors
 import FreeBSDKit
 import Glibc
