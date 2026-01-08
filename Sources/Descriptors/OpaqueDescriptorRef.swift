@@ -30,8 +30,8 @@ import FreeBSDKit
 /// Type Erased reference counted file descriptor.
 /// Useful for storing many descriptors in collections.
 public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendable {
-    public var kind: DescriptorKind = .unknown
-    public var capable: Bool = false
+    private var kind: DescriptorKind = .unknown
+    private var capable: Bool = false
     private var fd: Int32?
     private let lock = NSLock()
 
@@ -43,6 +43,18 @@ public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked
         self.fd = fd
         self.kind = kind
         self.capable = capable
+    }
+
+    public func set(kind: DescriptorKind) {
+        lock.lock()
+        self.kind = kind
+        lock.unlock()
+    }
+
+    public func set(capable: Bool) {
+        lock.lock()
+        self.capable = capable
+        lock.unlock()
     }
 
     deinit {
