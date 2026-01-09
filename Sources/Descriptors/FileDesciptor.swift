@@ -28,12 +28,59 @@ import Foundation
 import FreeBSDKit
 
 public protocol FileDescriptor: ReadWriteDescriptor, ~Copyable {
-    // static func open(_ path: String, flags: Int32, mode: mode_t) throws -> Self
-    // // openAt
-    // static func open(relativeTo dir: borrowing Self, path: String, flags: Int32, mode: mode_t) throws -> Self
-    // func seek(offset: off_t, whence: Int32) throws -> off_t
-    // func pread(count: Int, offset: off_t) throws -> Data
-    // func pwrite(_ data: Data, offset: off_t) throws -> Int
-    // func truncate(to length: off_t) throws
-    // func sync() throws
+    func seek(offset: off_t, whence: Int32) throws -> off_t
+    func pread(count: Int, offset: off_t) throws -> Data
+    func pwrite(_ data: Data, offset: off_t) throws -> Int
+    func truncate(to length: off_t) throws
+    func sync() throws
+}
+
+
+extension FileDescriptor where Self: ~Copyable {
+    public func seek(offset: off_t, whence: Int32) throws -> off_t {
+        return try self.unsafe { fd in
+            let pos = Glibc.lseek(fd, offset, whence)
+            if pos == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil) }
+            return pos
+        }
+    }
+
+    public func pread(count: Int, offset: off_t) throws -> Data {
+        var buffer = Data(count: count)
+        let n = try self.unsafe { fd in
+            let bytesRead = buffer.withUnsafeMutableBytes { ptr in
+                Glibc.pread(fd, ptr.baseAddress, count, offset)
+            }
+            if bytesRead == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil) }
+            return bytesRead
+        }
+        buffer.removeSubrange(n..<buffer.count)
+        return buffer
+    }
+
+    public func pwrite(_ data: Data, offset: off_t) throws -> Int {
+        return try self.unsafe { fd in
+            let bytesWritten = data.withUnsafeBytes { ptr in
+                Glibc.pwrite(fd, ptr.baseAddress, ptr.count, offset)
+            }
+            if bytesWritten == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil) }
+            return bytesWritten
+        }
+    }
+
+    public func truncate(to length: off_t) throws {
+        try self.unsafe { fd in
+            if Glibc.ftruncate(fd, length) != 0 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+        }
+    }
+
+    public func sync() throws {
+        try self.unsafe { fd in
+            if Glibc.fsync(fd) != 0 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+        }
+    }
 }

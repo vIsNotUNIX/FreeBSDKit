@@ -22,29 +22,30 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- 
-import XCTest
-@testable import Capsicum
 
-final class IoctlCommandTests: XCTestCase {
+import Glibc
+import Foundation
+import Descriptors
 
-    func testInitialization() {
-        let cmd = IoctlCommand(rawValue: 0x1234)
-        XCTAssertEqual(cmd.rawValue, 0x1234)
+/// A shared memory capability descriptor.
+public struct SharedMemoryCapability: Capability, SharedMemoryDescriptor, ~Copyable {
+    private var handle: RawCapabilityHandle
+
+    public init(_ raw: Int32) {
+        self.handle = RawCapabilityHandle(raw)
     }
 
-    func testMultipleValues() {
-        let cmds: [UInt] = [0, 1, 42, 0xFFFF]
-        for raw in cmds {
-            let cmd = IoctlCommand(rawValue: raw)
-            XCTAssertEqual(cmd.rawValue, raw)
-        }
+    public consuming func close() {
+        handle.close()
     }
 
-    func testRawValueRoundTrip() {
-        let raw: UInt = 0xDEADBEEF
-        let cmd = IoctlCommand(rawValue: raw)
-        let roundTrip = cmd.rawValue
-        XCTAssertEqual(roundTrip, raw)
+    public consuming func take() -> Int32 {
+        handle.take()
+    }
+
+    public func unsafe<R>(_ block: (Int32) throws -> R) rethrows -> R
+        where R: ~Copyable
+    {
+        try handle.unsafe(block)
     }
 }

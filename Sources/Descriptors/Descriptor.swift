@@ -49,10 +49,84 @@ where RAWBSD == Int32 {
     ///
     /// After calling this method, the descriptor should no longer be used.
     consuming func close()
-    // func duplicate() -> Self
-    // func fstat() throws -> stat     // metadata via fstat(2)
-    // func getFlags() throws -> Int32  // fcntl(F_GETFL)
-    // func setFlags(_ flags: Int32) throws // fcntl(F_SETFL)
-    // func setCloseOnExec(_ enabled: Bool) throws // fcntl(F_SETFD/FD_CLOEXEC)
-    // func getCloseOnExec() throws -> Bool      // fcntl(F_GETFD)
+
+    func fstat() throws -> stat
+    // TODO: OptionSet the flags
+    func getFlags() throws -> Int32
+    // TODO: OptionSet the flags
+    func setFlags(_ flags: Int32) throws
+
+    func setCloseOnExec(_ enabled: Bool) throws
+
+    func getCloseOnExec() throws -> Bool
+}
+
+
+extension Descriptor where Self: ~Copyable  {
+    /// Duplicate the descriptor.
+    ///
+    /// Returns a new descriptor referring to the same kernel resource.
+    public func duplicate() throws -> Self {
+        return try self.unsafe { (fd: Int32) in
+            let newFD = Glibc.dup(fd)
+            if newFD == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+            return Self(newFD)
+        }
+    }
+
+    public func fstat() throws -> stat {
+        return try self.unsafe { (fd: Int32) in
+            var st = stat()
+            if Glibc.fstat(fd, &st) != 0 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+            return st
+        }
+    }
+    // TODO make Swifty
+    // TODO: OptionSet the flags
+    public func getFlags() throws -> Int32 {
+        return try self.unsafe { (fd: Int32) in
+            let flags = Glibc.fcntl(fd, F_GETFL)
+            if flags == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+            return flags
+        }
+    }
+    // TODO make Swifty
+    // TODO: OptionSet the flags
+    public func setFlags(_ flags: Int32) throws {
+        try self.unsafe { (fd: Int32) in
+            if Glibc.fcntl(fd, F_SETFL, flags) == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+        }
+    }
+
+    // TODO: Make Swifty
+    public func setCloseOnExec(_ enabled: Bool) throws {
+        try self.unsafe { (fd: Int32) in
+            var flags = Glibc.fcntl(fd, F_GETFD)
+            if flags == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+            if enabled { flags |= FD_CLOEXEC } else { flags &= ~FD_CLOEXEC }
+            if Glibc.fcntl(fd, F_SETFD, flags) == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+        }
+    }
+    // TODO: Make Swifty
+    public func getCloseOnExec() throws -> Bool {
+        return try self.unsafe { (fd: Int32) in
+            let flags = Glibc.fcntl(fd, F_GETFD)
+            if flags == -1 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+            }
+            return (flags & FD_CLOEXEC) != 0
+        }
+    }
 }

@@ -24,11 +24,9 @@
  */
 
 import Capsicum
-import CCapsicum
 import Descriptors
 import FreeBSDKit
 import Glibc
-
 
 
 /// `Capability` inherits from `Descriptor`, meaning it represents a resource
@@ -42,127 +40,50 @@ import Glibc
 /// Typically, types conforming to `Capability` are more restrictive or specialized
 /// descriptors (e.g., `FileDescriptor`, `SocketDescriptor`, `KqueueDescriptor`),
 /// providing safe operations in addition to the universal `close()` method.
-public protocol Capability: Descriptor, ~Copyable {}
+public protocol Capability: Descriptor, ~Copyable {
+    func limit(rights: CapsicumRightSet) -> Bool
+    func limitStream(options: StreamLimitOptions) throws
+    func limitIoctls(commands: [IoctlCommand]) throws
+    func limitFcntls(rights: FcntlRights) throws
+    func getIoctls(maxCount: Int) throws -> [IoctlCommand]
+    func getFcntls() throws -> FcntlRights
+}
 
-extension Capability where Self: ~Copyable{
+public extension Capability where Self: ~Copyable {
 
-    /// Applies a set of capability rights to a given file descriptor.
-    ///
-    /// - Parameter rights: A `CapabilityRightSet` representing the rights to permit.
-    /// - Returns: `true` if the rights were successfully applied; `false` on failure.
-    public func limit(rights: CapabilityRightSet) -> Bool { // TODO: throws
-        var mutableRights = rights.asBSDType()
-        return self.unsafe { fd in return ccapsicum_cap_limit(fd, &mutableRights) == 0 }
-    }
-
-    /// Restricts a stream (file descriptor) according to the specified options.
-    ///
-    /// - Parameters:
-    /// - options: Options specifying which operations are allowed (`StreamLimitOptions`).
-    /// - Throws: `CapsicumError` if the underlying call fails.
-    public func limitStream(options: StreamLimitOptions) throws {
-        let result = self.unsafe { fd in 
-            caph_limit_stream(fd, options.rawValue)
-        }
-        guard  result == 0 else {
-            throw CapsicumError.errorFromErrno(errno)
+    func limit(rights: CapsicumRightSet) -> Bool {
+        return self.unsafe { fd in
+            CapsicumRights.limit(fd: fd, rights: rights)
         }
     }
 
-    /// Restricts the set of permitted ioctl commands for a file descriptor.
-    ///
-    /// - Parameter commands: A list of ioctl codes (`IoctlCommand`) to permit.
-    /// - Throws: `CapsicumError` if the underlying call fails.
-    public func limitIoctls(commands: [IoctlCommand]) throws {
-        let values = commands.map { $0.rawValue }
-
-        let result = self.unsafe { fd in
-            values.withUnsafeBufferPointer { cmdArray in
-                ccapsicum_limit_ioctls(fd, cmdArray.baseAddress, cmdArray.count)
-            }
-        }
-
-        guard result != -1 else {
-            throw CapsicumError.errorFromErrno(errno)
+    func limitStream(options: StreamLimitOptions) throws {
+        try self.unsafe { fd in
+            try CapsicumRights.limitStream(fd: fd, options: options)
         }
     }
 
-    /// Restricts the permitted `fcntl(2)` commands on a file descriptor.
-    ///
-    /// - Parameters:
-    ///   - rights: An OptionSet of allowed fcntl commands.
-    ///   - Throws: `CapsicumFcntlError` on failure.
-    public func limitFcntls(rights: FcntlRights) throws {
-        let result: Int32 = self.unsafe { fd in
-            ccapsicum_limit_fcntls(fd, rights.rawValue)
-        }
-
-        guard result == 0 else {
-            switch errno {
-            case EBADF:
-                throw CapsicumFcntlError.invalidDescriptor
-            case EINVAL:
-                throw CapsicumFcntlError.invalidFlag
-            case ENOTCAPABLE:
-                throw CapsicumFcntlError.notCapable
-            default:
-                throw CapsicumFcntlError.system(errno: errno)
-            }
+    func limitIoctls(commands: [IoctlCommand]) throws {
+        try self.unsafe { fd in
+            try CapsicumRights.limitIoctls(fd: fd, commands: commands)
         }
     }
 
-    /// Fetches the set of currently allowed ioctl commands for a descriptor.
-    ///
-    /// - Parameter maxCount: A buffer size hint for how many commands to buffer.
-    /// - Throws: `CapsicumIoctlError`.
-    /// - Returns: An array of permitted `IoctlCommand` values.
-    public func getIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
-        var rawBuffer = [UInt](repeating: 0, count: maxCount)
-        var result: Int = -1
-
-        // Step 1: borrow the descriptor
-        self.unsafe { fd in
-            // Step 2: safely access the array memory
-            rawBuffer.withUnsafeMutableBufferPointer { bufPtr in
-                result = ccapsicum_get_ioctls(fd, bufPtr.baseAddress, bufPtr.count)
-            }
+    func limitFcntls(rights: FcntlRights) throws {
+        try self.unsafe { fd in
+            try CapsicumRights.limitFcntls(fd: fd, rights: rights)
         }
-
-        // Step 3: handle errors
-        guard result >= 0 else {
-            switch errno {
-            case EBADF:   throw CapsicumIoctlError.invalidDescriptor
-            case EFAULT:  throw CapsicumIoctlError.badBuffer
-            default:      throw CapsicumIoctlError.system(errno: errno)
-            }
-        }
-
-        guard result != CAP_IOCTLS_ALL else {
-            throw CapsicumIoctlError.allIoctlsAllowed
-        }
-
-        let count = Int(result)
-        guard count <= rawBuffer.count else {
-            throw CapsicumIoctlError.insufficientBuffer(expected: count)
-        }
-
-        return rawBuffer.prefix(count).map { IoctlCommand(rawValue: $0) }
     }
 
-    /// Retrieves the currently permitted `fcntl` rights mask on a descriptor.
-    ///
-    /// - Returns: A `FcntlRights` bitmask describing the allowed commands, or `nil` if the query fails.
-    public func getFcntls() -> FcntlRights? {
-        var rawMask: UInt32 = 0
-
-        let result: Int32 = self.unsafe { fd in
-            ccapsicum_get_fcntls(fd, &rawMask)
+    func getIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
+        return try self.unsafe { fd in
+            try CapsicumRights.getIoctls(fd: fd, maxCount: maxCount)
         }
+    }
 
-        guard result >= 0 else {
-            return nil
+    func getFcntls() throws -> FcntlRights {
+        return try self.unsafe { fd in
+            try CapsicumRights.getFcntls(fd: fd)
         }
-
-        return FcntlRights(rawValue: rawMask)
     }
 }

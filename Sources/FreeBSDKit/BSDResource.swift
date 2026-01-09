@@ -28,23 +28,15 @@ import Foundation
 /// A protocol representing a low-level BSD resource, such as a file descriptor or socket.
 ///
 /// Types conforming to `BSDResource` provide access to the underlying raw BSD handle (`RAWBSD`)
-/// while offering safe, Swift-friendly operations. This protocol allows temporary “unsafe” access
-/// to the raw resource for performing system-level operations, but direct manipulation of the
-/// resource is discouraged unless necessary.
+/// while offering safe, Swift-friendly operations.
 ///
-/// Conforming types should be `~Copyable` to ensure that ownership semantics are respected,
+/// Conforming types can be `~Copyable` to ensure that ownership semantics are respected,
 /// and the `take()` method provides a consuming way to extract the underlying resource.
-///
-/// - Note: Directly using `unsafe` to manipulate the resource is considered a code smell. Prefer
-///   higher-level, safe abstractions whenever possible.
 public protocol BSDResource: ~Copyable {
     /// The type of the underlying raw BSD resource (e.g., `Int32` for file descriptors).
     associatedtype RAWBSD
 
     /// Consumes the conforming instance and returns the underlying raw BSD resource.
-    ///
-    /// After calling this method, the conforming instance should no longer valid,
-    /// as the ownership of the raw resource has been transferred.
     ///
     /// - Returns: The raw BSD resource of type `RAWBSD`.
     consuming func take() -> RAWBSD
@@ -52,8 +44,7 @@ public protocol BSDResource: ~Copyable {
     /// Provides temporary access to the raw BSD resource for low-level operations.
     ///
     /// This method executes the given closure with the underlying resource as its argument.
-    /// Any errors thrown inside the closure are propagated to the caller. Use this method
-    /// only when direct interaction with the raw resource is required.
+    /// Any errors thrown inside the closure are propagated to the caller.
     ///
     /// - Parameter block: A closure that receives the raw BSD resource and can throw an error.
     /// - Returns: The result of the closure.
@@ -61,5 +52,5 @@ public protocol BSDResource: ~Copyable {
     ///
     /// - Warning: Tinkering with the internal state of the raw resource is generally unsafe
     ///   and may lead to undefined behavior. Prefer using higher-level abstractions.
-    func unsafe<R>(_ block: (RAWBSD) throws -> R) rethrows -> R
+    func unsafe<R>(_ block: (RAWBSD) throws -> R) rethrows -> R where R: ~Copyable
 }

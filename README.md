@@ -114,13 +114,6 @@ Expect APIs in these modules to change.
 ---
 
 ## Future Work
-
-- **Foundation integration**  
-  Swift already provides cross-platform types such as `FileHandle`.  
-  On FreeBSD, these expose raw file descriptors that could be extended to support Capsicum capabilities.
-
-  Contributions adding Capsicum-aware extensions to these standard types would be extremely valuable.
-
 - **Testing & validation**
   - Capability-mode test harnesses
   - Jail-based tests
@@ -128,8 +121,6 @@ Expect APIs in these modules to change.
 
 - **Additional FreeBSD subsystems**
   - Jails
-  - kqueue
-  - Process descriptors
 
 ---
 

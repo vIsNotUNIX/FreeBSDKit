@@ -27,61 +27,72 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-
-// TODO: Make this thread safe?
-/// This type is copyable so 
 /// Type Erased reference counted file descriptor.
-/// Useful for storing many descriptors in collections,
-/// and eventually in KQueue.
-public final class OpaqueDescriptorRef: CustomDebugStringConvertible, Descriptor, @unchecked Sendable {
-    public let kind: DescriptorKind
-    private var fd: Int32
+/// Useful for storing many descriptors in collections.
+public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendable {
+    private var _kind: DescriptorKind = .unknown
+    private var _capable: Bool = false
+    private var fd: Int32?
     private let lock = NSLock()
 
-    public init(_ value: RAWBSD) {
+    public init(_ value: Int32) {
         self.fd = value
-        self.kind = .unknown
     }
 
-    public init(kind: DescriptorKind, fd: RAWBSD) {
-        self.kind = kind
+    public init(_ fd: Int32, kind: DescriptorKind, capable: Bool) {
         self.fd = fd
+        self.kind = _kind
+        self.capable = _capable
     }
+
+    public var kind: DescriptorKind {
+        get {
+            lock.lock()
+            let kind = _kind
+            lock.unlock()
+            return kind
+        }
+        set {
+            lock.lock()
+            _kind = newValue
+            lock.unlock()
+        }
+    }
+
+    public var capable: Bool {
+        get {
+            lock.lock()
+            let capable = _capable
+            lock.unlock()
+            return capable
+        }
+        set {
+            lock.lock()
+            _capable = newValue
+            lock.unlock()
+        }
+    }
+
 
     deinit {
         lock.lock()
-        if fd >= 0 {
-            Glibc.close(fd)
+        if let desc = fd {
+            Glibc.close(desc)
+            fd = nil
         }
         lock.unlock()
     }
 
-    public consuming func take() -> Int32 {
+    func toBSDValue() -> Int32? {
         lock.lock()
-        defer { lock.unlock()}
-        let raw = fd
-        fd = -1
-        return raw
-    }
-
-    public func unsafe<R>(_ body: (Int32) throws -> R) rethrows -> R {
-        lock.lock()
-        defer { lock.unlock()}
-        return try body(fd)
-    }
-
-    public func close() {
-        lock.lock()
-        defer { lock.unlock()}
-        if fd >= 0 {
-            Glibc.close(fd)
-            fd = -1
-        }
+        let desc = fd
+        lock.unlock()
+        return desc
     }
 
     public var debugDescription: String {
         lock.withLock {
-            "OpaqueDescriptorRef(kind: \(kind), fd: \(fd))"
+            "OpaqueDescriptorRef(kind: \(kind), fd: \(fd ?? -1))"
         }
     }
 }

@@ -23,28 +23,29 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
  
-import XCTest
-@testable import Capsicum
+import Glibc
+import Descriptors
+import Foundation
+import FreeBSDKit
 
-final class IoctlCommandTests: XCTestCase {
+// TODO: A seperate protocol should be used to describe file operations.
+struct SocketCapability: Capability, SocketDescriptor, ~Copyable {
+    public typealias RAWBSD = Int32
+    private var handle: RawCapabilityHandle
 
-    func testInitialization() {
-        let cmd = IoctlCommand(rawValue: 0x1234)
-        XCTAssertEqual(cmd.rawValue, 0x1234)
+    public init(_ value: RAWBSD) {
+        self.handle = RawCapabilityHandle(value)
     }
 
-    func testMultipleValues() {
-        let cmds: [UInt] = [0, 1, 42, 0xFFFF]
-        for raw in cmds {
-            let cmd = IoctlCommand(rawValue: raw)
-            XCTAssertEqual(cmd.rawValue, raw)
-        }
+    public consuming func close() {
+        handle.close()
     }
 
-    func testRawValueRoundTrip() {
-        let raw: UInt = 0xDEADBEEF
-        let cmd = IoctlCommand(rawValue: raw)
-        let roundTrip = cmd.rawValue
-        XCTAssertEqual(roundTrip, raw)
+    public consuming func take() -> RAWBSD {
+        return handle.take()
+    }
+
+    public func unsafe<R>(_ block: (RAWBSD) throws -> R ) rethrows -> R where R: ~Copyable {
+        try handle.unsafe(block)
     }
 }

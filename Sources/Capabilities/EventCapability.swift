@@ -22,29 +22,41 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- 
-import XCTest
-@testable import Capsicum
 
-final class IoctlCommandTests: XCTestCase {
+import Glibc
+import Descriptors
+import Foundation
+import FreeBSDKit
 
-    func testInitialization() {
-        let cmd = IoctlCommand(rawValue: 0x1234)
-        XCTAssertEqual(cmd.rawValue, 0x1234)
+
+public struct EventCapability: Capability, EventDescriptor, ~Copyable {
+    public typealias RAWBSD = Int32
+    private var fd: RAWBSD
+
+    public init(_ raw: RAWBSD) {
+        self.fd = raw
     }
 
-    func testMultipleValues() {
-        let cmds: [UInt] = [0, 1, 42, 0xFFFF]
-        for raw in cmds {
-            let cmd = IoctlCommand(rawValue: raw)
-            XCTAssertEqual(cmd.rawValue, raw)
+    deinit {
+        if fd >= 0 {
+            Glibc.close(fd)
         }
     }
 
-    func testRawValueRoundTrip() {
-        let raw: UInt = 0xDEADBEEF
-        let cmd = IoctlCommand(rawValue: raw)
-        let roundTrip = cmd.rawValue
-        XCTAssertEqual(roundTrip, raw)
+    public consuming func close() {
+        if fd >= 0 {
+            Glibc.close(fd)
+            fd = -1
+        }
+    }
+
+    public consuming func take() -> RAWBSD {
+        let raw = fd
+        fd = -1
+        return raw
+    }
+
+    public func unsafe<R>(_ block: (RAWBSD) throws -> R) rethrows -> R where R: ~Copyable {
+        return try block(fd)
     }
 }

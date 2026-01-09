@@ -39,7 +39,7 @@
  * @remarks These rights are used with functions like `cap_rights_limit()`,
  * `cap_rights_is_set()`, and related Capsicum APIs.
  * Note: The underlying C macros are not directly callable from Swift, so a Swift bridge
- * (`CapabilityRight` and `CapabilityRightSet`) is used to provide type-safe
+ * (`CapsicumRight` and `CapsicumRightSet`) is used to provide type-safe
  * access in Swift.
  */
 typedef enum {

@@ -29,6 +29,10 @@ let package = Package(
             name: "CProcessDescriptor",
             targets: ["CProcessDescriptor"]
         ),
+        .library(
+            name: "CEventDescriptor",
+            targets: ["CEventDescriptor"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -65,8 +69,12 @@ let package = Package(
             path: "Sources/CProcessDescriptor"
         ),
         .target(
+            name: "CEventDescriptor",
+            path: "Sources/CEventDescriptor"
+        ),
+        .target(
             name: "Descriptors",
-            dependencies: ["Capsicum", "CProcessDescriptor"]
+            dependencies: ["Capsicum", "CProcessDescriptor", "CEventDescriptor"]
         ),
         .testTarget(
             name: "DescriptorsTests",

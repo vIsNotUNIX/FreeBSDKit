@@ -23,6 +23,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+import CProcessDescriptor
 import Glibc
 import Foundation
 import FreeBSDKit
@@ -52,4 +53,48 @@ public protocol ProcessDescriptor: Descriptor, ~Copyable {
     func wait() throws -> Int32
     func kill(signal: BSDSignal) throws
     func pid() throws -> pid_t
+}
+
+extension ProcessDescriptor where Self: ~Copyable {
+    public static func fork(flags: ProcessDescriptorFlags = []) throws -> ProcessDescriptorForkResult {
+        var fd: Int32 = 0
+        let pid = pdfork(&fd, flags.rawValue)
+        guard pid >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
+
+        if pid == 0 {
+            // We are in the child
+            return ProcessDescriptorForkResult(descriptor: nil, isChild: true)
+        } else {
+            // We are in the parent
+            return ProcessDescriptorForkResult(descriptor: Self(fd), isChild: false)
+        }
+    }
+    // TODO
+    /// Wait for the process to exit
+    public func wait() throws -> Int32 {
+        let pid = try self.pid()
+        var status: Int32 = 0
+        let ret = Glibc.waitpid(pid, &status, 0)
+        guard ret >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
+        return status
+    }
+
+    /// Send a signal to the process
+    public func kill(signal: BSDSignal) throws {
+        try self.unsafe { fd in
+            guard pdkill(fd, signal.rawValue) >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            }
+        }
+    }
+
+    /// Get the PID of the process
+    public func pid() throws -> pid_t {
+        try self.unsafe { fd in
+            var pid: pid_t = 0
+            let ret = pdgetpid(fd, &pid)
+            guard ret >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
+            return pid
+        }
+    }
 }

@@ -23,7 +23,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/// A protocol representing a trivial, copyable BSD value type.
+/// A protocol representing a trivial, possibly copyable BSD value type.
 ///
 /// `BSDValue` models plain data structures originating from BSD APIs that:
 /// - have **value semantics**
@@ -35,13 +35,10 @@
 /// - `struct stat`
 /// - `sockaddr`
 /// - `timespec`
-public protocol BSDValue {
+public protocol BSDValue: ~Copyable {
     /// The underlying BSD type represented by this value.
-    ///
-    /// This is typically a C struct or scalar imported from a BSD header,
-    /// such as `cap_rights_t` or `struct stat`.
     associatedtype RAWBSD
 
     /// Returns the underlying BSD value.
-    func asBSDType() -> RAWBSD
+    var rawBSD: RAWBSD { get }
 }

@@ -22,29 +22,40 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- 
-import XCTest
-@testable import Capsicum
 
-final class IoctlCommandTests: XCTestCase {
+import Foundation
+import Capsicum
 
-    func testInitialization() {
-        let cmd = IoctlCommand(rawValue: 0x1234)
-        XCTAssertEqual(cmd.rawValue, 0x1234)
+public extension FileHandle {
+
+    /// Apply Capsicum rights to this file handle.
+    /// Returns `true` if the rights were applied, `false` on failure.
+    func applyCapsicumRights(_ rights: CapsicumRightSet) -> Bool {
+        return CapsicumRights.limit(fd: fileDescriptor, rights: rights)
     }
 
-    func testMultipleValues() {
-        let cmds: [UInt] = [0, 1, 42, 0xFFFF]
-        for raw in cmds {
-            let cmd = IoctlCommand(rawValue: raw)
-            XCTAssertEqual(cmd.rawValue, raw)
-        }
+    /// Restrict allowed stream operations.
+    func limitCapsicumStream(options: StreamLimitOptions) throws {
+        try CapsicumRights.limitStream(fd: fileDescriptor, options: options)
     }
 
-    func testRawValueRoundTrip() {
-        let raw: UInt = 0xDEADBEEF
-        let cmd = IoctlCommand(rawValue: raw)
-        let roundTrip = cmd.rawValue
-        XCTAssertEqual(roundTrip, raw)
+    /// Restrict allowed ioctl commands.
+    func limitCapsicumIoctls(_ commands: [IoctlCommand]) throws {
+        try CapsicumRights.limitIoctls(fd: fileDescriptor, commands: commands)
+    }
+
+    /// Restrict allowed fcntl commands.
+    func limitCapsicumFcntls(_ rights: FcntlRights) throws {
+        try CapsicumRights.limitFcntls(fd: fileDescriptor, rights: rights)
+    }
+    // TODO make Swifty
+    /// Get the currently allowed ioctl commands.
+    func getCapsicumIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
+        try CapsicumRights.getIoctls(fd: fileDescriptor, maxCount: maxCount)
+    }
+    // TODO make Swifty
+    /// Get allowed fcntl commands mask.
+    func getCapsicumFcntls() throws -> FcntlRights {
+        try CapsicumRights.getFcntls(fd: fileDescriptor)
     }
 }

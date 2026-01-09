@@ -36,3 +36,30 @@ public protocol WritableDescriptor: Descriptor, ~Copyable {
 }
 
 public typealias ReadWriteDescriptor = ReadableDescriptor & WritableDescriptor
+
+extension ReadableDescriptor where Self: ~Copyable {
+    public func read(count: Int) throws -> Data {
+        var buffer = Data(count: count)
+        let n = try self.unsafe { fd in
+            let bytesRead = buffer.withUnsafeMutableBytes { ptr in
+                Glibc.read(fd, ptr.baseAddress, count)
+            }
+            if bytesRead == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil) }
+            return bytesRead
+        }
+        buffer.removeSubrange(n..<buffer.count)
+        return buffer
+    }
+}
+
+extension WritableDescriptor where Self: ~Copyable {
+    public func write(_ data: Data) throws -> Int {
+        return try self.unsafe { fd in
+            let bytesWritten = data.withUnsafeBytes { ptr in
+                Glibc.write(fd, ptr.baseAddress, ptr.count)
+            }
+            if bytesWritten == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil) }
+            return bytesWritten
+        }
+    }
+}

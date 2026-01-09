@@ -32,72 +32,21 @@ import FreeBSDKit
 // TODO: A seperate protocol should be used to describe file operations.
 struct FileCapability: Capability, FileDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
-    private var fd: RAWBSD
+    private var handle: RawCapabilityHandle
 
-    init(_ value: RAWBSD) {
-        self.fd = value
+    public init(_ value: RAWBSD) {
+        self.handle = RawCapabilityHandle(value)
     }
 
-    deinit {
-        if fd >= 0 {
-            Glibc.close(fd)
-        }
+    public consuming func close() {
+        handle.close()
     }
 
-    consuming func close() {
-        if fd >= 0 {
-            Glibc.close(fd)
-            fd = -1
-        }
+    public consuming func take() -> RAWBSD {
+        return handle.take()
     }
 
-    consuming func take() -> RAWBSD {
-        let rawDescriptor = fd
-        fd = -1
-        return rawDescriptor
-    }
-
-    func unsafe<R>(_ block: (RAWBSD) throws -> R ) rethrows -> R {
-        return try block(fd)
-    }
-
-    // MARK: File specific operations
-
-    public func read(count: Int) throws -> Data {
-        var buffer = [UInt8](repeating: 0, count: count)
-        let bytesRead = Glibc.read(fd, &buffer, count)
-        guard bytesRead >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-        return Data(buffer.prefix(bytesRead))
-    }
-
-    public func write(_ data: Data) throws -> Int {
-        let bytesWritten = data.withUnsafeBytes { ptr -> Int in
-            let n = Glibc.write(fd, ptr.baseAddress, data.count)
-            return n
-        }
-        guard bytesWritten >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-        return bytesWritten
-    }
-
-    public func duplicate() throws -> Self {
-        let dupFD = Glibc.dup(fd)
-        guard dupFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-        return Self(dupFD)
-    }
-
-    public func setNonBlocking(_ nonBlocking: Bool = true) throws {
-        let flags = Glibc.fcntl(fd, Glibc.F_GETFL)
-        guard flags >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-
-        let newFlags = nonBlocking ? (flags | Glibc.O_NONBLOCK) : (flags & ~Glibc.O_NONBLOCK)
-        guard Glibc.fcntl(fd, Glibc.F_SETFL, newFlags) >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
-        }
-    }
-
-    public func getFlags() throws -> Int32 {
-        let flags = Glibc.fcntl(fd, Glibc.F_GETFL)
-        guard flags >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-        return flags
+    public func unsafe<R>(_ block: (RAWBSD) throws -> R ) rethrows -> R where R: ~Copyable {
+        try handle.unsafe(block)
     }
 }

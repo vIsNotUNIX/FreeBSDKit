@@ -27,12 +27,13 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-public enum DescriptorKind: Sendable {
-    case file
-    case process
+public enum DescriptorKind: Sendable, Equatable, Hashable {
+    case file // Done
+    case process // Done
     case kqueue
-    case socket
+    case socket // Done
     case pipe
+    case jail(own:Bool)
     case shm
     case event
     case unknown
