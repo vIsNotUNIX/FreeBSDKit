@@ -78,5 +78,3 @@ public extension StreamDescriptor where Self: ~Copyable {
         return buffer
     }
 }
-
-
