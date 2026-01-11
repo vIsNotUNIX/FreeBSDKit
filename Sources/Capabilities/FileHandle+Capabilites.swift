@@ -48,12 +48,10 @@ public extension FileHandle {
     func limitCapsicumFcntls(_ rights: FcntlRights) throws {
         try CapsicumRights.limitFcntls(fd: fileDescriptor, rights: rights)
     }
-    // TODO make Swifty
     /// Get the currently allowed ioctl commands.
     func getCapsicumIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
         try CapsicumRights.getIoctls(fd: fileDescriptor, maxCount: maxCount)
     }
-    // TODO make Swifty
     /// Get allowed fcntl commands mask.
     func getCapsicumFcntls() throws -> FcntlRights {
         try CapsicumRights.getFcntls(fd: fileDescriptor)

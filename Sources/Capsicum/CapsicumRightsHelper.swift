@@ -40,7 +40,6 @@ public enum CapsicumRights {
             }
         }
     }
-    // TODO make Swifty
     /// Get ioctl limits.
     public static func getIoctls(fd: Int32, maxCount: Int = 32) throws -> [IoctlCommand] {
         var buffer = [UInt](repeating: 0, count: maxCount)
@@ -63,7 +62,6 @@ public enum CapsicumRights {
 
         return Array(buffer.prefix(Int(result))).map { IoctlCommand(rawValue: $0) }
     }
-    // TODO make Swifty
     /// Get fcntl rights.
     public static func getFcntls(fd: Int32) throws -> FcntlRights {
         var rawMask: UInt32 = 0

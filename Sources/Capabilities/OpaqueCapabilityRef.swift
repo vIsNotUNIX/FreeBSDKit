@@ -23,6 +23,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+
+import Glibc
+import Foundation
+import Descriptors
+
 /// Capability-aware opaque descriptor.
 ///
 /// This subclass models **Capsicum state** explicitly and separately
@@ -30,25 +36,15 @@
 ///
 /// It does **not** enforce capability mode by itself —
 /// it only records and propagates capability intent.
-/// 
-
-import Glibc
-import Foundation
-import Descriptors
-
 public final class CapableOpaqueDescriptorRef: OpaqueDescriptorRef, @unchecked Sendable {
 
     private var _capable: Bool
     private let capLock = NSLock()
 
-    // MARK: - Initializers
-
     public init(_ fd: Int32, kind: DescriptorKind, capable: Bool = true) {
         self._capable = capable
         super.init(fd, kind: kind)
     }
-
-    // MARK: - Capability State
 
     /// Indicates whether this descriptor is considered Capsicum-capable.
     ///
@@ -65,8 +61,6 @@ public final class CapableOpaqueDescriptorRef: OpaqueDescriptorRef, @unchecked S
             capLock.unlock()
         }
     }
-
-    // MARK: - Debugging
 
     public override var debugDescription: String {
         capLock.lock()

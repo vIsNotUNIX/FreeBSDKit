@@ -26,7 +26,6 @@ let package = Package(
             name: "testtool",
             targets: ["TestTool"]
         )
-    
     ],
     targets: [
         .target(

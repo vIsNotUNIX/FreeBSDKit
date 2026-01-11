@@ -28,8 +28,6 @@ import Descriptors
 import Foundation
 import FreeBSDKit
 
-
-// TODO: A seperate protocol should be used to describe file operations.
 struct FileCapability: Capability, FileDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle

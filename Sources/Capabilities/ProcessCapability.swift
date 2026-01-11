@@ -28,7 +28,6 @@ import Foundation
 import FreeBSDKit
 import Glibc
 
-/// Represents a BSD process descriptor.
 struct ProcessCapability: Capability, ProcessDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle

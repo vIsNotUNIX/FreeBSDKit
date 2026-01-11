@@ -22,13 +22,12 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- 
+
 import Glibc
 import Descriptors
 import Foundation
 import FreeBSDKit
 
-// TODO: A seperate protocol should be used to describe file operations.
 struct SocketCapability: Capability, SocketDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle

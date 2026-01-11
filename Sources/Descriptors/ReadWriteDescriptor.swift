@@ -56,7 +56,7 @@ public extension ReadableDescriptor where Self: ~Copyable {
     func read(maxBytes: Int) throws -> ReadResult {
         var buffer = Data(count: maxBytes)
 
-        let n = try self.unsafe { fd in
+        let n = self.unsafe { fd in
             buffer.withUnsafeMutableBytes { ptr in
                 while true {
                     let r = Glibc.read(fd, ptr.baseAddress, ptr.count)

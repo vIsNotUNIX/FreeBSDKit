@@ -66,7 +66,6 @@ public enum RecvResult {
 }
 
 public extension StreamDescriptor where Self: ~Copyable {
-    // MARK: - send
 
     func sendOnce(_ data: Data, flags: SocketFlags = []) throws -> Int {
         try self.unsafe { fd in
@@ -102,12 +101,10 @@ public extension StreamDescriptor where Self: ~Copyable {
         }
     }
 
-    // MARK: - recv
-
     func recv(maxBytes: Int, flags: SocketFlags = []) throws -> RecvResult {
         var buffer = Data(count: maxBytes)
 
-        let n = try self.unsafe { fd in
+        let n = self.unsafe { fd in
             buffer.withUnsafeMutableBytes { ptr in
                 Glibc.recv(fd, ptr.baseAddress, ptr.count, flags.rawValue)
             }

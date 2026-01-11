@@ -27,19 +27,6 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/*
- * Copyright (c) 2026 Kory Heard
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- */
-
-import Glibc
-import Foundation
-import FreeBSDKit
-
 // MARK: - File Status Flags
 
 /// File status flags used with `fcntl(F_GETFL)` / `fcntl(F_SETFL)`.

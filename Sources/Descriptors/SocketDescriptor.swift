@@ -35,9 +35,7 @@ public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
     func accept() throws -> Self
     func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
     func shutdown(how: Int32) throws
-    // TODO: Convert to `OpaqueDescriptor`
     func sendDescriptors(_ descriptors: [OpaqueDescriptorRef], payload: Data) throws
-    // TODO Return struct with enumerated values.
     func recvDescriptors(maxDescriptors: Int, bufferSize: Int) throws -> (Data, [Int32])
 }
 
@@ -95,7 +93,7 @@ public extension SocketDescriptor where Self: ~Copyable {
         }
     }
 }
-// TODO: Wrap these in C methods.
+
 // MARK: - CMSG Helpers (Swift replacements for macros)
 
 @inline(__always)
@@ -141,8 +139,6 @@ private func CMSG_DATA(_ cmsg: UnsafePointer<cmsghdr>) -> UnsafeMutableRawPointe
         .advanced(by: _CMSG_ALIGN(MemoryLayout<cmsghdr>.size))
 }
 
-// TODO: Convert to `OpaqueDescriptor`
-// Should take in opaque descriptors
 public extension SocketDescriptor where Self: ~Copyable {
 
     func sendDescriptors(

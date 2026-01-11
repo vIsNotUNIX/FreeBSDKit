@@ -44,8 +44,7 @@ public struct SharedMemoryCapability: Capability, SharedMemoryDescriptor, ~Copya
     }
 
     public func unsafe<R>(_ block: (Int32) throws -> R) rethrows -> R
-        where R: ~Copyable
-    {
+        where R: ~Copyable {
         try handle.unsafe(block)
     }
 }
