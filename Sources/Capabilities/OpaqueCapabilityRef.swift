@@ -23,45 +23,55 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/// Capability-aware opaque descriptor.
+///
+/// This subclass models **Capsicum state** explicitly and separately
+/// from the mechanical lifetime of the descriptor.
+///
+/// It does **not** enforce capability mode by itself —
+/// it only records and propagates capability intent.
+/// 
+
 import Glibc
-import Descriptors
 import Foundation
-import FreeBSDKit
+import Descriptors
 
-// moving the capability info here.
-/// A reusable noncopyable owner of a raw Int32 descriptor.
-public struct RawCapabilityHandle: Sendable, ~Copyable {
-    fileprivate var fd: Int32
+public final class CapableOpaqueDescriptorRef: OpaqueDescriptorRef, @unchecked Sendable {
 
-    /// Create from a raw descriptor.
-    public init(_ raw: Int32) {
-        self.fd = raw
+    private var _capable: Bool
+    private let capLock = NSLock()
+
+    // MARK: - Initializers
+
+    public init(_ fd: Int32, kind: DescriptorKind, capable: Bool = true) {
+        self._capable = capable
+        super.init(fd, kind: kind)
     }
 
-    /// Always close on destruction if not already closed.
-    deinit {
-        if fd >= 0 {
-            Glibc.close(fd)
+    // MARK: - Capability State
+
+    /// Indicates whether this descriptor is considered Capsicum-capable.
+    ///
+    /// This is a **logical property**, not a kernel query.
+    public var capable: Bool {
+        get {
+            capLock.lock()
+            defer { capLock.unlock() }
+            return _capable
+        }
+        set {
+            capLock.lock()
+            _capable = newValue
+            capLock.unlock()
         }
     }
 
-    /// Close the descriptor if it hasn’t been closed already.
-    public consuming func close() {
-        if fd >= 0 {
-            Glibc.close(fd)
-            fd = -1
-        }
-    }
+    // MARK: - Debugging
 
-    /// Take and return the raw descriptor, leaving this handle invalidated.
-    public consuming func take() -> Int32 {
-        let raw = fd
-        fd = -1
-        return raw
-    }
-
-    /// Temporarily borrow the raw descriptor for performing actions on it.
-    public func unsafe<R>(_ body: (Int32) throws -> R) rethrows -> R where R: ~Copyable {
-        return try body(fd)
+    public override var debugDescription: String {
+        capLock.lock()
+        let capable = _capable
+        capLock.unlock()
+        return "\(super.debugDescription), capable: \(capable)"
     }
 }

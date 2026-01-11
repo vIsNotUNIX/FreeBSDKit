@@ -78,8 +78,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
         maxEvents: Int,
         timeout: TimeInterval?
     ) throws -> (Int, [kevent]) {
-
-        var events = Array<kevent>(repeating: kevent(), count: maxEvents)
+        var events = Array<kevent>(repeating: Glibc.kevent(), count: maxEvents)
 
         var tsStorage: timespec?
         if let timeout = timeout {

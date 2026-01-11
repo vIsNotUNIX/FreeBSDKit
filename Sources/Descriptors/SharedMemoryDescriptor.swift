@@ -159,7 +159,7 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
             }
 
             return MappedRegion(
-                base: UnsafeRawPointer(ptr),
+                base: UnsafeRawPointer(ptr!),
                 size: size
             )
         }

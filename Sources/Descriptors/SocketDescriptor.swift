@@ -204,7 +204,8 @@ public extension SocketDescriptor where Self: ~Copyable {
         }
     }
 
-    func recvDescriptors(
+        
+        func recvDescriptors(
         maxDescriptors: Int = 8,
         bufferSize: Int = 1
     ) throws -> (Data, [Int32]) {
@@ -216,54 +217,67 @@ public extension SocketDescriptor where Self: ~Copyable {
                 count: CMSG_SPACE(maxDescriptors * MemoryLayout<Int32>.size)
             )
 
-            var iov = iovec(
-                iov_base: &buffer,
-                iov_len: buffer.count
-            )
+            return try buffer.withUnsafeMutableBytes { bufPtr in
+                try control.withUnsafeMutableBytes { ctrlPtr in
 
-            var msg = msghdr(
-                msg_name: nil,
-                msg_namelen: 0,
-                msg_iov: &iov,
-                msg_iovlen: 1,
-                msg_control: &control,
-                msg_controllen: socklen_t(control.count),
-                msg_flags: 0
-            )
+                    var iov = iovec(
+                        iov_base: bufPtr.baseAddress,
+                        iov_len: bufPtr.count
+                    )
 
-            let bytesRead = Glibc.recvmsg(sockFD, &msg, 0)
-            guard bytesRead >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
-            }
+                    return try withUnsafeMutablePointer(to: &iov) { iovPtr in
+                        var msg = msghdr(
+                            msg_name: nil,
+                            msg_namelen: 0,
+                            msg_iov: iovPtr,
+                            msg_iovlen: 1,
+                            msg_control: ctrlPtr.baseAddress,
+                            msg_controllen: socklen_t(ctrlPtr.count),
+                            msg_flags: 0
+                        )
 
-            if (msg.msg_flags & MSG_CTRUNC) != 0 {
-                throw POSIXError(.EMSGSIZE)
-            }
+                        let bytesRead = Glibc.recvmsg(sockFD, &msg, 0)
+                        guard bytesRead >= 0 else {
+                            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                        }
 
-            var receivedFDs: [Int32] = []
+                        if (msg.msg_flags & MSG_CTRUNC) != 0 {
+                            throw POSIXError(.EMSGSIZE)
+                        }
 
-            var cmsg = CMSG_FIRSTHDR(&msg)
-            while let hdr = cmsg {
-                if hdr.pointee.cmsg_level == SOL_SOCKET &&
-                   hdr.pointee.cmsg_type  == SCM_RIGHTS {
+                        var receivedFDs: [Int32] = []
 
-                    let dataLen =
-                        Int(hdr.pointee.cmsg_len) - CMSG_LEN(0)
+                        var cmsg = CMSG_FIRSTHDR(&msg)
+                        while let hdr = cmsg {
+                            if hdr.pointee.cmsg_level == SOL_SOCKET &&
+                            hdr.pointee.cmsg_type  == SCM_RIGHTS {
 
-                    let count = dataLen / MemoryLayout<Int32>.size
-                    let dataPtr = CMSG_DATA(hdr).assumingMemoryBound(to: Int32.self)
+                                let dataLen =
+                                    Int(hdr.pointee.cmsg_len) - CMSG_LEN(0)
 
-                    for i in 0..<count {
-                        receivedFDs.append(dataPtr[i])
+                                let count = dataLen / MemoryLayout<Int32>.size
+                                let dataPtr =
+                                    CMSG_DATA(hdr).assumingMemoryBound(to: Int32.self)
+
+                                for i in 0..<count {
+                                    receivedFDs.append(dataPtr[i])
+                                }
+                            }
+                            cmsg = CMSG_NXTHDR(&msg, hdr)
+                        }
+
+                        // IMPORTANT: build Data from bufPtr, not `buffer`
+                        let data = Data(
+                            bytes: bufPtr.baseAddress!,
+                            count: bytesRead
+                        )
+
+                        return (data, receivedFDs)
                     }
                 }
-                cmsg = CMSG_NXTHDR(&msg, hdr)
             }
-
-            return (
-                Data(buffer.prefix(bytesRead)),
-                receivedFDs
-            )
         }
     }
+
+
 }

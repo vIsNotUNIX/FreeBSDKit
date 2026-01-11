@@ -55,7 +55,7 @@ public extension FileDescriptor where Self: ~Copyable {
     func pread(count: Int, offset: off_t) throws -> Data {
         var buffer = Data(count: count)
 
-        let n = try self.unsafe { fd in
+        let n = self.unsafe { fd in
             buffer.withUnsafeMutableBytes { ptr in
                 while true {
                     let r = Glibc.pread(fd, ptr.baseAddress, ptr.count, offset)

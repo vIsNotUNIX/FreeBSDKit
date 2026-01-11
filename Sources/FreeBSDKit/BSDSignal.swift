@@ -24,7 +24,7 @@
  */
 
 /// Standard signals for process descriptors.
-public enum BSDSignal: Int32 {
+public enum BSDSignal: Int32, Sendable {
     case hangup             = 1
     case interrupt          = 2
     case quit               = 3

@@ -27,31 +27,41 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// Type Erased reference counted file descriptor.
-/// Useful for storing many descriptors in collections.
-public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendable {
-    private var _kind: DescriptorKind = .unknown
-    private var _capable: Bool = false
+// MARK: - Base Opaque Descriptor
+
+/// Type-erased, reference-counted BSD file descriptor.
+///
+/// This class provides:
+/// - Thread-safe access
+/// - Reference-counted lifetime
+/// - Deterministic `close(2)` on deinit
+///
+/// It intentionally has **no capability semantics**.
+/// Those are layered in subclasses.
+open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendable {
+
     private var fd: Int32?
+    private var _kind: DescriptorKind = .unknown
     private let lock = NSLock()
+
+    // MARK: - Initializers
 
     public init(_ value: Int32) {
         self.fd = value
     }
 
-    public init(_ fd: Int32, kind: DescriptorKind, capable: Bool) {
+    public init(_ fd: Int32, kind: DescriptorKind) {
         self.fd = fd
         self._kind = kind
-        self._capable = capable
     }
 
+    // MARK: - Descriptor Metadata
 
     public var kind: DescriptorKind {
         get {
             lock.lock()
-            let kind = _kind
-            lock.unlock()
-            return kind
+            defer { lock.unlock() }
+            return _kind
         }
         set {
             lock.lock()
@@ -60,20 +70,18 @@ public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked
         }
     }
 
-    public var capable: Bool {
-        get {
-            lock.lock()
-            let capable = _capable
-            lock.unlock()
-            return capable
-        }
-        set {
-            lock.lock()
-            _capable = newValue
-            lock.unlock()
-        }
+    // MARK: - Raw FD Access
+
+    /// Return the underlying BSD descriptor, if still valid.
+    ///
+    /// This is intentionally **optional** to reflect lifetime.
+    func toBSDValue() -> Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        return fd
     }
 
+    // MARK: - Deinitialization
 
     deinit {
         lock.lock()
@@ -84,16 +92,13 @@ public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked
         lock.unlock()
     }
 
-    func toBSDValue() -> Int32? {
-        lock.lock()
-        let desc = fd
-        lock.unlock()
-        return desc
-    }
+    // MARK: - Debugging
 
-    public var debugDescription: String {
-        lock.withLock {
-            "OpaqueDescriptorRef(kind: \(kind), fd: \(fd ?? -1))"
-        }
+    open var debugDescription: String {
+        lock.lock()
+        let desc = fd ?? -1
+        let kind = _kind
+        lock.unlock()
+        return "OpaqueDescriptorRef(kind: \(kind), fd: \(desc))"
     }
 }

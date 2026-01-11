@@ -33,9 +33,9 @@ public struct DescriptorSet: Sendable {
     public init() {}
 
     public
-    mutating func insert<D: Descriptor>(kind: DescriptorKind, _ desc: consuming D, capable: Bool = false) {
+    mutating func insert<D: Descriptor>(kind: DescriptorKind, _ desc: consuming D) {
         descriptors.append(
-            OpaqueDescriptorRef(desc.take(), kind: kind, capable: capable)
+            OpaqueDescriptorRef(desc.take(), kind: kind)
         )
     }
 
