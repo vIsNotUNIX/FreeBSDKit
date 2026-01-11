@@ -36,7 +36,7 @@ public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
     func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
     func shutdown(how: Int32) throws
     // TODO: Convert to `OpaqueDescriptor`
-    func sendDescriptors<D: StreamDescriptor>(_ descriptors: [D], payload: Data) throws
+    func sendDescriptors(_ descriptors: [OpaqueDescriptorRef], payload: Data) throws
     // TODO Return struct with enumerated values.
     func recvDescriptors(maxDescriptors: Int, bufferSize: Int) throws -> (Data, [Int32])
 }
@@ -145,8 +145,8 @@ private func CMSG_DATA(_ cmsg: UnsafePointer<cmsghdr>) -> UnsafeMutableRawPointe
 // Should take in opaque descriptors
 public extension SocketDescriptor where Self: ~Copyable {
 
-    func sendDescriptors<D: StreamDescriptor>(
-        _ descriptors: [D],
+    func sendDescriptors(
+        _ descriptors: [OpaqueDescriptorRef],
         payload: Data
     ) throws {
         precondition(!payload.isEmpty)
@@ -156,7 +156,9 @@ public extension SocketDescriptor where Self: ~Copyable {
             rawFDs.reserveCapacity(descriptors.count)
 
             for d in descriptors {
-                d.unsafe { rawFDs.append($0) }
+                if let rawFD = d.toBSDValue() {
+                    rawFDs.append(rawFD)
+                }
             }
 
             let controlLen = CMSG_SPACE(rawFDs.count * MemoryLayout<Int32>.size)
@@ -205,7 +207,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     }
 
         
-        func recvDescriptors(
+    func recvDescriptors(
         maxDescriptors: Int = 8,
         bufferSize: Int = 1
     ) throws -> (Data, [Int32]) {
@@ -278,6 +280,4 @@ public extension SocketDescriptor where Self: ~Copyable {
             }
         }
     }
-
-
 }
