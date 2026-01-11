@@ -27,71 +27,99 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-/// Options for shared memory mapping protection
+// MARK: - Protection Flags
+
+/// Memory protection options for POSIX shared memory mappings.
 public struct ShmProtection: OptionSet {
     public let rawValue: Int32
-
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
-    /// Readable memory (PROT_READ)
+    public static let none  = ShmProtection(rawValue: PROT_NONE)
     public static let read  = ShmProtection(rawValue: PROT_READ)
-
-    /// Writable memory (PROT_WRITE)
     public static let write = ShmProtection(rawValue: PROT_WRITE)
-
-    /// Executable memory (PROT_EXEC)
     public static let exec  = ShmProtection(rawValue: PROT_EXEC)
 }
+
+// MARK: - Mapping Flags
+
+/// Flags controlling how shared memory is mapped.
+public struct ShmMapFlags: OptionSet {
+    public let rawValue: Int32
+    public init(rawValue: Int32) { self.rawValue = rawValue }
+
+    public static let shared  = ShmMapFlags(rawValue: MAP_SHARED)
+    public static let `private` = ShmMapFlags(rawValue: MAP_PRIVATE)
+    public static let fixed   = ShmMapFlags(rawValue: MAP_FIXED)
+}
+
+// MARK: - Mapped Region (Linear)
+
+/// A linear handle to a memory-mapped region.
+///
+/// The region **must** be unmapped exactly once.
+public struct MappedRegion: ~Copyable {
+    public let base: UnsafeRawPointer
+    public let size: Int
+
+    init(base: UnsafeRawPointer, size: Int) {
+        self.base = base
+        self.size = size
+    }
+
+    /// Unmap the region.
+    consuming public func unmap() throws {
+        let res = Glibc.munmap(
+            UnsafeMutableRawPointer(mutating: base),
+            size
+        )
+        guard res == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+        }
+    }
+}
+
+// MARK: - Shared Memory Descriptor
 
 /// A descriptor representing a POSIX shared memory object.
 public protocol SharedMemoryDescriptor: Descriptor, ~Copyable {
 
     /// Open or create a POSIX shared memory object.
-    ///
-    /// - Parameters:
-    ///   - name: A name beginning with `/` identifying the object.
-    ///   - oflag: Flags such as `O_CREAT`|`O_RDWR`.
-    ///   - mode: Permissions (e.g. `0o600`).
     static func open(
         name: String,
         oflag: Int32,
         mode: mode_t
     ) throws -> Self
-    // TODO: OptionSet the flags
 
-    /// Unlink (remove) the shared memory object name.
+    /// Remove the shared memory object name.
     static func unlink(name: String) throws
 
-    /// Set the size of the shared object (must be done before mapping).
+    /// Resize the shared memory object.
     func setSize(_ size: Int) throws
 
-    /// Map the shared memory with given protection flags.
-    ///
-    /// Returns a pointer that must not be mutated if `prot` does not include `.write`.
+    /// Map the shared memory object.
     func map(
         size: Int,
-        prot: ShmProtection,
-        flags: Int32 
-    ) throws -> UnsafeRawPointer // TODO: OptionSet the flags
-
-    /// Unmap a previously mapped region.
-    func unmap(_ pointer: UnsafeRawPointer, size: Int) throws
+        protection: ShmProtection,
+        flags: ShmMapFlags
+    ) throws -> MappedRegion
 }
 
+// MARK: - Default Implementations
+
 public extension SharedMemoryDescriptor where Self: ~Copyable {
-    // TODO: OptionSet the flags.
+
     static func open(
         name: String,
         oflag: Int32,
         mode: mode_t
     ) throws -> Self {
-        let rawFD = name.withCString { ptr in
+        let fd = name.withCString { ptr in
             Glibc.shm_open(ptr, oflag, mode)
         }
-        guard rawFD >= 0 else {
+        guard fd >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno)!)
         }
-        return Self(rawFD)
+        return Self(fd)
     }
 
     static func unlink(name: String) throws {
@@ -110,33 +138,30 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
             }
         }
     }
-    // TODO: OptionSet the flags
+
     func map(
         size: Int,
-        prot: ShmProtection,
-        flags: Int32
-    ) throws -> UnsafeRawPointer {
-        return try self.unsafe { fd in
+        protection: ShmProtection,
+        flags: ShmMapFlags
+    ) throws -> MappedRegion {
+        try self.unsafe { fd in
             let ptr = Glibc.mmap(
                 nil,
                 size,
-                prot.rawValue,
-                flags,
+                protection.rawValue,
+                flags.rawValue,
                 fd,
                 0
             )
+
             guard ptr != MAP_FAILED else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno)!)
             }
-            return UnsafeRawPointer(ptr!)
-        }
-    }
 
-    // Same here an enum would be better than raw pointers.
-    func unmap(_ pointer: UnsafeRawPointer, size: Int) throws {
-        let res = Glibc.munmap(UnsafeMutableRawPointer(mutating: pointer), size)
-        guard res == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            return MappedRegion(
+                base: UnsafeRawPointer(ptr),
+                size: size
+            )
         }
     }
 }
