@@ -28,6 +28,8 @@ import Descriptors
 import Foundation
 import FreeBSDKit
 
+// TODO: Make this a subclass of the OpaqueCapabilityHandle,
+// moving the capability info here.
 /// A reusable noncopyable owner of a raw Int32 descriptor.
 public struct RawCapabilityHandle: Sendable, ~Copyable {
     fileprivate var fd: Int32
