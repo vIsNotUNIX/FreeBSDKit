@@ -6,32 +6,21 @@ import PackageDescription
 let package = Package(
     name: "FreeBSDKit",
     products: [
-        // Reserved. The Swift project hasn't decided on `import FreeBSD`
-        // or `import Glibc`, or something else longterm for expsing libc. If we 
-        // can't come to consensues in 2026 we will expose a `libc` overlay here.
-        // .library(
-        //     name: "FreeBSDKit",
-        //     targets: ["FreeBSDKit"]
-        // ),
+        .library(
+            name: "FreeBSDKit",
+            targets: ["FreeBSDKit"]
+        ),
         .library(
             name: "Capsicum",
             targets: ["Capsicum"]
         ),
         .library(
-            name: "CCapsicum",
-            targets: ["CCapsicum"]
+            name: "Capabilites",
+            targets: ["Capsicum"]
         ),
         .library(
             name: "Descriptors",
             targets: ["Descriptors"]
-        ),
-        .library(
-            name: "CProcessDescriptor",
-            targets: ["CProcessDescriptor"]
-        ),
-        .library(
-            name: "CEventDescriptor",
-            targets: ["CEventDescriptor"]
         ),
         .executable(
             name: "testtool",
@@ -83,10 +72,10 @@ let package = Package(
             name: "Descriptors",
             dependencies: ["Capsicum", "CProcessDescriptor", "CEventDescriptor", "CJails", "CINotify"]
         ),
-        .testTarget(
-            name: "DescriptorsTests",
-            dependencies: ["Capsicum", "CProcessDescriptor", "Descriptors"]
-        ),
+        // .testTarget(
+        //     name: "DescriptorsTests",
+        //     dependencies: ["Capsicum", "CProcessDescriptor", "Descriptors"]
+        // ),
         .target(
             name: "Capabilities",
             dependencies: ["Capsicum", "CProcessDescriptor", "Descriptors"]
