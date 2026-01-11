@@ -277,3 +277,18 @@ public extension SocketDescriptor where Self: ~Copyable {
         }
     }
 }
+
+public extension SocketDescriptor {
+
+    static func socketPair(
+        domain: Int32,
+        type: Int32,
+        proto: Int32
+    ) throws -> (Self, Self) {
+        var fds = [Int32](repeating: -1, count: 2)
+        guard Glibc.socketpair(domain, type, proto, &fds) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+        }
+        return (Self(fds[0]), Self(fds[1]))
+    }
+}
