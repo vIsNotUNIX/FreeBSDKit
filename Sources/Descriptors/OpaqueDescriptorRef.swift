@@ -41,9 +41,10 @@ public final class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked
 
     public init(_ fd: Int32, kind: DescriptorKind, capable: Bool) {
         self.fd = fd
-        self.kind = _kind
-        self.capable = _capable
+        self._kind = kind
+        self._capable = capable
     }
+
 
     public var kind: DescriptorKind {
         get {
