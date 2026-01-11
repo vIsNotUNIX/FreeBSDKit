@@ -100,7 +100,7 @@ public extension SocketDescriptor where Self: ~Copyable {
 
 @inline(__always)
 private func _CMSG_ALIGN(_ len: Int) -> Int {
-    let align = MemoryLayout<Int>.size
+    let align = MemoryLayout<cmsghdr>.alignment
     return (len + align - 1) & ~(align - 1)
 }
 
@@ -121,11 +121,16 @@ private func CMSG_FIRSTHDR(_ msg: UnsafePointer<msghdr>) -> UnsafeMutablePointer
 }
 
 @inline(__always)
-private func CMSG_NXTHDR(_ msg: UnsafePointer<msghdr>, _ cmsg: UnsafePointer<cmsghdr>) -> UnsafeMutablePointer<cmsghdr>? {
+private func CMSG_NXTHDR(
+    _ msg: UnsafePointer<msghdr>,
+    _ cmsg: UnsafePointer<cmsghdr>
+) -> UnsafeMutablePointer<cmsghdr>? {
     let next = UnsafeRawPointer(cmsg)
         .advanced(by: _CMSG_ALIGN(Int(cmsg.pointee.cmsg_len)))
+
     let base = msg.pointee.msg_control!
-    let end = base.advanced(by: Int(msg.pointee.msg_controllen))
+    let end  = base.advanced(by: Int(msg.pointee.msg_controllen))
+
     guard next + MemoryLayout<cmsghdr>.size <= end else { return nil }
     return UnsafeMutablePointer(mutating: next.assumingMemoryBound(to: cmsghdr.self))
 }
@@ -139,23 +144,30 @@ private func CMSG_DATA(_ cmsg: UnsafePointer<cmsghdr>) -> UnsafeMutableRawPointe
 // TODO: Convert to `OpaqueDescriptor`
 // Should take in opaque descriptors
 public extension SocketDescriptor where Self: ~Copyable {
-    func sendDescriptors<D: StreamDescriptor>(_ descriptors: [D], payload: Data) throws {
+
+    func sendDescriptors<D: StreamDescriptor>(
+        _ descriptors: [D],
+        payload: Data
+    ) throws {
         precondition(!payload.isEmpty)
-        // Grab the fd
+
         try self.unsafe { sockFD in
             var rawFDs: [Int32] = []
+            rawFDs.reserveCapacity(descriptors.count)
+
             for d in descriptors {
                 d.unsafe { rawFDs.append($0) }
             }
 
-            // Prepare the IO vector and control message
-            var iov = iovec(iov_base: UnsafeMutableRawPointer(mutating: payload.withUnsafeBytes { $0.baseAddress }),
-                            iov_len: payload.count)
+            let controlLen = CMSG_SPACE(rawFDs.count * MemoryLayout<Int32>.size)
+            var control = [UInt8](repeating: 0, count: controlLen)
 
-            var control = [UInt8](repeating: 0, count: CMSG_SPACE(rawFDs.count * MemoryLayout<Int32>.size))
-
-            // Send the payload and descriptors together
             try payload.withUnsafeBytes { payloadPtr in
+                var iov = iovec(
+                    iov_base: UnsafeMutableRawPointer(mutating: payloadPtr.baseAddress),
+                    iov_len: payloadPtr.count
+                )
+
                 try control.withUnsafeMutableBytes { ctrlPtr in
                     try withUnsafeMutablePointer(to: &iov) { iovPtr in
                         var msg = msghdr(
@@ -169,12 +181,13 @@ public extension SocketDescriptor where Self: ~Copyable {
                         )
 
                         guard let cmsg = CMSG_FIRSTHDR(&msg) else {
-                            fatalError("CMSG_FIRSTHDR failed")
+                            throw POSIXError(.EINVAL)
                         }
 
                         cmsg.pointee.cmsg_level = SOL_SOCKET
-                        cmsg.pointee.cmsg_type = SCM_RIGHTS
-                        cmsg.pointee.cmsg_len = socklen_t(CMSG_LEN(rawFDs.count * MemoryLayout<Int32>.size))
+                        cmsg.pointee.cmsg_type  = SCM_RIGHTS
+                        cmsg.pointee.cmsg_len   =
+                            socklen_t(CMSG_LEN(rawFDs.count * MemoryLayout<Int32>.size))
 
                         let dataPtr = CMSG_DATA(cmsg).assumingMemoryBound(to: Int32.self)
                         for (i, fd) in rawFDs.enumerated() {
@@ -182,64 +195,75 @@ public extension SocketDescriptor where Self: ~Copyable {
                         }
 
                         let ret = Glibc.sendmsg(sockFD, &msg, 0)
-                        guard ret >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
+                        guard ret >= 0 else {
+                            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                        }
                     }
                 }
             }
         }
     }
 
-    func recvDescriptors(maxDescriptors: Int = 8, bufferSize: Int = 1) throws -> (Data, [Int32]) {
-        return try self.unsafe { sockFD in
-            var buffer = [UInt8](repeating: 0, count: bufferSize)
-            let controlLen = CMSG_SPACE(maxDescriptors * MemoryLayout<Int32>.size)
-            var control = [UInt8](repeating: 0, count: controlLen)
+    func recvDescriptors(
+        maxDescriptors: Int = 8,
+        bufferSize: Int = 1
+    ) throws -> (Data, [Int32]) {
 
-            var bytesRead = 0 // Store number of bytes read
+        try self.unsafe { sockFD in
+            var buffer  = [UInt8](repeating: 0, count: bufferSize)
+            var control = [UInt8](
+                repeating: 0,
+                count: CMSG_SPACE(maxDescriptors * MemoryLayout<Int32>.size)
+            )
 
-            // Make sure we return the number of bytes actually read
-            try buffer.withUnsafeMutableBytes { bufPtr in
-                try control.withUnsafeMutableBytes { ctrlPtr in
-                    // Define iov here to use it in the msghdr struct
-                    var iov = iovec(iov_base: bufPtr.baseAddress, iov_len: bufPtr.count)
+            var iov = iovec(
+                iov_base: &buffer,
+                iov_len: buffer.count
+            )
 
-                    try withUnsafeMutablePointer(to: &iov) { iovPtr in
-                        var msg = msghdr(
-                            msg_name: nil,
-                            msg_namelen: 0,
-                            msg_iov: iovPtr,
-                            msg_iovlen: 1,
-                            msg_control: ctrlPtr.baseAddress,
-                            msg_controllen: socklen_t(ctrlPtr.count),
-                            msg_flags: 0
-                        )
+            var msg = msghdr(
+                msg_name: nil,
+                msg_namelen: 0,
+                msg_iov: &iov,
+                msg_iovlen: 1,
+                msg_control: &control,
+                msg_controllen: socklen_t(control.count),
+                msg_flags: 0
+            )
 
-                        bytesRead = Glibc.recvmsg(sockFD, &msg, 0) // Capture bytes read here
-                        guard bytesRead >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno)!) }
-                    }
-                }
+            let bytesRead = Glibc.recvmsg(sockFD, &msg, 0)
+            guard bytesRead >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
             }
 
-            var fds: [Int32] = []
-            control.withUnsafeBytes { ctrlPtr in
-                var msg = msghdr()
-                msg.msg_control = UnsafeMutableRawPointer(mutating: ctrlPtr.baseAddress)
-                msg.msg_controllen = socklen_t(ctrlPtr.count)
-
-                var cmsg = CMSG_FIRSTHDR(&msg)
-                while let hdr = cmsg {
-                    if hdr.pointee.cmsg_level == SOL_SOCKET && hdr.pointee.cmsg_type == SCM_RIGHTS {
-                        let count = (Int(hdr.pointee.cmsg_len) - MemoryLayout<cmsghdr>.size) / MemoryLayout<Int32>.size
-                        let dataPtr = CMSG_DATA(hdr).assumingMemoryBound(to: Int32.self)
-                        for i in 0..<count {
-                            fds.append(dataPtr[i])
-                        }
-                    }
-                    cmsg = CMSG_NXTHDR(&msg, hdr)
-                }
+            if (msg.msg_flags & MSG_CTRUNC) != 0 {
+                throw POSIXError(.EMSGSIZE)
             }
 
-            return (Data(buffer.prefix(bytesRead)), fds)
+            var receivedFDs: [Int32] = []
+
+            var cmsg = CMSG_FIRSTHDR(&msg)
+            while let hdr = cmsg {
+                if hdr.pointee.cmsg_level == SOL_SOCKET &&
+                   hdr.pointee.cmsg_type  == SCM_RIGHTS {
+
+                    let dataLen =
+                        Int(hdr.pointee.cmsg_len) - CMSG_LEN(0)
+
+                    let count = dataLen / MemoryLayout<Int32>.size
+                    let dataPtr = CMSG_DATA(hdr).assumingMemoryBound(to: Int32.self)
+
+                    for i in 0..<count {
+                        receivedFDs.append(dataPtr[i])
+                    }
+                }
+                cmsg = CMSG_NXTHDR(&msg, hdr)
+            }
+
+            return (
+                Data(buffer.prefix(bytesRead)),
+                receivedFDs
+            )
         }
     }
 }
