@@ -33,7 +33,7 @@ public enum DescriptorKind: Sendable, Equatable, Hashable {
     case kqueue
     case socket // Done
     case pipe
-    case jail(own:Bool)
+    case jail(owning: Bool)
     case shm
     case event
     case unknown
