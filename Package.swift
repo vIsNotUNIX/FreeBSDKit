@@ -40,7 +40,6 @@ let package = Package(
     
     ],
     targets: [
-        // Reserved. See above.
         .target(
             name: "FreeBSDKit"
         ),
@@ -77,8 +76,12 @@ let package = Package(
             path: "Sources/CEventDescriptor"
         ),
         .target(
+            name: "CINotify",
+            path: "Sources/CINotify"
+        ),
+        .target(
             name: "Descriptors",
-            dependencies: ["Capsicum", "CProcessDescriptor", "CEventDescriptor", "CJails"]
+            dependencies: ["Capsicum", "CProcessDescriptor", "CEventDescriptor", "CJails", "CINotify"]
         ),
         .testTarget(
             name: "DescriptorsTests",

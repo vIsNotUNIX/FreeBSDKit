@@ -1,0 +1,4 @@
+module EventFD [system] {
+    header "/include/cinotify.h"
+    export *
+}
