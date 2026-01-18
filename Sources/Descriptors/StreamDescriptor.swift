@@ -27,8 +27,6 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-import Foundation
-
 /// An OptionSet for socket flags that can be used in `recv`/`send` operations
 public struct SocketFlags: OptionSet {
     public let rawValue: Int32

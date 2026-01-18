@@ -85,8 +85,6 @@ where RAWBSD == Int32 {
     var isCloseOnExec: Bool { get throws }
 }
 
-// MARK: - Default Implementations
-
 public extension Descriptor where Self: ~Copyable {
 
     /// Duplicate the descriptor using `dup(2)`.

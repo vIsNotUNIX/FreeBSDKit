@@ -270,6 +270,10 @@ public extension SocketDescriptor where Self: ~Copyable {
                             count: bytesRead
                         )
 
+                        #if os(FreeBSD)
+                            print("Running on FreeBSD")
+                        #endif
+
                         return (data, receivedFDs)
                     }
                 }

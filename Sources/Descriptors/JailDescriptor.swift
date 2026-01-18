@@ -178,7 +178,6 @@ public enum Jail {
                 return base.assumingMemoryBound(to: Int32.self).pointee
             }
         }
-
         fatalError("jail descriptor not returned by kernel")
     }
 }

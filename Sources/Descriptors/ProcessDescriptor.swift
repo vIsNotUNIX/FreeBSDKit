@@ -161,8 +161,7 @@ public extension ProcessDescriptor where Self: ~Copyable {
     }
 }
 
-// MARK: - Wait Status Decoding (macro-free)
-
+// Wait Status Decoding
 @inline(__always)
 private func decodeWaitStatus(_ status: Int32) -> ProcessExitStatus {
     let exitCode = (status >> 8) & 0xff

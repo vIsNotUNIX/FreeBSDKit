@@ -28,10 +28,10 @@ import Foundation
 import FreeBSDKit
 
 public enum DescriptorKind: Sendable, Equatable, Hashable {
-    case file // Done
-    case process // Done
+    case file
+    case process
     case kqueue
-    case socket // Done
+    case socket
     case pipe
     case jail(owning: Bool)
     case shm

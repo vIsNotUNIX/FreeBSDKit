@@ -49,8 +49,6 @@ public protocol WritableDescriptor: Descriptor, ~Copyable {
 
 public typealias ReadWriteDescriptor = ReadableDescriptor & WritableDescriptor
 
-// MARK: - Read Implementations
-
 public extension ReadableDescriptor where Self: ~Copyable {
 
     func read(maxBytes: Int) throws -> ReadResult {
@@ -94,8 +92,6 @@ public extension ReadableDescriptor where Self: ~Copyable {
         return result
     }
 }
-
-// MARK: - Write Implementations
 
 public extension WritableDescriptor where Self: ~Copyable {
 

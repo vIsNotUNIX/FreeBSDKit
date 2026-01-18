@@ -11,11 +11,6 @@ import FreeBSDKit
 // MARK: - Inotify Descriptor Protocol
 
 /// Capability interface for inotify descriptors.
-///
-/// This is a true BSD descriptor:
-/// - owns a file descriptor
-/// - participates in Descriptor / BSDResource
-/// - usable with poll, kqueue, capsicum, dup, etc.
 public protocol InotifyDescriptor: Descriptor, ~Copyable {
 
     func addWatch(path: String, mask: InotifyEventMask) throws -> InotifyWatch
