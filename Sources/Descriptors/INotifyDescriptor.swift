@@ -14,7 +14,8 @@ import FreeBSDKit
 public protocol InotifyDescriptor: Descriptor, ~Copyable {
 
     func addWatch(path: String, mask: InotifyEventMask) throws -> InotifyWatch
-    func addWatch(directoryFD: Int32, path: String, mask: InotifyEventMask) throws -> InotifyWatch
+    func addWatch<D: Descriptor>
+        (directory: D, path: String, mask: InotifyEventMask) throws -> InotifyWatch
     func removeWatch(_ watch: InotifyWatch) throws
     func readEvents(maxBytes: Int) throws -> [InotifyEvent]
 }
@@ -37,20 +38,29 @@ public extension InotifyDescriptor where Self: ~Copyable {
         }
     }
 
-    func addWatch(
-        directoryFD: Int32,
+    func addWatch<D: Descriptor>(
+        directory: D,
         path: String,
         mask: InotifyEventMask
     ) throws -> InotifyWatch {
 
-        try self.unsafe { fd in
-            let wd = path.withCString {
-                Glibc.inotify_add_watch_at(fd, directoryFD, $0, mask.rawBSD)
+        try self.unsafe { inotifyFD in
+            try directory.unsafe { dirFD in
+                let wd = path.withCString {
+                    Glibc.inotify_add_watch_at(
+                        inotifyFD,
+                        dirFD,
+                        $0,
+                        mask.rawBSD
+                    )
+                }
+
+                guard wd >= 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                }
+
+                return InotifyWatch(rawBSD: wd)
             }
-            guard wd >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
-            }
-            return InotifyWatch(rawBSD: wd)
         }
     }
 

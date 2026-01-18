@@ -227,8 +227,6 @@ public enum Jail {
         return SystemJailDescriptor(fd)
     }
 
-    // MARK: - Descriptor Extraction (contained unsafety)
-
     private static func extractDescFD(
         from iovecs: inout [iovec]
     ) -> Int32 {
