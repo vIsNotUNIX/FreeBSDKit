@@ -2,7 +2,7 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-public struct SignalDispatcher<KQ: KqueueDescriptor & ~Copyable>: ~Copyable {
+public struct KqueueSignalDispatcher<KQ: KqueueDescriptor & ~Copyable>: ~Copyable {
 
     private let kq: KQ
     private var pending: [BSDSignal] = []
