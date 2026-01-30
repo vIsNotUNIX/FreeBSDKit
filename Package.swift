@@ -52,6 +52,12 @@ let package = Package(
             path: "Sources/CJails"
         ),
         .target(
+            name: "Jails",
+            dependencies: ["CJails"],
+            path: "Sources/Jails"
+
+        ),
+        .target(
             name: "CEventDescriptor",
             path: "Sources/CEventDescriptor"
         ),
@@ -61,7 +67,11 @@ let package = Package(
         ),
         .target(
             name: "Descriptors",
-            dependencies: ["Capsicum", "CProcessDescriptor", "CEventDescriptor", "CJails", "CINotify"]
+            dependencies: [
+                "Capsicum", "CProcessDescriptor", 
+                "CEventDescriptor", "CJails", "Jails",
+                "CINotify"
+            ]
         ),
         .target(
             name: "Capabilities",
