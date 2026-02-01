@@ -43,6 +43,7 @@ public struct SocketFlags: OptionSet {
 }
 
 /// A generic stream descriptor (read/write)
+/// Useful when you don't want to hand full socket semantics just send/recv.
 public protocol StreamDescriptor: ReadWriteDescriptor, ~Copyable {
 
     /// Attempt a single send(2). May perform a partial write.

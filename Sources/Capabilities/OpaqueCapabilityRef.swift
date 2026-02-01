@@ -28,12 +28,6 @@ import Foundation
 import Descriptors
 
 /// Capability-aware opaque descriptor.
-///
-/// This subclass models **Capsicum state** explicitly and separately
-/// from the mechanical lifetime of the descriptor.
-///
-/// It does **not** enforce capability mode by itself —
-/// it only records and propagates capability intent.
 public final class CapableOpaqueDescriptorRef: OpaqueDescriptorRef, @unchecked Sendable {
 
     private var _capable: Bool
@@ -45,8 +39,6 @@ public final class CapableOpaqueDescriptorRef: OpaqueDescriptorRef, @unchecked S
     }
 
     /// Indicates whether this descriptor is considered Capsicum-capable.
-    ///
-    /// This is a **logical property**, not a kernel query.
     public var capable: Bool {
         get {
             capLock.lock()

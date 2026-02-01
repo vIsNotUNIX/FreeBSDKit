@@ -37,8 +37,6 @@ public struct CapsicumRightSet: BSDValue, Sendable {
     }
     private var rights: RAWBSD
 
-    // MARK: - Initializers
-
     /// Initializes an empty `CapsicumRightSet`.
     ///
     /// All rights are cleared initially. Use `add(capability:)` to add rights.
@@ -73,8 +71,6 @@ public struct CapsicumRightSet: BSDValue, Sendable {
         self.rights = other.rights
     }
 
-    // MARK: - Modifiers
-
     /// Adds a single capability to the set.
     ///
     /// - Parameter capability: The capability to add.
@@ -107,8 +103,6 @@ public struct CapsicumRightSet: BSDValue, Sendable {
         }
     }
 
-    // MARK: - Queries
-
     /// Checks whether the set contains a given capability.
     ///
     /// - Parameter capability: The capability to check for.
@@ -131,8 +125,6 @@ public struct CapsicumRightSet: BSDValue, Sendable {
         return contains
     }
 
-    // MARK: - Set Operations
-
     /// Merges rights from another `CapsicumRightSet` into this set.
     ///
     /// - Parameter other: The set of rights to merge.
@@ -150,8 +142,6 @@ public struct CapsicumRightSet: BSDValue, Sendable {
             _ = ccapsicum_rights_remove(&self.rights, otherRights)
         }
     }
-
-    // MARK: - Validation
 
     /// Validates that the rights set is well-formed.
     ///

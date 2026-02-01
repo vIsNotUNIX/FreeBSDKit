@@ -53,37 +53,37 @@ public extension Capability where Self: ~Copyable {
 
     func limit(rights: CapsicumRightSet) -> Bool {
         return self.unsafe { fd in
-            CapsicumRights.limit(fd: fd, rights: rights)
+            CapsicumHelper.limit(fd: fd, rights: rights)
         }
     }
 
     func limitStream(options: StreamLimitOptions) throws {
         try self.unsafe { fd in
-            try CapsicumRights.limitStream(fd: fd, options: options)
+            try CapsicumHelper.limitStream(fd: fd, options: options)
         }
     }
 
     func limitIoctls(commands: [IoctlCommand]) throws {
         try self.unsafe { fd in
-            try CapsicumRights.limitIoctls(fd: fd, commands: commands)
+            try CapsicumHelper.limitIoctls(fd: fd, commands: commands)
         }
     }
 
     func limitFcntls(rights: FcntlRights) throws {
         try self.unsafe { fd in
-            try CapsicumRights.limitFcntls(fd: fd, rights: rights)
+            try CapsicumHelper.limitFcntls(fd: fd, rights: rights)
         }
     }
 
     func getIoctls(maxCount: Int = 32) throws -> [IoctlCommand] {
         return try self.unsafe { fd in
-            try CapsicumRights.getIoctls(fd: fd, maxCount: maxCount)
+            try CapsicumHelper.getIoctls(fd: fd, maxCount: maxCount)
         }
     }
 
     func getFcntls() throws -> FcntlRights {
         return try self.unsafe { fd in
-            try CapsicumRights.getFcntls(fd: fd)
+            try CapsicumHelper.getFcntls(fd: fd)
         }
     }
 }

@@ -31,32 +31,21 @@ import FreeBSDKit
 
 public struct EventCapability: Capability, EventDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
-    private var fd: RAWBSD
+    private var handle: RawCapabilityHandle
 
-    public init(_ raw: RAWBSD) {
-        self.fd = raw
-    }
-
-    deinit {
-        if fd >= 0 {
-            Glibc.close(fd)
-        }
+    public init(_ value: RAWBSD) {
+        self.handle = RawCapabilityHandle(value)
     }
 
     public consuming func close() {
-        if fd >= 0 {
-            Glibc.close(fd)
-            fd = -1
-        }
+        handle.close()
     }
 
     public consuming func take() -> RAWBSD {
-        let raw = fd
-        fd = -1
-        return raw
+        return handle.take()
     }
 
-    public func unsafe<R>(_ block: (RAWBSD) throws -> R) rethrows -> R where R: ~Copyable {
-        return try block(fd)
+    public func unsafe<R>(_ block: (RAWBSD) throws -> R ) rethrows -> R where R: ~Copyable {
+        try handle.unsafe(block)
     }
 }

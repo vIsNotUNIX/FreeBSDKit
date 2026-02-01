@@ -66,6 +66,29 @@ public struct MappedRegion: ~Copyable {
         self.size = size
     }
 
+    init(
+        fd: Int32,
+        size: Int,
+        protection: ShmProtection,
+        flags: ShmMapFlags
+    ) throws {
+        let ptr = Glibc.mmap(
+            nil,
+            size,
+            protection.rawValue,
+            flags.rawValue,
+            fd,
+            0
+        )
+        
+        guard ptr != MAP_FAILED else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+        }
+
+        self.base = UnsafeRawPointer(ptr!)
+        self.size = size
+    }
+
     /// Unmap the region.
     consuming public func unmap() throws {
         let res = Glibc.munmap(
@@ -77,8 +100,6 @@ public struct MappedRegion: ~Copyable {
         }
     }
 }
-
-// MARK: - Shared Memory Descriptor
 
 /// A descriptor representing a POSIX shared memory object.
 public protocol SharedMemoryDescriptor: Descriptor, ~Copyable {
