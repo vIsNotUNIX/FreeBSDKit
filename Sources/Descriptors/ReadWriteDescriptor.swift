@@ -65,7 +65,7 @@ public extension ReadableDescriptor where Self: ~Copyable {
         }
 
         if n == -1 {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
 
         if n == 0 {
@@ -106,7 +106,7 @@ public extension WritableDescriptor where Self: ~Copyable {
             }
 
             if n == -1 {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
 
             return n
@@ -125,7 +125,7 @@ public extension WritableDescriptor where Self: ~Copyable {
                     )
                     if n == -1 {
                         if errno == EINTR { continue }
-                        throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                        throw  BSDError.throwErrno(errno)
                     }
                     offset += n
                 }

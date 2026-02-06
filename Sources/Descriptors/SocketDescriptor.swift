@@ -46,7 +46,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     func listen(backlog: Int32 = 128) throws {
         try self.unsafe { fd in
             guard Glibc.listen(fd, backlog) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -54,7 +54,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     func shutdown(how: Int32) throws {
         try self.unsafe { fd in
             guard Glibc.shutdown(fd, how) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -62,7 +62,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     static func socket(domain: Int32, type: Int32, proto: Int32) throws -> Self {
         let rawFD = Glibc.socket(domain, type, proto)
         guard rawFD >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
         return Self(rawFD)
     }
@@ -70,7 +70,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     func bind(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws {
         try self.unsafe { fd in
             guard Glibc.bind(fd, address, addrlen) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -79,7 +79,7 @@ public extension SocketDescriptor where Self: ~Copyable {
         return try self.unsafe { fd in
             let newFD = Glibc.accept(fd, nil, nil)
             guard newFD >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
             return Self(newFD)
         }
@@ -88,7 +88,7 @@ public extension SocketDescriptor where Self: ~Copyable {
     func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws {
         try self.unsafe { fd in
             guard Glibc.connect(fd, address, addrlen) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -194,7 +194,7 @@ public extension SocketDescriptor where Self: ~Copyable {
 
                         let ret = Glibc.sendmsg(sockFD, &msg, 0)
                         guard ret >= 0 else {
-                            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                            throw  BSDError.throwErrno(errno)
                         }
                     }
                 }
@@ -236,7 +236,7 @@ public extension SocketDescriptor where Self: ~Copyable {
 
                         let bytesRead = Glibc.recvmsg(sockFD, &msg, 0)
                         guard bytesRead >= 0 else {
-                            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                            throw  BSDError.throwErrno(errno)
                         }
 
                         if (msg.msg_flags & MSG_CTRUNC) != 0 {
@@ -290,7 +290,7 @@ public extension SocketDescriptor {
     ) throws -> (Self, Self) {
         var fds = [Int32](repeating: -1, count: 2)
         guard Glibc.socketpair(domain, type, proto, &fds) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
         return (Self(fds[0]), Self(fds[1]))
     }

@@ -77,9 +77,14 @@ public final class JailIOVector {
     public func addCString(
         _ name: String,
         value: String
-    ) {
-        let key = strdup(name)!
-        let val = strdup(value)!
+    ) throws {
+        guard let key = strdup(name) else {
+            try BSDError.throwErrno()
+        }
+        guard let val = strdup(value) else {
+            free(key)
+            try BSDError.throwErrno()
+        }
 
         storage.append(UnsafeMutableRawPointer(key))
         storage.append(UnsafeMutableRawPointer(val))
@@ -91,6 +96,7 @@ public final class JailIOVector {
             valueLen: strlen(val) + 1
         )
     }
+
 
     /// Adds a 32-bit signed integer jail parameter.
     ///
@@ -132,32 +138,40 @@ public final class JailIOVector {
         addScalar(name: name, value: v)
     }
 
-    /// Executes a closure with mutable access to the underlying `iovec` buffer.
+    /// Adds a scalar-valued jail parameter.
     ///
-    /// This method provides scoped mutable access required to invoke
-    /// `jail_set(2)` or `jail_get(2)` while preserving encapsulation of the
-    /// internal storage.
+    /// The parameter name is encoded as a NUL-terminated C string, and the scalar
+    /// value is copied into newly allocated memory using the native byte order and
+    /// width of `T`. The allocated buffers are retained internally and later passed
+    /// to `jail_set(2)` or `jail_get(2)`.
     ///
-    /// - Parameter body: A closure that receives a mutable buffer pointer to the
-    ///   `iovec` array.
-    /// - Returns: The value returned by `body`.
+    /// This method performs heap allocation and may fail if memory cannot be
+    /// allocated, in which case it throws a system error derived from `errno`.
     ///
-    /// - Important: Pointers obtained within `body` must not escape the closure.
-    public func withUnsafeMutableIOVecs<R>(
-        _ body: (inout UnsafeMutableBufferPointer<iovec>) throws -> R
-    ) rethrows -> R {
-        try iovecs.withUnsafeMutableBufferPointer(body)
-    }
-
+    /// - Parameters:
+    ///   - name: The jail parameter name.
+    ///   - value: The scalar value to associate with the parameter.
+    ///
+    /// - Throws: A `SystemError` if memory allocation fails.
+    ///
+    /// - Important: The memory allocated by this method is owned by the receiver
+    ///   and must be released by it at the appropriate time.
     private func addScalar<T>(
         name: String,
         value: T
-    ) where T: FixedWidthInteger {
+    ) throws where T: FixedWidthInteger {
 
-        let key = strdup(name)!
-        let val = malloc(MemoryLayout<T>.size)!
+        guard let key = strdup(name) else {
+            try throwErrno()
+        }
 
-        val.assumingMemoryBound(to: T.self).pointee = value
+        let size = MemoryLayout<T>.size
+        guard let val = malloc(size) else {
+            free(key)
+            try throwErrno()
+        }
+
+        val.storeBytes(of: value, as: T.self)
 
         storage.append(UnsafeMutableRawPointer(key))
         storage.append(val)
@@ -166,9 +180,10 @@ public final class JailIOVector {
             key: UnsafeMutableRawPointer(key),
             keyLen: strlen(key) + 1,
             value: val,
-            valueLen: MemoryLayout<T>.size
+            valueLen: size
         )
     }
+
 
     @inline(__always)
     private func appendPair(

@@ -43,7 +43,7 @@ public extension FileDescriptor where Self: ~Copyable {
                 let pos = Glibc.lseek(fd, offset, whence)
                 if pos != -1 { return pos }
                 if errno == EINTR { continue }
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -63,7 +63,7 @@ public extension FileDescriptor where Self: ~Copyable {
         }
 
         if n == -1 {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
 
         buffer.removeSubrange(n..<buffer.count)
@@ -82,7 +82,7 @@ public extension FileDescriptor where Self: ~Copyable {
             }
 
             if n == -1 {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
 
             return n
@@ -95,7 +95,7 @@ public extension FileDescriptor where Self: ~Copyable {
                 let r = Glibc.ftruncate(fd, length)
                 if r == 0 { return }
                 if errno == EINTR { continue }
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -106,7 +106,7 @@ public extension FileDescriptor where Self: ~Copyable {
                 let r = Glibc.fsync(fd)
                 if r == 0 { return }
                 if errno == EINTR { continue }
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }

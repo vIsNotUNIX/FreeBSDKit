@@ -36,7 +36,7 @@ public struct PipePair: ~Copyable {
         var fds: [Int32] = [ -1, -1 ]
         let res = Glibc.pipe(&fds)
         guard res == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
         return PipePair(
             read: PipeReadCapability(fds[0]), 

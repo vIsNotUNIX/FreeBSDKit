@@ -68,7 +68,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
     static func makeKqueue() throws -> Self {
         let raw = Glibc.kqueue()
         guard raw >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
         return Self(raw)
     }
@@ -120,7 +120,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
             }
 
             guard result >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
             return Int(result)
         }

@@ -110,7 +110,7 @@ public extension ProcessDescriptor where Self: ~Copyable {
         let pid = pdfork(&fd, flags.rawValue)
 
         guard pid >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
 
         if pid == 0 {
@@ -136,7 +136,7 @@ public extension ProcessDescriptor where Self: ~Copyable {
 
         let ret = wait4(pid, &status, 0, &rusage)
         guard ret >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+            throw  BSDError.throwErrno(errno)
         }
 
         return decodeWaitStatus(status)
@@ -145,7 +145,7 @@ public extension ProcessDescriptor where Self: ~Copyable {
     func kill(signal: BSDSignal) throws {
         try self.unsafe { fd in
             guard pdkill(fd, signal.rawValue) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -154,7 +154,7 @@ public extension ProcessDescriptor where Self: ~Copyable {
         try self.unsafe { fd in
             var pid: pid_t = 0
             guard pdgetpid(fd, &pid) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
             return pid
         }

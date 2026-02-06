@@ -32,7 +32,7 @@ public extension InotifyDescriptor where Self: ~Copyable {
                 Glibc.inotify_add_watch(fd, $0, mask.rawBSD)
             }
             guard wd >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
             return InotifyWatch(rawBSD: wd)
         }
@@ -56,7 +56,7 @@ public extension InotifyDescriptor where Self: ~Copyable {
                 }
 
                 guard wd >= 0 else {
-                    throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                    throw  BSDError.throwErrno(errno)
                 }
 
                 return InotifyWatch(rawBSD: wd)
@@ -67,7 +67,7 @@ public extension InotifyDescriptor where Self: ~Copyable {
     func removeWatch(_ watch: InotifyWatch) throws {
         try self.unsafe { fd in
             guard Glibc.inotify_rm_watch(fd, watch.rawBSD) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
         }
     }
@@ -82,7 +82,7 @@ public extension InotifyDescriptor where Self: ~Copyable {
             }
 
             guard n >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno)!)
+                throw  BSDError.throwErrno(errno)
             }
 
             var events: [InotifyEvent] = []

@@ -92,7 +92,7 @@ public struct KqueueSignalDispatcher<KQ: KqueueDescriptor & ~Copyable>: ~Copyabl
                         }
 
                         guard n32 >= 0 else {
-                            throw POSIXError(.init(rawValue: errno)!)
+                           throw BSDErrno.throwErrno(errno)
                         }
 
                         let n = Int(n32)
