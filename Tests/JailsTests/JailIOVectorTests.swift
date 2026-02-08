@@ -9,25 +9,25 @@ final class JailIOVectorTests: XCTestCase {
         XCTAssertEqual(iov.iovecs.count, 0)
     }
 
-    func testPairsAreAlwaysEven() {
+    func testPairsAreAlwaysEven() throws {
         let iov = JailIOVector()
-        iov.addCString("name", value: "test")
+        try iov.addCString("name", value: "test")
         XCTAssertEqual(iov.iovecs.count % 2, 0)
 
-        iov.addInt32("jid", 42)
+        try iov.addInt32("jid", 42)
         XCTAssertEqual(iov.iovecs.count % 2, 0)
     }
 
-    func testAddCStringProducesTwoIOVecs() {
+    func testAddCStringProducesTwoIOVecs() throws {
         let iov = JailIOVector()
-        iov.addCString("name", value: "testjail")
+        try iov.addCString("name", value: "testjail")
 
         XCTAssertEqual(iov.iovecs.count, 2)
     }
 
-    func testCStringKeyAndValueAreCorrect() {
+    func testCStringKeyAndValueAreCorrect() throws {
         let iov = JailIOVector()
-        iov.addCString("name", value: "test")
+        try iov.addCString("name", value: "test")
 
         let key = iov.iovecs[0]
         let val = iov.iovecs[1]
@@ -42,17 +42,17 @@ final class JailIOVectorTests: XCTestCase {
         )
     }
 
-    func testCStringLengthsIncludeNullTerminator() {
+    func testCStringLengthsIncludeNullTerminator() throws {
         let iov = JailIOVector()
-        iov.addCString("abc", value: "xyz")
+        try iov.addCString("abc", value: "xyz")
 
         XCTAssertEqual(iov.iovecs[0].iov_len, 4) // "abc\0"
         XCTAssertEqual(iov.iovecs[1].iov_len, 4) // "xyz\0"
     }
 
-    func testAddInt32Layout() {
+    func testAddInt32Layout() throws {
         let iov = JailIOVector()
-        iov.addInt32("jid", 123)
+        try iov.addInt32("jid", 123)
 
         let value = iov.iovecs[1]
 
@@ -63,9 +63,9 @@ final class JailIOVectorTests: XCTestCase {
         )
     }
 
-    func testAddUInt32Layout() {
+    func testAddUInt32Layout() throws {
         let iov = JailIOVector()
-        iov.addUInt32("flags", 0xdeadbeef)
+        try iov.addUInt32("flags", 0xdeadbeef)
 
         let value = iov.iovecs[1]
 
@@ -76,9 +76,9 @@ final class JailIOVectorTests: XCTestCase {
         )
     }
 
-    func testAddInt64Layout() {
+    func testAddInt64Layout() throws {
         let iov = JailIOVector()
-        iov.addInt64("hostid", 0x1122334455667788)
+        try iov.addInt64("hostid", 0x1122334455667788)
 
         let value = iov.iovecs[1]
 
@@ -89,27 +89,27 @@ final class JailIOVectorTests: XCTestCase {
         )
     }
 
-    func testBoolTrueEncodesAsOne() {
+    func testBoolTrueEncodesAsOne() throws {
         let iov = JailIOVector()
-        iov.addBool("persist", true)
+        try iov.addBool("persist", true)
 
         let value = iov.iovecs[1]
         XCTAssertEqual(value.iov_len, MemoryLayout<Int32>.size)
         XCTAssertEqual(value.iov_base!.load(as: Int32.self), 1)
     }
 
-    func testBoolFalseEncodesAsZero() {
+    func testBoolFalseEncodesAsZero() throws {
         let iov = JailIOVector()
-        iov.addBool("persist", false)
+        try iov.addBool("persist", false)
 
         let value = iov.iovecs[1]
         XCTAssertEqual(value.iov_base!.load(as: Int32.self), 0)
     }
 
-    func testKeyValueOrdering() {
+    func testKeyValueOrdering() throws {
         let iov = JailIOVector()
-        iov.addCString("name", value: "a")
-        iov.addInt32("jid", 1)
+        try iov.addCString("name", value: "a")
+        try iov.addInt32("jid", 1)
 
         let key1 = String(cString: iov.iovecs[0].iov_base!.assumingMemoryBound(to: CChar.self))
         let key2 = String(cString: iov.iovecs[2].iov_base!.assumingMemoryBound(to: CChar.self))
@@ -118,9 +118,9 @@ final class JailIOVectorTests: XCTestCase {
         XCTAssertEqual(key2, "jid")
     }
 
-    func testWithUnsafeMutableIOVecsProvidesMutableAccess() {
+    func testWithUnsafeMutableIOVecsProvidesMutableAccess() throws {
         let iov = JailIOVector()
-        iov.addInt32("jid", 10)
+        try iov.addInt32("jid", 10)
 
         let rc: Int32 = iov.withUnsafeMutableIOVecs { buf in
             XCTAssertEqual(buf.count, 2)

@@ -78,7 +78,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
         }
 
         if pthread_sigmask(SIG_BLOCK, &mask, nil) != 0 {
-           throw BSDErrno.throwErrno(errno)
+           try BSDError.throwErrno(errno)
         }
     }
 
@@ -105,7 +105,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
                         }
 
                         guard count32 >= 0 else {
-                           throw BSDErrno.throwErrno(errno)
+                           try BSDError.throwErrno(errno)
                         }
 
                         let count = Int(count32)

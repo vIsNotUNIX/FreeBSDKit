@@ -82,7 +82,7 @@ public struct MappedRegion: ~Copyable {
         )
         
         guard ptr != MAP_FAILED else {
-            throw  BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
 
         self.base = UnsafeRawPointer(ptr!)
@@ -96,7 +96,7 @@ public struct MappedRegion: ~Copyable {
             size
         )
         guard res == 0 else {
-            throw  BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
     }
 }
@@ -138,7 +138,7 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
             Glibc.shm_open(ptr, oflag, mode)
         }
         guard fd >= 0 else {
-            throw  BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
         return Self(fd)
     }
@@ -148,14 +148,14 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
             Glibc.shm_unlink(ptr)
         }
         guard res == 0 else {
-            throw  BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
     }
 
     func setSize(_ size: Int) throws {
         try self.unsafe { fd in
             guard Glibc.ftruncate(fd, off_t(size)) == 0 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
         }
     }
@@ -176,7 +176,7 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
             )
 
             guard ptr != MAP_FAILED else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
 
             return MappedRegion(

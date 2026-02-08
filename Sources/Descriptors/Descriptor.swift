@@ -97,7 +97,7 @@ public extension Descriptor where Self: ~Copyable {
         try self.unsafe { fd in
             let newFD = Glibc.dup(fd)
             guard newFD >= 0 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
             return Self(newFD)
         }
@@ -107,7 +107,7 @@ public extension Descriptor where Self: ~Copyable {
         try self.unsafe { fd in
             var st = Glibc.stat()
             guard Glibc.fstat(fd, &st) == 0 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
             return st
         }
@@ -117,7 +117,7 @@ public extension Descriptor where Self: ~Copyable {
         try self.unsafe { fd in
             let flags = Glibc.fcntl(fd, F_GETFL)
             guard flags != -1 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
             return FileStatusFlags(rawValue: flags)
         }
@@ -126,7 +126,7 @@ public extension Descriptor where Self: ~Copyable {
     func setStatusFlags(_ flags: FileStatusFlags) throws {
         try self.unsafe { fd in
             guard Glibc.fcntl(fd, F_SETFL, flags.rawValue) != -1 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
         }
     }
@@ -135,7 +135,7 @@ public extension Descriptor where Self: ~Copyable {
         try self.unsafe { fd in
             var flags = Glibc.fcntl(fd, F_GETFD)
             guard flags != -1 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
 
             if enabled {
@@ -145,7 +145,7 @@ public extension Descriptor where Self: ~Copyable {
             }
 
             guard Glibc.fcntl(fd, F_SETFD, flags) != -1 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
         }
     }
@@ -155,7 +155,7 @@ public extension Descriptor where Self: ~Copyable {
             try self.unsafe { fd in
                 let flags = Glibc.fcntl(fd, F_GETFD)
                 guard flags != -1 else {
-                    throw  BSDError.throwErrno(errno)
+                    try BSDError.throwErrno(errno)
                 }
                 return (flags & FD_CLOEXEC) != 0
             }

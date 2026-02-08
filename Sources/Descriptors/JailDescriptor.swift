@@ -35,7 +35,7 @@ public extension JailDescriptor where Self: ~Copyable {
     func attach() throws {
         try self.unsafe { fd in
             guard jail_attach_jd(fd) == 0 else {
-               throw BSDErrno.throwErrno(errno)
+               try BSDError.throwErrno(errno)
             }
         }
     }
@@ -43,7 +43,7 @@ public extension JailDescriptor where Self: ~Copyable {
     func remove() throws {
         try self.unsafe { fd in
             guard jail_remove_jd(fd) == 0 else {
-               throw BSDErrno.throwErrno(errno)
+               try BSDError.throwErrno(errno)
             }
         }
     }
@@ -88,7 +88,7 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
         }
 
         guard jid >= 0 else {
-           throw BSDErrno.throwErrno(errno)
+           try BSDError.throwErrno(errno)
         }
 
         let fd = try extractDescFD(from: &iov)
@@ -107,7 +107,7 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
         }
 
         guard jid >= 0 else {
-           throw BSDErrno.throwErrno(errno)
+           try BSDError.throwErrno(errno)
         }
 
         let fd = try extractDescFD(from: &iov)

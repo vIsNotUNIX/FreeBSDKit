@@ -24,6 +24,7 @@
  */
 
 import CJails
+import FreeBSDKit
 import Glibc
 
 /// A safe builder for `iovec` arrays used with `jail_set(2)` and `jail_get(2)`.
@@ -103,8 +104,8 @@ public final class JailIOVector {
     /// - Parameters:
     ///   - name: The jail parameter name.
     ///   - value: The `Int32` value to associate with the parameter.
-    public func addInt32(_ name: String, _ value: Int32) {
-        addScalar(name: name, value: value)
+    public func addInt32(_ name: String, _ value: Int32) throws {
+        try addScalar(name: name, value: value)
     }
 
     /// Adds a 32-bit unsigned integer jail parameter.
@@ -112,8 +113,8 @@ public final class JailIOVector {
     /// - Parameters:
     ///   - name: The jail parameter name.
     ///   - value: The `UInt32` value to associate with the parameter.
-    public func addUInt32(_ name: String, _ value: UInt32) {
-        addScalar(name: name, value: value)
+    public func addUInt32(_ name: String, _ value: UInt32) throws {
+        try addScalar(name: name, value: value)
     }
 
     /// Adds a 64-bit signed integer jail parameter.
@@ -121,8 +122,8 @@ public final class JailIOVector {
     /// - Parameters:
     ///   - name: The jail parameter name.
     ///   - value: The `Int64` value to associate with the parameter.
-    public func addInt64(_ name: String, _ value: Int64) {
-        addScalar(name: name, value: value)
+    public func addInt64(_ name: String, _ value: Int64) throws {
+        try addScalar(name: name, value: value)
     }
 
     /// Adds a Boolean jail parameter.
@@ -133,9 +134,9 @@ public final class JailIOVector {
     /// - Parameters:
     ///   - name: The jail parameter name.
     ///   - value: The Boolean value to associate with the parameter.
-    public func addBool(_ name: String, _ value: Bool) {
+    public func addBool(_ name: String, _ value: Bool) throws {
         let v: Int32 = value ? 1 : 0
-        addScalar(name: name, value: v)
+        try addScalar(name: name, value: v)
     }
 
     /// Adds a scalar-valued jail parameter.
@@ -162,13 +163,13 @@ public final class JailIOVector {
     ) throws where T: FixedWidthInteger {
 
         guard let key = strdup(name) else {
-            try throwErrno()
+            try BSDError.throwErrno()
         }
 
         let size = MemoryLayout<T>.size
         guard let val = malloc(size) else {
             free(key)
-            try throwErrno()
+            try BSDError.throwErrno()
         }
 
         val.storeBytes(of: value, as: T.self)
@@ -184,6 +185,17 @@ public final class JailIOVector {
         )
     }
 
+    /// Provides unsafe mutable access to the underlying `iovec` array.
+    ///
+    /// - Parameter body: A closure that takes an `UnsafeMutableBufferPointer<iovec>`.
+    /// - Returns: The value returned by the closure.
+    public func withUnsafeMutableIOVecs<R>(
+        _ body: (UnsafeMutableBufferPointer<iovec>) throws -> R
+    ) rethrows -> R {
+        return try iovecs.withUnsafeMutableBufferPointer { buf in
+            try body(buf)
+        }
+    }
 
     @inline(__always)
     private func appendPair(

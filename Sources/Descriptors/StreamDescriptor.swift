@@ -73,7 +73,7 @@ public extension StreamDescriptor where Self: ~Copyable {
             }
             if sent == -1 {
                 if errno == EINTR { return 0 }
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
             return sent
         }
@@ -92,7 +92,7 @@ public extension StreamDescriptor where Self: ~Copyable {
                     )
                     if n == -1 {
                         if errno == EINTR { continue }
-                        throw  BSDError.throwErrno(errno)
+                        try BSDError.throwErrno(errno)
                     }
                     offset += n
                 }
@@ -111,7 +111,7 @@ public extension StreamDescriptor where Self: ~Copyable {
 
         if n == -1 {
             if errno == EINTR { return .data(Data()) }
-            throw BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
 
         if n == 0 {

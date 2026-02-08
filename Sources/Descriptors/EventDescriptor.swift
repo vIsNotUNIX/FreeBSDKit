@@ -24,6 +24,7 @@
  */
 
 import Foundation
+import FreeBSDKit
 import CEventDescriptor
 
 /// Flags passed to eventfd().
@@ -58,7 +59,7 @@ public extension EventDescriptor where Self: ~Copyable {
     static func eventfd(initValue: UInt32, flags: EventFDFlags) throws -> Self {
         let fd = CEventDescriptor.eventfd(initValue, flags.rawValue)
         guard fd >= 0 else {
-            throw  BSDError.throwErrno(errno)
+            try BSDError.throwErrno(errno)
         }
         return Self(fd)
     }
@@ -66,7 +67,7 @@ public extension EventDescriptor where Self: ~Copyable {
     func write(_ value: UInt64) throws {
         try self.unsafe { fd in
             guard eventfd_write(fd, value) == 0 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
         }
     }
@@ -75,7 +76,7 @@ public extension EventDescriptor where Self: ~Copyable {
         var val: UInt64 = 0
         try self.unsafe { fd in
             guard eventfd_read(fd, &val) == 0 else {
-                throw  BSDError.throwErrno(errno)
+                try BSDError.throwErrno(errno)
             }
         }
         return val
