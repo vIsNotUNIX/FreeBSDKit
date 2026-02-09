@@ -13,9 +13,9 @@ final class SocketDescriptorTests: XCTestCase {
 
     func testCreateSocket() throws {
         let sock = try SystemSocketDescriptor.socket(
-            domain: AF_INET,
-            type: SOCK_STREAM,
-            proto: 0
+            domain: .inet,
+            type: .stream,
+            protocol: .default
         )
         defer { sock.close() }
 
@@ -26,9 +26,9 @@ final class SocketDescriptorTests: XCTestCase {
 
     func testBindAndListen() throws {
         let sock = try SystemSocketDescriptor.socket(
-            domain: AF_INET,
-            type: SOCK_STREAM,
-            proto: 0
+            domain: .inet,
+            type: .stream,
+            protocol: .default
         )
         defer { sock.close() }
 
@@ -38,29 +38,24 @@ final class SocketDescriptorTests: XCTestCase {
             setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, socklen_t(MemoryLayout<Int32>.size))
         }
 
-        // Bind to localhost with automatic port assignment
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = 0  // Let OS assign port
-        addr.sin_addr.s_addr = INADDR_ANY
-
-        try withUnsafePointer(to: &addr) { ptr in
-            try ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                try sock.bind(address: sockaddrPtr, addrlen: socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
+        // Bind to localhost with automatic port assignment (port 0 = any available port)
+        let addr = IPv4SocketAddress(port: 0)
+        try sock.bind(address: addr)
 
         // Listen should not throw
         try sock.listen(backlog: 5)
     }
 
     func testSocketPair() throws {
-        var fds: [Int32] = [0, 0]
-        let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
-        XCTAssertEqual(result, 0, "socketpair() failed")
-
-        let sock1 = SystemSocketDescriptor(fds[0])
-        let sock2 = SystemSocketDescriptor(fds[1])
+        let (sock1, sock2) = try SystemSocketDescriptor.socketPair(
+            domain: .unix,
+            type: .stream,
+            protocol: .default
+        )
+        defer {
+            sock1.close()
+            sock2.close()
+        }
 
         // Send data through sock1
         let testData = "Hello, Socket!".data(using: .utf8)!
@@ -74,21 +69,21 @@ final class SocketDescriptorTests: XCTestCase {
         } else {
             XCTFail("Expected data, got EOF")
         }
-
-        sock1.close()
-        sock2.close()
     }
 
     func testShutdown() throws {
-        var fds: [Int32] = [0, 0]
-        let pairResult = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
-        XCTAssertEqual(pairResult, 0, "socketpair() failed")
-
-        let sock1 = SystemSocketDescriptor(fds[0])
-        let sock2 = SystemSocketDescriptor(fds[1])
+        let (sock1, sock2) = try SystemSocketDescriptor.socketPair(
+            domain: .unix,
+            type: .stream,
+            protocol: .default
+        )
+        defer {
+            sock1.close()
+            sock2.close()
+        }
 
         // Shutdown write on sock1
-        try sock1.shutdown(how: Int32(SHUT_WR.rawValue))
+        try sock1.shutdown(how: .write)
 
         // sock2 should be able to read EOF
         let recvResult = try sock2.recv(maxBytes: 100, flags: [])
@@ -97,9 +92,6 @@ final class SocketDescriptorTests: XCTestCase {
         } else {
             XCTFail("Expected EOF after shutdown")
         }
-
-        sock1.close()
-        sock2.close()
     }
 }
 

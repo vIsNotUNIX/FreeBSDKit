@@ -8,14 +8,14 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
-// TODO: Rework this to not expose the RawSocketTypes
+/// Socket descriptor protocol providing network communication capabilities
 public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
-    static func socket(domain: Int32, type: Int32, proto: Int32) throws -> Self
-    func bind(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
+    static func socket(domain: SocketDomain, type: SocketType, protocol: SocketProtocol) throws -> Self
+    func bind(address: SocketAddress) throws
     func listen(backlog: Int32) throws
     func accept() throws -> Self
-    func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws
-    func shutdown(how: Int32) throws
+    func connect(address: SocketAddress) throws
+    func shutdown(how: SocketShutdown) throws
     func sendDescriptors(_ descriptors: [OpaqueDescriptorRef], payload: Data) throws
     func recvDescriptors(maxDescriptors: Int, bufferSize: Int) throws -> (Data, [OpaqueDescriptorRef])
 }
@@ -31,27 +31,29 @@ public extension SocketDescriptor where Self: ~Copyable {
             }
         }
     }
-     // TODO: OptionSet the how
-    func shutdown(how: Int32) throws {
+
+    func shutdown(how: SocketShutdown) throws {
         try self.unsafe { fd in
-            guard Glibc.shutdown(fd, how) == 0 else {
+            guard Glibc.shutdown(fd, how.rawValue) == 0 else {
                 try BSDError.throwErrno(errno)
             }
         }
     }
-    // TODO: OptionSet this
-    static func socket(domain: Int32, type: Int32, proto: Int32) throws -> Self {
-        let rawFD = Glibc.socket(domain, type, proto)
+
+    static func socket(domain: SocketDomain, type: SocketType, protocol: SocketProtocol) throws -> Self {
+        let rawFD = Glibc.socket(domain.rawValue, type.rawValue, `protocol`.rawValue)
         guard rawFD >= 0 else {
             try BSDError.throwErrno(errno)
         }
         return Self(rawFD)
     }
 
-    func bind(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws {
+    func bind(address: SocketAddress) throws {
         try self.unsafe { fd in
-            guard Glibc.bind(fd, address, addrlen) == 0 else {
-                try BSDError.throwErrno(errno)
+            try address.withSockAddr { addr, len in
+                guard Glibc.bind(fd, addr, len) == 0 else {
+                    try BSDError.throwErrno(errno)
+                }
             }
         }
     }
@@ -66,10 +68,12 @@ public extension SocketDescriptor where Self: ~Copyable {
         }
     }
 
-    func connect(address: UnsafePointer<sockaddr>, addrlen: socklen_t) throws {
+    func connect(address: SocketAddress) throws {
         try self.unsafe { fd in
-            guard Glibc.connect(fd, address, addrlen) == 0 else {
-                try BSDError.throwErrno(errno)
+            try address.withSockAddr { addr, len in
+                guard Glibc.connect(fd, addr, len) == 0 else {
+                    try BSDError.throwErrno(errno)
+                }
             }
         }
     }
@@ -265,12 +269,12 @@ public extension SocketDescriptor where Self: ~Copyable {
 
 public extension SocketDescriptor {
     static func socketPair(
-        domain: Int32,
-        type: Int32,
-        proto: Int32
+        domain: SocketDomain,
+        type: SocketType,
+        protocol: SocketProtocol = .default
     ) throws -> (Self, Self) {
         var fds = [Int32](repeating: -1, count: 2)
-        guard Glibc.socketpair(domain, type, proto, &fds) == 0 else {
+        guard Glibc.socketpair(domain.rawValue, type.rawValue, `protocol`.rawValue, &fds) == 0 else {
             try BSDError.throwErrno(errno)
         }
         return (Self(fds[0]), Self(fds[1]))
