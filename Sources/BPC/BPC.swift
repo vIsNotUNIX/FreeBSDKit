@@ -100,34 +100,57 @@ public actor BPCConnection {
     }
 
     /// Sends a message over the connection.
-    public func send(_ envelope: MessageEnvelope) throws {
+    public func send(_ envelope: MessageEnvelope) async throws {
         guard isActive else {
             throw BPCError.connectionClosed
         }
 
-        // Wire format (single-call protocol using sendmsg):
-        //   [descriptor count: UInt8]
-        //   [messageType length: UInt32]
-        //   [payload length: UInt32]
-        //   [messageType: UTF8 bytes]
-        //   [payload: bytes]
-        //   [descriptors via control message if count > 0]
-
-        // Build complete payload: header (9 bytes) + data
-        var completePayload = Data()
-        let descriptorCount = UInt8(min(envelope.descriptors.count, 255))
-        completePayload.append(descriptorCount)
+        // Wire format:
+        //   Fixed header (256 bytes):
+        //     [payloadLength: UInt32]         // 4 bytes at offset 0
+        //     [messageTypeLength: UInt16]     // 2 bytes at offset 4
+        //     [descriptorCount: UInt8]        // 1 byte at offset 6
+        //     [version: UInt8]                // 1 byte at offset 7
+        //     [messageType: char[248]]        // 248 bytes at offset 8
+        //   Payload:
+        //     [payload: bytes]
+        //   Fixed trailer (256 bytes):
+        //     [reserved: char[256]]           // Reserved for future use
+        //   Descriptors via control message (if count > 0)
 
         let messageTypeData = Data(envelope.messageType.utf8)
-        var messageTypeLength = UInt32(messageTypeData.count).bigEndian
-        completePayload.append(Data(bytes: &messageTypeLength, count: 4))
+        guard messageTypeData.count <= 248 else {
+            throw BPCError.messageTypeTooLong
+        }
 
+        // Build fixed 256-byte header
+        var header = Data(count: 256)
+
+        // payloadLength: UInt32 at offset 0
         var payloadLength = UInt32(envelope.payload.count).bigEndian
-        completePayload.append(Data(bytes: &payloadLength, count: 4))
+        header.replaceSubrange(0..<4, with: Data(bytes: &payloadLength, count: 4))
 
-        // Append data
-        completePayload.append(messageTypeData)
+        // messageTypeLength: UInt16 at offset 4
+        var messageTypeLength = UInt16(messageTypeData.count).bigEndian
+        header.replaceSubrange(4..<6, with: Data(bytes: &messageTypeLength, count: 2))
+
+        // descriptorCount: UInt8 at offset 6
+        let descriptorCount = UInt8(min(envelope.descriptors.count, 255))
+        header[6] = descriptorCount
+
+        // version: UInt8 at offset 7
+        header[7] = 0  // Protocol version 0
+
+        // messageType: char[248] at offset 8
+        header.replaceSubrange(8..<(8 + messageTypeData.count), with: messageTypeData)
+
+        // Build complete payload: fixed header + payload + fixed trailer
+        var completePayload = header
         completePayload.append(envelope.payload)
+
+        // Append fixed 256-byte trailer (reserved for future use)
+        let trailer = Data(count: 256)
+        completePayload.append(trailer)
 
         // Send everything in a single sendmsg call (works with or without descriptors)
         try socketHolder.withSocket { socket in
@@ -137,7 +160,7 @@ public actor BPCConnection {
 
     /// Send a message and wait for a response
     public func sendAndReceive(_ envelope: MessageEnvelope) async throws -> MessageEnvelope {
-        try send(envelope)
+        try await send(envelope)
         return try await receive()
     }
 
@@ -148,30 +171,47 @@ public actor BPCConnection {
         }
 
         return try socketHolder.withSocket { socket in
-            // Receive everything in a single recvmsg call (header + data + descriptors)
-            // Use a reasonable buffer size (1MB) that should handle most messages
-            let maxBufferSize = 1024 * 1024
+            // Receive everything in a single recvmsg call (fixed header + payload + trailer + descriptors)
+            // Max buffer: 256-byte header + up to 1MB payload + 256-byte trailer
+            let maxBufferSize = 256 + (1024 * 1024) + 256
             let (completeData, descriptors) = try socket.recvDescriptors(
-                maxDescriptors: 255,  // Max descriptor count from header
+                maxDescriptors: 255,  // Max descriptor count
                 bufferSize: maxBufferSize
             )
 
-            // Parse header from the first 9 bytes
-            guard completeData.count >= 9 else {
+            // Parse fixed 256-byte header
+            guard completeData.count >= 256 else {
                 throw BPCError.invalidMessageFormat
             }
 
-            let descriptorCount = completeData[0]
-
-            // Copy to aligned buffers to avoid alignment issues
-            var messageTypeLengthBytes = Data(completeData[1..<5])
-            let messageTypeLength = messageTypeLengthBytes.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
-
-            var payloadLengthBytes = Data(completeData[5..<9])
+            // payloadLength: UInt32 at offset 0
+            let payloadLengthBytes = Data(completeData[0..<4])
             let payloadLength = payloadLengthBytes.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
 
-            // Calculate expected total size
-            let expectedTotalSize = 9 + Int(messageTypeLength) + Int(payloadLength)
+            // messageTypeLength: UInt16 at offset 4
+            let messageTypeLengthBytes = Data(completeData[4..<6])
+            let messageTypeLength = messageTypeLengthBytes.withUnsafeBytes { $0.load(as: UInt16.self).bigEndian }
+
+            // descriptorCount: UInt8 at offset 6
+            let descriptorCount = completeData[6]
+
+            // version: UInt8 at offset 7
+            let version = completeData[7]
+            guard version == 0 else {
+                throw BPCError.unsupportedVersion(version)
+            }
+
+            // messageType: char[248] at offset 8
+            guard messageTypeLength <= 248 else {
+                throw BPCError.invalidMessageFormat
+            }
+            let messageTypeData = completeData[8..<(8 + Int(messageTypeLength))]
+            guard let messageType = String(data: messageTypeData, encoding: .utf8) else {
+                throw BPCError.invalidMessageFormat
+            }
+
+            // Calculate expected total size: 256-byte header + payload + 256-byte trailer
+            let expectedTotalSize = 256 + Int(payloadLength) + 256
             guard completeData.count == expectedTotalSize else {
                 throw BPCError.invalidMessageFormat
             }
@@ -181,20 +221,20 @@ public actor BPCConnection {
                 throw BPCError.invalidMessageFormat
             }
 
-            // Parse the message type and payload from the data after header
-            let wireData = completeData[9...]
-            let messageTypeData = wireData.prefix(Int(messageTypeLength))
-            guard let messageType = String(data: messageTypeData, encoding: .utf8) else {
-                throw BPCError.invalidMessageFormat
-            }
+            // Extract payload (between header and trailer)
+            // Payload starts at offset 256, length is payloadLength
+            let payloadStart = 256
+            let payloadEnd = payloadStart + Int(payloadLength)
+            let payload = completeData[payloadStart..<payloadEnd]
 
-            let payload = wireData.dropFirst(Int(messageTypeLength))
+            // Trailer starts at payloadEnd and is 256 bytes (reserved for future use)
+            // let trailer = completeData[payloadEnd..<(payloadEnd + 256)]
 
             return MessageEnvelope(payload: Data(payload), messageType: messageType, descriptors: descriptors)
         } ?? { throw BPCError.connectionClosed }()
     }
 
-    /// Connect to a Unix domain socket
+    /// Connect.
     public static func connect(path: String) throws -> Self {
         let socket = try SocketCapability.socket(
             domain: .unix,
@@ -220,7 +260,7 @@ public actor BPCConnection {
                 let response = try await handler(incoming)
 
                 if let response = response {
-                    try send(response)
+                    try await send(response)
                 }
             } catch {
                 // Connection errors should stop the handler
@@ -305,5 +345,7 @@ public enum BPCError: Error, Sendable {
     case noHandlerConfigured
     case invalidMessageFormat
     case messageTypeMismatch(expected: String, got: String)
+    case messageTypeTooLong
+    case unsupportedVersion(UInt8)
     case invalidAddress
 }
