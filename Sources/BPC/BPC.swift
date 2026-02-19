@@ -5,56 +5,74 @@
  */
 
 import Foundation
+import Glibc
 import Descriptors
 import Capabilities
 
-// MARK: - Message Protocol
+// MARK: - Message
 
-/// A message that can be sent over an IPC connection
-public protocol Message: Sendable, Codable {
-    /// The message type identifier
-    static var messageType: String { get }
-}
+public struct Message: Sendable {
+    public var id: MessageID
+    public var correlationID: UInt32  // 0 = unsolicited, >0 = part of a request/reply flow
+    public var payload: Data
+    public var descriptors: [OpaqueDescriptorRef]
 
-/// Envelope containing a message and optional descriptors
-public struct MessageEnvelope: Sendable {
-    /// The encoded message payload
-    public let payload: Data
-
-    /// The message type identifier
-    public let messageType: String
-
-    /// Optional file descriptors being passed with this message
-    public let descriptors: [OpaqueDescriptorRef]
-
-    public init(payload: Data, messageType: String, descriptors: [OpaqueDescriptorRef] = []) {
+    public init(
+        id: MessageID,
+        correlationID: UInt32 = 0,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) {
+        self.id = id
+        self.correlationID = correlationID
         self.payload = payload
-        self.messageType = messageType
         self.descriptors = descriptors
     }
 
-    /// Create an envelope from a message
-    public init<M: Message>(message: M, descriptors: [OpaqueDescriptorRef] = []) throws {
-        let encoder = JSONEncoder()
-        self.payload = try encoder.encode(message)
-        self.messageType = M.messageType
-        self.descriptors = descriptors
+    /// A message that expects a reply. The endpoint assigns correlationID on send.
+    public static func request(
+        _ id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) -> Message {
+        Message(id: id, correlationID: 0, payload: payload, descriptors: descriptors)
     }
 
-    /// Decode the envelope into a specific message type
-    public func decode<M: Message>(as type: M.Type) throws -> M {
-        guard messageType == M.messageType else {
-            throw BPCError.messageTypeMismatch(expected: M.messageType, got: messageType)
-        }
-        let decoder = JSONDecoder()
-        return try decoder.decode(M.self, from: payload)
+    /// A one-way message. No reply expected.
+    public static func notification(
+        _ id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) -> Message {
+        Message(id: id, correlationID: 0, payload: payload, descriptors: descriptors)
     }
 }
 
-/// Handler for incoming messages on a connection
-public typealias MessageHandler = @Sendable (MessageEnvelope) async throws -> MessageEnvelope?
+public enum MessageID: UInt32, Sendable {
+    case ping           = 1
+    case pong           = 2
+    case lookup         = 3
+    case lookupReply    = 4
+    case subscribe      = 5
+    case subscribeAck   = 6
+    case event          = 7    // unsolicited server push
+    case error          = 255
+}
 
-/// Internal class to manage socket lifecycle with proper cleanup
+// MARK: - Errors
+
+public enum BPCError: Error, Sendable {
+    case disconnected
+    case listenerClosed
+    case invalidMessageFormat
+    case unsupportedVersion(UInt8)
+    case unexpectedMessage(MessageID)
+    case timeout
+}
+
+// MARK: - SocketHolder
+
+/// Wraps ~Copyable SocketCapability for use in reference-typed containers.
 private final class SocketHolder: @unchecked Sendable {
     private var socket: SocketCapability?
     private let lock = NSLock()
@@ -77,275 +95,289 @@ private final class SocketHolder: @unchecked Sendable {
     func close() {
         lock.lock()
         defer { lock.unlock() }
-
         guard socket != nil else { return }
-        // Get the raw fd and close it manually
-        socket!.unsafe { fd in
-            _ = Glibc.close(fd)
-        }
+        socket!.unsafe { fd in _ = Glibc.close(fd) }
         self.socket = nil
     }
 }
 
-/// Represents a bidirectional IPC connection
-public actor BPCConnection {
+// MARK: - Endpoint
+
+public actor BSDEndpoint {
+
+    // MARK: Private State
+
     private let socketHolder: SocketHolder
-    private let handler: MessageHandler?
-    private var isActive: Bool = true
+    private let ioQueue = DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated)
 
-    /// Create a connection wrappping an existing socket.
-    public init(socket: consuming SocketCapability, handler: MessageHandler? = nil) {
+    private var nextCorrelationID: UInt32 = 1
+    private var pendingReplies: [UInt32: CheckedContinuation<Message, Error>] = [:]
+    private var incomingContinuation: AsyncStream<Message>.Continuation?
+    private var receiveLoopTask: Task<Void, Never>?
+
+    // MARK: Init
+
+    public init(socket: consuming SocketCapability) {
         self.socketHolder = SocketHolder(socket: socket)
-        self.handler = handler
     }
 
-    /// Sends a message over the connection.
-    public func send(_ envelope: MessageEnvelope) async throws {
-        guard isActive else {
-            throw BPCError.connectionClosed
+    public func start() {
+        receiveLoopTask = Task {
+            await receiveLoop()
         }
+    }
 
-        // Wire format:
-        //   Fixed header (256 bytes):
-        //     [payloadLength: UInt32]         // 4 bytes at offset 0
-        //     [messageTypeLength: UInt16]     // 2 bytes at offset 4
-        //     [descriptorCount: UInt8]        // 1 byte at offset 6
-        //     [version: UInt8]                // 1 byte at offset 7
-        //     [messageType: char[248]]        // 248 bytes at offset 8
-        //   Payload:
-        //     [payload: bytes]
-        //   Fixed trailer (256 bytes):
-        //     [reserved: char[256]]           // Reserved for future use
-        //   Descriptors via control message (if count > 0)
+    public func stop() {
+        receiveLoopTask?.cancel()
+        receiveLoopTask = nil
+        socketHolder.close()
+        teardown(throwing: BPCError.disconnected)
+    }
 
-        let messageTypeData = Data(envelope.messageType.utf8)
-        guard messageTypeData.count <= 248 else {
-            throw BPCError.messageTypeTooLong
+    // MARK: - Public API
+
+    /// Fire and forget. Awaiting means the bytes are on the wire, nothing more.
+    public func send(_ message: Message) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            ioQueue.async {
+                do {
+                    try self.socketSend(message)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-
-        // Build fixed 256-byte header
-        var header = Data(count: 256)
-
-        // payloadLength: UInt32 at offset 0
-        var payloadLength = UInt32(envelope.payload.count).bigEndian
-        header.replaceSubrange(0..<4, with: Data(bytes: &payloadLength, count: 4))
-
-        // messageTypeLength: UInt16 at offset 4
-        var messageTypeLength = UInt16(messageTypeData.count).bigEndian
-        header.replaceSubrange(4..<6, with: Data(bytes: &messageTypeLength, count: 2))
-
-        // descriptorCount: UInt8 at offset 6
-        let descriptorCount = UInt8(min(envelope.descriptors.count, 255))
-        header[6] = descriptorCount
-
-        // version: UInt8 at offset 7
-        header[7] = 0  // Protocol version 0
-
-        // messageType: char[248] at offset 8
-        header.replaceSubrange(8..<(8 + messageTypeData.count), with: messageTypeData)
-
-        // Build complete payload: fixed header + payload + fixed trailer
-        var completePayload = header
-        completePayload.append(envelope.payload)
-
-        // Append fixed 256-byte trailer (reserved for future use)
-        let trailer = Data(count: 256)
-        completePayload.append(trailer)
-
-        // Send everything in a single sendmsg call (works with or without descriptors)
-        try socketHolder.withSocket { socket in
-            try socket.sendDescriptors(envelope.descriptors, payload: completePayload)
-        } ?? { throw BPCError.connectionClosed }()
     }
 
-    /// Send a message and wait for a response
-    public func sendAndReceive(_ envelope: MessageEnvelope) async throws -> MessageEnvelope {
-        try await send(envelope)
-        return try await receive()
-    }
+    /// Send a request and suspend until the matching reply arrives.
+    public func request(_ message: Message) async throws -> Message {
+        var outgoing = message
+        outgoing.correlationID = nextCorrelationID
+        nextCorrelationID &+= 1
 
-    /// Receive a message from the connection
-    public func receive() async throws -> MessageEnvelope {
-        guard isActive else {
-            throw BPCError.connectionClosed
+        try await send(outgoing)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingReplies[outgoing.correlationID] = continuation
         }
-
-        return try socketHolder.withSocket { socket in
-            // Receive everything in a single recvmsg call (fixed header + payload + trailer + descriptors)
-            // Max buffer: 256-byte header + up to 1MB payload + 256-byte trailer
-            let maxBufferSize = 256 + (1024 * 1024) + 256
-            let (completeData, descriptors) = try socket.recvDescriptors(
-                maxDescriptors: 255,  // Max descriptor count
-                bufferSize: maxBufferSize
-            )
-
-            // Parse fixed 256-byte header
-            guard completeData.count >= 256 else {
-                throw BPCError.invalidMessageFormat
-            }
-
-            // payloadLength: UInt32 at offset 0
-            let payloadLengthBytes = Data(completeData[0..<4])
-            let payloadLength = payloadLengthBytes.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
-
-            // messageTypeLength: UInt16 at offset 4
-            let messageTypeLengthBytes = Data(completeData[4..<6])
-            let messageTypeLength = messageTypeLengthBytes.withUnsafeBytes { $0.load(as: UInt16.self).bigEndian }
-
-            // descriptorCount: UInt8 at offset 6
-            let descriptorCount = completeData[6]
-
-            // version: UInt8 at offset 7
-            let version = completeData[7]
-            guard version == 0 else {
-                throw BPCError.unsupportedVersion(version)
-            }
-
-            // messageType: char[248] at offset 8
-            guard messageTypeLength <= 248 else {
-                throw BPCError.invalidMessageFormat
-            }
-            let messageTypeData = completeData[8..<(8 + Int(messageTypeLength))]
-            guard let messageType = String(data: messageTypeData, encoding: .utf8) else {
-                throw BPCError.invalidMessageFormat
-            }
-
-            // Calculate expected total size: 256-byte header + payload + 256-byte trailer
-            let expectedTotalSize = 256 + Int(payloadLength) + 256
-            guard completeData.count == expectedTotalSize else {
-                throw BPCError.invalidMessageFormat
-            }
-
-            // Verify descriptor count matches
-            guard descriptors.count == Int(descriptorCount) else {
-                throw BPCError.invalidMessageFormat
-            }
-
-            // Extract payload (between header and trailer)
-            // Payload starts at offset 256, length is payloadLength
-            let payloadStart = 256
-            let payloadEnd = payloadStart + Int(payloadLength)
-            let payload = completeData[payloadStart..<payloadEnd]
-
-            // Trailer starts at payloadEnd and is 256 bytes (reserved for future use)
-            // let trailer = completeData[payloadEnd..<(payloadEnd + 256)]
-
-            return MessageEnvelope(payload: Data(payload), messageType: messageType, descriptors: descriptors)
-        } ?? { throw BPCError.connectionClosed }()
     }
 
-    /// Connect.
-    public static func connect(path: String) throws -> Self {
+    /// Continuous stream of unsolicited messages — server pushes, events, etc.
+    /// Only one consumer at a time; a second call replaces the first continuation.
+    public var messages: AsyncStream<Message> {
+        AsyncStream { continuation in
+            self.incomingContinuation = continuation
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                Task { await self.clearIncomingContinuation() }
+            }
+        }
+    }
+
+    // MARK: - Connect
+
+    public static func connect(path: String) throws -> BSDEndpoint {
         let socket = try SocketCapability.socket(
             domain: .unix,
             type: [.stream, .cloexec],
             protocol: .default
         )
-
         let address = try UnixSocketAddress(path: path)
         try socket.connect(address: address)
-
-        return Self(socket: socket)
+        return BSDEndpoint(socket: socket)
     }
 
-    /// Start handling incoming messages
-    public func start() async throws {
-        guard let handler = handler else {
-            throw BPCError.noHandlerConfigured
+    // MARK: - Private
+
+    private func clearIncomingContinuation() {
+        incomingContinuation = nil
+    }
+
+    /// Every incoming message routes through here exactly once.
+    private func dispatch(_ message: Message) {
+        if message.correlationID != 0,
+           let continuation = pendingReplies.removeValue(forKey: message.correlationID) {
+            continuation.resume(returning: message)
+        } else {
+            // If ! a named response yield the message. 
+            incomingContinuation?.yield(message)
         }
+    }
 
-        while isActive {
+    private func receiveLoop() async {
+        while !Task.isCancelled {
             do {
-                let incoming = try await receive()
-                let response = try await handler(incoming)
-
-                if let response = response {
-                    try await send(response)
-                }
+                let message = try await receiveFromSocket()
+                dispatch(message)
             } catch {
-                // Connection errors should stop the handler
-                isActive = false
-                throw error
+                teardown(throwing: error)
+                break
             }
         }
     }
 
-    /// Close the connection
-    public func close() {
-        isActive = false
-        socketHolder.close()
+    /// The one place blocking I/O happens — pushed off the cooperative pool.
+    private func receiveFromSocket() async throws -> Message {
+        try await withCheckedThrowingContinuation { continuation in
+            ioQueue.async {
+                do {
+                    let message = try self.socketReceive()
+                    continuation.resume(returning: message)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Called when the socket dies — fail all waiting callers.
+    private func teardown(throwing error: Error) {
+        for (_, continuation) in pendingReplies {
+            continuation.resume(throwing: error)
+        }
+        pendingReplies.removeAll()
+        incomingContinuation?.finish()
+        incomingContinuation = nil
+    }
+
+    // MARK: - Wire Format
+    //
+    // All wire format I/O is called on ioQueue, never on the actor.
+    //
+    // Layout: 256-byte fixed header | variable payload | 256-byte fixed trailer
+    //
+    // Header offsets:
+    //   [messageID: UInt32]         4 bytes  offset  0
+    //   [correlationID: UInt32]     4 bytes  offset  4
+    //   [payloadLength: UInt32]     4 bytes  offset  8
+    //   [descriptorCount: UInt8]    1 byte   offset 12
+    //   [version: UInt8]            1 byte   offset 13
+    //   [reserved: UInt8[242]]    242 bytes  offset 14
+    //
+    // Trailer: 256 bytes, reserved for future use (zeros on send).
+
+    nonisolated private func socketSend(_ message: Message) throws {
+        var header = Data(count: 256)
+
+        var messageID = message.id.rawValue.bigEndian
+        header.replaceSubrange(0..<4, with: Data(bytes: &messageID, count: 4))
+
+        var correlationID = message.correlationID.bigEndian
+        header.replaceSubrange(4..<8, with: Data(bytes: &correlationID, count: 4))
+
+        var payloadLength = UInt32(message.payload.count).bigEndian
+        header.replaceSubrange(8..<12, with: Data(bytes: &payloadLength, count: 4))
+
+        header[12] = UInt8(min(message.descriptors.count, 255))
+        header[13] = 0  // version
+
+        var wireData = header
+        wireData.append(message.payload)
+        wireData.append(Data(count: 256))  // trailer
+
+        try socketHolder.withSocket { socket in
+            try socket.sendDescriptors(message.descriptors, payload: wireData)
+        } ?? { throw BPCError.disconnected }()
+    }
+
+    nonisolated private func socketReceive() throws -> Message {
+        // Max buffer: 256-byte header + 1MB payload + 256-byte trailer
+        let maxBufferSize = 256 + (1024 * 1024) + 256
+
+        guard let (wireData, descriptors) = try socketHolder.withSocket({ socket in
+            try socket.recvDescriptors(maxDescriptors: 255, bufferSize: maxBufferSize)
+        }) else {
+            throw BPCError.disconnected
+        }
+
+        guard wireData.count >= 256 else {
+            throw BPCError.invalidMessageFormat
+        }
+
+        let messageIDRaw = Data(wireData[0..<4]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        guard let messageID = MessageID(rawValue: messageIDRaw) else {
+            throw BPCError.invalidMessageFormat
+        }
+
+        let correlationID = Data(wireData[4..<8]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+
+        let payloadLength = Data(wireData[8..<12]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+
+        let descriptorCount = wireData[12]
+
+        let version = wireData[13]
+        guard version == 0 else {
+            throw BPCError.unsupportedVersion(version)
+        }
+
+        let expectedTotal = 256 + Int(payloadLength) + 256
+        guard wireData.count == expectedTotal else {
+            throw BPCError.invalidMessageFormat
+        }
+
+        guard descriptors.count == Int(descriptorCount) else {
+            throw BPCError.invalidMessageFormat
+        }
+
+        let payload = Data(wireData[256..<(256 + Int(payloadLength))])
+
+        return Message(
+            id: messageID,
+            correlationID: correlationID,
+            payload: payload,
+            descriptors: descriptors
+        )
     }
 }
 
-/// Listens for incoming IPC connections
+// MARK: - Listener
+
 public actor BSDListener {
+
     private let socketHolder: SocketHolder
-    private let handler: MessageHandler
+    private let ioQueue = DispatchQueue(label: "com.bpc.listener.io", qos: .userInitiated)
     private var isActive: Bool = true
 
-    /// Create a listener on a Unix domain socket path
-    public static func unix(path: String, handler: @escaping MessageHandler) throws -> BSDListener {
+    public static func unix(path: String) throws -> BSDListener {
         let socket = try SocketCapability.socket(
             domain: .unix,
             type: [.stream, .cloexec],
             protocol: .default
         )
-
         let address = try UnixSocketAddress(path: path)
         try socket.bind(address: address)
         try socket.listen(backlog: 128)
-
-        return BSDListener(socket: socket, handler: handler)
+        return BSDListener(socket: socket)
     }
 
-    private init(socket: consuming SocketCapability, handler: @escaping MessageHandler) {
+    private init(socket: consuming SocketCapability) {
         self.socketHolder = SocketHolder(socket: socket)
-        self.handler = handler
     }
 
-    /// Accept a single connection
-    public func accept() async throws -> BPCConnection {
-        guard isActive else {
-            throw BPCError.listenerClosed
-        }
+    /// Accept the next incoming connection. Suspends until a client connects.
+    public func accept() async throws -> BSDEndpoint {
+        guard isActive else { throw BPCError.listenerClosed }
 
-        guard let clientSocket = try socketHolder.withSocket({ socket in
-            return try socket.accept()
-        }) else {
-            throw BPCError.listenerClosed
-        }
-
-        return BPCConnection(socket: clientSocket, handler: handler)
-    }
-
-    /// Start accepting connections and spawn tasks to handle them
-    public func start() async throws {
-        while isActive {
-            let connection = try await accept()
-
-            // Spawn a task to handle this connection
-            Task {
-                try await connection.start()
+        return try await withCheckedThrowingContinuation { continuation in
+            ioQueue.async {
+                do {
+                    guard let clientSocket = try self.socketHolder.withSocket({ socket in
+                        try socket.accept()
+                    }) else {
+                        continuation.resume(throwing: BPCError.listenerClosed)
+                        return
+                    }
+                    continuation.resume(returning: BSDEndpoint(socket: clientSocket))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
 
-    /// Stop accepting new connections
     public func stop() {
         isActive = false
         socketHolder.close()
     }
-}
-
-// MARK: - Errors
-
-public enum BPCError: Error, Sendable {
-    case connectionClosed
-    case listenerClosed
-    case noHandlerConfigured
-    case invalidMessageFormat
-    case messageTypeMismatch(expected: String, got: String)
-    case messageTypeTooLong
-    case unsupportedVersion(UInt8)
-    case invalidAddress
 }

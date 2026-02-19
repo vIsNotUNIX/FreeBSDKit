@@ -8,164 +8,127 @@ import XCTest
 @testable import BPC
 import Capabilities
 import Descriptors
-
-// MARK: - Example Messages
-
-struct PingMessage: Message {
-    static let messageType = "ping"
-    let timestamp: Date
-}
-
-struct PongMessage: Message {
-    static let messageType = "pong"
-    let originalTimestamp: Date
-    let responseTimestamp: Date
-}
-
-struct EchoRequest: Message {
-    static let messageType = "echo.request"
-    let text: String
-}
-
-struct EchoResponse: Message {
-    static let messageType = "echo.response"
-    let echoed: String
-}
-
-struct FileTransferRequest: Message {
-    static let messageType = "file.transfer"
-    let filename: String
-    let size: Int
-}
-
-struct FileTransferResponse: Message {
-    static let messageType = "file.ack"
-    let received: Bool
-}
-
-
+import Foundation
 
 // MARK: - Tests
 
 final class BPCTests: XCTestCase {
 
-    func testMessageEnvelopeEncoding() throws {
-        let message = PingMessage(timestamp: Date())
-        let envelope = try MessageEnvelope(message: message)
+    // MARK: - Message Struct
 
-        XCTAssertEqual(envelope.messageType, PingMessage.messageType)
-        XCTAssertTrue(envelope.descriptors.isEmpty)
-
-        let decoded = try envelope.decode(as: PingMessage.self)
-        XCTAssertEqual(decoded.timestamp.timeIntervalSince1970,
-                       message.timestamp.timeIntervalSince1970,
-                       accuracy: 0.001)
+    func testMessageDefaults() {
+        let msg = Message(id: .ping)
+        XCTAssertEqual(msg.id, .ping)
+        XCTAssertEqual(msg.correlationID, 0)
+        XCTAssertTrue(msg.payload.isEmpty)
+        XCTAssertTrue(msg.descriptors.isEmpty)
     }
 
-    func testMessageTypeMismatch() throws {
-        let message = PingMessage(timestamp: Date())
-        let envelope = try MessageEnvelope(message: message)
+    func testMessageFactories() {
+        let req = Message.request(.lookup, payload: Data("hello".utf8))
+        XCTAssertEqual(req.id, .lookup)
+        XCTAssertEqual(req.correlationID, 0)  // endpoint assigns this on send
+        XCTAssertEqual(req.payload, Data("hello".utf8))
 
-        XCTAssertThrowsError(try envelope.decode(as: PongMessage.self)) { error in
-            guard case BPCError.messageTypeMismatch(let expected, let got) = error else {
-                XCTFail("Expected messageTypeMismatch error")
-                return
-            }
-            XCTAssertEqual(expected, PongMessage.messageType)
-            XCTAssertEqual(got, PingMessage.messageType)
-        }
+        let note = Message.notification(.event)
+        XCTAssertEqual(note.id, .event)
+        XCTAssertEqual(note.correlationID, 0)
     }
 
-    func testUnixSocketConnection() async throws {
+    func testMessageIDRawValues() {
+        XCTAssertEqual(MessageID.ping.rawValue,        1)
+        XCTAssertEqual(MessageID.pong.rawValue,        2)
+        XCTAssertEqual(MessageID.lookup.rawValue,      3)
+        XCTAssertEqual(MessageID.lookupReply.rawValue, 4)
+        XCTAssertEqual(MessageID.subscribe.rawValue,   5)
+        XCTAssertEqual(MessageID.subscribeAck.rawValue,6)
+        XCTAssertEqual(MessageID.event.rawValue,       7)
+        XCTAssertEqual(MessageID.error.rawValue,       255)
+    }
+
+    // MARK: - Send / Reply
+
+    func testRequest() async throws {
         let socketPath = "/tmp/bpc-test-\(UUID().uuidString).sock"
-        defer {
-            try? FileManager.default.removeItem(atPath: socketPath)
-        }
+        defer { try? FileManager.default.removeItem(atPath: socketPath) }
 
+        let listener = try BSDListener.unix(path: socketPath)
 
-        // Create a simple echo handler
-        let echoHandler: MessageHandler = { envelope in
-            // If it's an echo request, send back a response
-            if envelope.messageType == EchoRequest.messageType {
-                let request = try envelope.decode(as: EchoRequest.self)
-                let response = EchoResponse(echoed: request.text)
-                return try MessageEnvelope(message: response)
+        // Server: accept one connection, receive ping, send pong
+        let serverTask = Task {
+            let server = try await listener.accept()
+            await server.start()
+
+            for await message in await server.messages {
+                if message.id == .ping {
+                    let pong = Message(
+                        id: .pong,
+                        correlationID: message.correlationID,
+                        payload: message.payload
+                    )
+                    try await server.send(pong)
+                }
+                break  // handle one exchange
             }
-            return nil
+
+            await server.stop()
         }
 
-        // Start listener in background
-        let listener = try BSDListener.unix(path: socketPath, handler: echoHandler)
+        // Give listener a moment to bind
+        try await Task.sleep(nanoseconds: 50_000_000)
 
-        Task {
-            try await listener.start()
-        }
+        // Client: connect, send ping, await pong
+        let client = try BSDEndpoint.connect(path: socketPath)
+        await client.start()
 
-        // Give listener time to start
-        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        let reply = try await client.request(.request(.ping, payload: Data("timestamp".utf8)))
 
-        // Connect as client
-        let connection = try BPCConnection.connect(path: socketPath)
+        XCTAssertEqual(reply.id, .pong)
+        XCTAssertEqual(reply.payload, Data("timestamp".utf8))
 
-        // Send echo request
-        let request = EchoRequest(text: "Hello, BPC!")
-        let requestEnvelope = try MessageEnvelope(message: request)
-
-        let responseEnvelope = try await connection.sendAndReceive(requestEnvelope)
-
-        XCTAssertEqual(responseEnvelope.messageType, EchoResponse.messageType)
-
-        let response = try responseEnvelope.decode(as: EchoResponse.self)
-        XCTAssertEqual(response.echoed, "Hello, BPC!")
-
-        // Clean up
-        await connection.close()
+        await client.stop()
         await listener.stop()
+        _ = await serverTask.result
     }
 
-    // func testPingPongPattern() async throws {
-    //     let socketPath = "/tmp/bpc-ping-\(UUID().uuidString).sock"
-    //     defer {
-    //         try? FileManager.default.removeItem(atPath: socketPath)
-    //     }
+    // MARK: - Unsolicited messages
 
-    //     // Ping-pong handler
-    //     let pingPongHandler: MessageHandler = { envelope in
-    //         if envelope.messageType == PingMessage.messageType {
-    //             let ping = try envelope.decode(as: PingMessage.self)
-    //             let pong = PongMessage(
-    //                 originalTimestamp: ping.timestamp,
-    //                 responseTimestamp: Date()
-    //             )
-    //             return try MessageEnvelope(message: pong)
-    //         }
-    //         return nil
-    //     }
+    func testUnsolicitedMessages() async throws {
+        let socketPath = "/tmp/bpc-notif-\(UUID().uuidString).sock"
+        defer { try? FileManager.default.removeItem(atPath: socketPath) }
 
-    //     let listener = try BSDListener.unix(path: socketPath, handler: pingPongHandler)
+        let listener = try BSDListener.unix(path: socketPath)
 
-    //     Task {
-    //         try await listener.start()
-    //     }
+        // Server: accept and push 3 events
+        let serverTask = Task {
+            let server = try await listener.accept()
+            await server.start()
 
-    //     try await Task.sleep(nanoseconds: 100_000_000)
+            for i in 0..<3 {
+                let event = Message.notification(.event, payload: Data([UInt8(i)]))
+                try await server.send(event)
+            }
 
-    //     let connection = try BSDConnection.connectUnix(path: socketPath)
+            await server.stop()
+        }
 
-    //     // Send multiple pings
-    //     for _ in 0..<5 {
-    //         let ping = PingMessage(timestamp: Date())
-    //         let envelope = try MessageEnvelope(message: ping)
+        try await Task.sleep(nanoseconds: 50_000_000)
 
-    //         let response = try await connection.sendAndReceive(envelope)
-    //         let pong = try response.decode(as: PongMessage.self)
+        let client = try BSDEndpoint.connect(path: socketPath)
+        await client.start()
 
-    //         XCTAssertTrue(pong.responseTimestamp >= pong.originalTimestamp)
-    //     }
+        var received: [Message] = []
+        for await message in await client.messages {
+            received.append(message)
+            if received.count == 3 { break }
+        }
 
-    //     await connection.close()
-    //     await listener.stop()
-    // }
+        XCTAssertEqual(received.count, 3)
+        XCTAssertTrue(received.allSatisfy { $0.id == .event })
+        XCTAssertEqual(received.map { $0.payload.first }, [0, 1, 2])
 
+        await client.stop()
+        await listener.stop()
+        _ = await serverTask.result
+    }
 }
-
