@@ -5,6 +5,8 @@
  */
 
 import Foundation
+import Glibc
+import FreeBSDKit
 import Descriptors
 import Capabilities
 
@@ -159,6 +161,22 @@ public actor BSDEndpoint: BPCEndpoint {
         return BSDEndpoint(socket: socket)
     }
 
+    /// Creates a pair of connected ``BSDEndpoint`` instances using `socketpair(2)`.
+    ///
+    /// The returned endpoints are bidirectionally connected and ready for local IPC.
+    /// Both are unstarted; call ``start()`` on each before exchanging messages.
+    ///
+    /// - Returns: A tuple of two connected endpoints.
+    /// - Throws: A system error if the socketpair cannot be created.
+    public static func pair() throws -> (BSDEndpoint, BSDEndpoint) {
+        let socketPair = try SocketCapability.socketPair(
+            domain: .unix,
+            type: [.stream, .cloexec],
+            protocol: .default
+        )
+        return (BSDEndpoint(socket: socketPair.first), BSDEndpoint(socket: socketPair.second))
+    }
+
     // MARK: - Private
 
     /// Routes an incoming message to a waiting `request()` caller or the unsolicited stream.
@@ -227,13 +245,13 @@ public actor BSDEndpoint: BPCEndpoint {
     nonisolated private func socketSend(_ message: Message) throws {
         var header = Data(count: 256)
 
-        var messageID = message.id.rawValue.bigEndian
+        var messageID = message.id.rawValue
         header.replaceSubrange(0..<4, with: Data(bytes: &messageID, count: 4))
 
-        var correlationID = message.correlationID.bigEndian
+        var correlationID = message.correlationID
         header.replaceSubrange(4..<8, with: Data(bytes: &correlationID, count: 4))
 
-        var payloadLength = UInt32(message.payload.count).bigEndian
+        var payloadLength = UInt32(message.payload.count)
         header.replaceSubrange(8..<12, with: Data(bytes: &payloadLength, count: 4))
 
         header[12] = UInt8(min(message.descriptors.count, 255))
@@ -260,13 +278,13 @@ public actor BSDEndpoint: BPCEndpoint {
             throw BPCError.invalidMessageFormat
         }
 
-        let messageIDRaw = Data(wireData[0..<4]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        let messageIDRaw = Data(wireData[0..<4]).withUnsafeBytes { $0.load(as: UInt32.self) }
         guard let messageID = MessageID(rawValue: messageIDRaw) else {
             throw BPCError.invalidMessageFormat
         }
 
-        let correlationID = Data(wireData[4..<8]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
-        let payloadLength = Data(wireData[8..<12]).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        let correlationID = Data(wireData[4..<8]).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let payloadLength = Data(wireData[8..<12]).withUnsafeBytes { $0.load(as: UInt32.self) }
         let descriptorCount = wireData[12]
 
         let version = wireData[13]

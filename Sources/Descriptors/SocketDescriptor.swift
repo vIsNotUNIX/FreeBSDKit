@@ -8,6 +8,23 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
+/// A pair of connected sockets created via socketpair(2).
+///
+/// This struct wraps two connected sockets of the same type. Since sockets may
+/// be noncopyable, this wrapper provides a way to return paired sockets from
+/// factory methods. Marked as `@frozen` to allow partial consumption across
+/// module boundaries.
+@frozen
+public struct SocketPair<Socket: ~Copyable>: ~Copyable {
+    public var first: Socket
+    public var second: Socket
+
+    public init(first: consuming Socket, second: consuming Socket) {
+        self.first = first
+        self.second = second
+    }
+}
+
 /// Socket descriptor protocol providing network communication capabilities
 public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
     static func socket(domain: SocketDomain, type: SocketType, protocol: SocketProtocol) throws -> Self
@@ -23,6 +40,26 @@ public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
 // MARK: - Default implementations
 
 public extension SocketDescriptor where Self: ~Copyable {
+
+    /// Creates a pair of connected sockets using socketpair(2).
+    ///
+    /// - Parameters:
+    ///   - domain: The socket domain (typically `.unix` for local IPC).
+    ///   - type: The socket type (e.g., `.stream`, `.datagram`).
+    ///   - protocol: The protocol to use (defaults to `.default`).
+    /// - Returns: A `SocketPair` containing two connected sockets.
+    /// - Throws: A BSD error if the socketpair call fails.
+    static func socketPair(
+        domain: SocketDomain,
+        type: SocketType,
+        protocol: SocketProtocol = .default
+    ) throws -> SocketPair<Self> {
+        var fds = [Int32](repeating: -1, count: 2)
+        guard Glibc.socketpair(domain.rawValue, type.rawValue, `protocol`.rawValue, &fds) == 0 else {
+            try BSDError.throwErrno(errno)
+        }
+        return SocketPair(first: Self(fds[0]), second: Self(fds[1]))
+    }
 
     func listen(backlog: Int32 = 128) throws {
         try self.unsafe { fd in
