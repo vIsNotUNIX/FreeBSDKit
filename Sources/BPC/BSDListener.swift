@@ -52,7 +52,7 @@ public protocol BPCListener: Actor {
 /// or call ``accept()`` to handle one connection at a time.
 public actor BSDListener: BPCListener {
     private let socketHolder: SocketHolder
-    private let ioQueue = DispatchQueue(label: "com.bpc.listener.io", qos: .userInitiated)
+    private let ioQueue: DispatchQueue
     private var state: LifecycleState = .idle
     private var connectionStream: AsyncThrowingStream<BSDEndpoint, Error>?
     private var connectionContinuation: AsyncThrowingStream<BSDEndpoint, Error>.Continuation?
@@ -62,10 +62,12 @@ public actor BSDListener: BPCListener {
 
     /// Begins listening on a Unix-domain socket at the given path.
     ///
-    /// - Parameter path: The filesystem path at which to bind the socket.
+    /// - Parameters:
+    ///   - path: The filesystem path at which to bind the socket.
+    ///   - ioQueue: Optional custom DispatchQueue for I/O operations. If `nil`, a default queue is created.
     /// - Returns: A new, unstarted ``BSDListener``. Call ``start()`` before use.
     /// - Throws: A system error if the socket cannot be created or bound.
-    public static func listen(on path: String) throws -> BSDListener {
+    public static func listen(on path: String, ioQueue: DispatchQueue? = nil) throws -> BSDListener {
         let socket = try SocketCapability.socket(
             domain: .unix,
             type: [.stream, .cloexec],
@@ -74,11 +76,12 @@ public actor BSDListener: BPCListener {
         let address = try UnixSocketAddress(path: path)
         try socket.bind(address: address)
         try socket.listen(backlog: 128)
-        return BSDListener(socket: socket)
+        return BSDListener(socket: socket, ioQueue: ioQueue)
     }
 
-    private init(socket: consuming SocketCapability) {
+    private init(socket: consuming SocketCapability, ioQueue: DispatchQueue? = nil) {
         self.socketHolder = SocketHolder(socket: socket)
+        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.listener.io", qos: .userInitiated)
     }
 
     // MARK: Lifecycle

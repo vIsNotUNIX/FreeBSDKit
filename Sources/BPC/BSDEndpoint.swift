@@ -58,7 +58,7 @@ public protocol BPCEndpoint: Actor {
 /// consume unsolicited inbound messages.
 public actor BSDEndpoint: BPCEndpoint {
     private let socketHolder: SocketHolder
-    private let ioQueue = DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated)
+    private let ioQueue: DispatchQueue
     private var nextCorrelationID: UInt32 = 1
     private var pendingReplies: [UInt32: CheckedContinuation<Message, Error>] = [:]
     private var incomingContinuation: AsyncStream<Message>.Continuation?
@@ -68,8 +68,9 @@ public actor BSDEndpoint: BPCEndpoint {
 
     // MARK: Init
 
-    public init(socket: consuming SocketCapability) {
+    public init(socket: consuming SocketCapability, ioQueue: DispatchQueue? = nil) {
         self.socketHolder = SocketHolder(socket: socket)
+        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated)
     }
 
     // MARK: Lifecycle
@@ -147,10 +148,12 @@ public actor BSDEndpoint: BPCEndpoint {
 
     /// Connects to a BPC server at the given Unix-domain socket path.
     ///
-    /// - Parameter path: The filesystem path of the server's socket.
+    /// - Parameters:
+    ///   - path: The filesystem path of the server's socket.
+    ///   - ioQueue: Optional custom DispatchQueue for I/O operations. If `nil`, a default queue is created.
     /// - Returns: A new, unstarted ``BSDEndpoint``. Call ``start()`` before use.
     /// - Throws: A system error if the socket cannot be created or the connection is refused.
-    public static func connect(path: String) throws -> BSDEndpoint {
+    public static func connect(path: String, ioQueue: DispatchQueue? = nil) throws -> BSDEndpoint {
         let socket = try SocketCapability.socket(
             domain: .unix,
             type: [.stream, .cloexec],
@@ -158,7 +161,7 @@ public actor BSDEndpoint: BPCEndpoint {
         )
         let address = try UnixSocketAddress(path: path)
         try socket.connect(address: address)
-        return BSDEndpoint(socket: socket)
+        return BSDEndpoint(socket: socket, ioQueue: ioQueue)
     }
 
     /// Creates a pair of connected ``BSDEndpoint`` instances using `socketpair(2)`.
@@ -166,7 +169,10 @@ public actor BSDEndpoint: BPCEndpoint {
     /// The returned endpoints are bidirectionally connected and ready for local IPC.
     /// Both are unstarted; call ``start()`` on each before exchanging messages.
     ///
-    /// - Returns: A tuple of two connected endpoints.
+    /// Each endpoint gets its own independent I/O queue to avoid serialization bottlenecks
+    /// and potential deadlocks when the endpoints communicate with each other.
+    ///
+    /// - Returns: A tuple of two connected endpoints, each with its own I/O queue.
     /// - Throws: A system error if the socketpair cannot be created.
     public static func pair() throws -> (BSDEndpoint, BSDEndpoint) {
         let socketPair = try SocketCapability.socketPair(
@@ -174,7 +180,8 @@ public actor BSDEndpoint: BPCEndpoint {
             type: [.stream, .cloexec],
             protocol: .default
         )
-        return (BSDEndpoint(socket: socketPair.first), BSDEndpoint(socket: socketPair.second))
+        return (BSDEndpoint(socket: socketPair.first),
+                BSDEndpoint(socket: socketPair.second))
     }
 
     // MARK: - Private
