@@ -45,11 +45,13 @@ public protocol BPCListener: Actor {
 
 // MARK: - BSDListener
 
-/// A ``BPCListener`` backed by a BSD Unix-domain socket.
+/// A ``BPCListener`` backed by a BSD Unix-domain SEQPACKET socket.
 ///
-/// Obtain an instance via ``listen(on:)``. After calling ``start()``, iterate
-/// over ``connections()`` to receive newly accepted ``BSDEndpoint`` instances,
-/// or call ``accept()`` to handle one connection at a time.
+/// Uses SOCK_SEQPACKET for connection-oriented, message-boundary-preserving
+/// communication. Obtain an instance via ``listen(on:)``. After calling
+/// ``start()``, iterate over ``connections()`` to receive newly accepted
+/// ``BSDEndpoint`` instances, or call ``accept()`` to handle one connection
+/// at a time.
 public actor BSDListener: BPCListener {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
@@ -70,7 +72,7 @@ public actor BSDListener: BPCListener {
     public static func listen(on path: String, ioQueue: DispatchQueue? = nil) throws -> BSDListener {
         let socket = try SocketCapability.socket(
             domain: .unix,
-            type: [.stream, .cloexec],
+            type: [.seqpacket, .cloexec],
             protocol: .default
         )
         let address = try UnixSocketAddress(path: path)

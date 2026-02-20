@@ -9,6 +9,7 @@ import Glibc
 import FreeBSDKit
 import Descriptors
 import Capabilities
+import Capsicum
 
 // MARK: - BPCEndpoint
 
@@ -51,11 +52,12 @@ public protocol BPCEndpoint: Actor {
 
 // MARK: - BSDEndpoint
 
-/// A ``BPCEndpoint`` backed by a BSD Unix-domain socket.
+/// A ``BPCEndpoint`` backed by a BSD Unix-domain SEQPACKET socket.
 ///
-/// Obtain an instance via ``connect(path:)``. After calling ``start()``, use
-/// ``send(_:)`` and ``request(_:)`` to write to the wire, and ``messages()`` to
-/// consume inbound messages.
+/// Uses SOCK_SEQPACKET for connection-oriented, message-boundary-preserving
+/// communication. Obtain an instance via ``connect(path:)`` or ``pair()``.
+/// After calling ``start()``, use ``send(_:)`` and ``request(_:)`` to write
+/// to the wire, and ``messages()`` to consume inbound messages.
 public actor BSDEndpoint: BPCEndpoint {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
@@ -156,7 +158,7 @@ public actor BSDEndpoint: BPCEndpoint {
     public static func connect(path: String, ioQueue: DispatchQueue? = nil) throws -> BSDEndpoint {
         let socket = try SocketCapability.socket(
             domain: .unix,
-            type: [.datagram, .cloexec],
+            type: [.seqpacket, .cloexec],
             protocol: .default
         )
         let address = try UnixSocketAddress(path: path)
@@ -185,7 +187,7 @@ public actor BSDEndpoint: BPCEndpoint {
     ) throws -> (BSDEndpoint, BSDEndpoint) {
         let socketPair = try SocketCapability.socketPair(
             domain: .unix,
-            type: [.datagram, .cloexec],
+            type: [.seqpacket, .cloexec],
             protocol: .default
         )
         return (BSDEndpoint(socket: socketPair.first, ioQueue: firstQueue),
@@ -281,16 +283,9 @@ public actor BSDEndpoint: BPCEndpoint {
 
         // Handle out-of-line payload if needed
         if payload.count > Self.MAX_INLINE_PAYLOAD {
-            // Create shared memory for the payload
-            let shmName = "/bpc-ool-\(UUID().uuidString)"
-            let shm = try SharedMemoryCapability.open(
-                name: shmName,
-                oflag: O_CREAT | O_RDWR | O_EXCL,
-                mode: 0o600
-            )
-
-            // Unlink immediately so it's cleaned up when all refs are closed
-            try SharedMemoryCapability.unlink(name: shmName)
+            // Create anonymous shared memory for the payload
+            // This is capability-mode safe (no namespace access required)
+            let shm = try SharedMemoryCapability.anonymous(flags: .readWrite)
 
             // Set size and map
             try shm.setSize(payload.count)
@@ -307,6 +302,15 @@ public actor BSDEndpoint: BPCEndpoint {
                     byteCount: payload.count
                 )
             }
+
+            // Limit the shared memory descriptor to read-only rights before sending
+            // This ensures the receiver cannot modify the payload
+            let readOnlyRights = CapsicumRightSet(rights: [
+                .mmapR,      // Allow read-only mmap
+                .fstat,      // Allow fstat to get size
+                .seek        // Allow lseek for reading
+            ])
+            _ = shm.limit(rights: readOnlyRights)
 
             // Create OpaqueDescriptorRef for the shm with .shm kind
             let shmRef = OpaqueDescriptorRef(shm.take(), kind: .shm)
