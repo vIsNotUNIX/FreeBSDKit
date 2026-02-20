@@ -172,16 +172,24 @@ public actor BSDEndpoint: BPCEndpoint {
     /// Each endpoint gets its own independent I/O queue to avoid serialization bottlenecks
     /// and potential deadlocks when the endpoints communicate with each other.
     ///
+    /// - Parameters:
+    ///   - firstQueue: Optional custom DispatchQueue for the first endpoint's I/O operations.
+    ///                 If `nil`, a default queue is created.
+    ///   - secondQueue: Optional custom DispatchQueue for the second endpoint's I/O operations.
+    ///                  If `nil`, a default queue is created.
     /// - Returns: A tuple of two connected endpoints, each with its own I/O queue.
     /// - Throws: A system error if the socketpair cannot be created.
-    public static func pair() throws -> (BSDEndpoint, BSDEndpoint) {
+    public static func pair(
+        firstQueue: DispatchQueue? = nil,
+        secondQueue: DispatchQueue? = nil
+    ) throws -> (BSDEndpoint, BSDEndpoint) {
         let socketPair = try SocketCapability.socketPair(
             domain: .unix,
             type: [.stream, .cloexec],
             protocol: .default
         )
-        return (BSDEndpoint(socket: socketPair.first),
-                BSDEndpoint(socket: socketPair.second))
+        return (BSDEndpoint(socket: socketPair.first, ioQueue: firstQueue),
+                BSDEndpoint(socket: socketPair.second, ioQueue: secondQueue))
     }
 
     // MARK: - Private
