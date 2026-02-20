@@ -19,7 +19,7 @@ private func sysctlbyname(
 ) -> Int32
 
 /// Utilities for querying socket size limits from the operating system.
-enum SocketLimits {
+public enum SocketLimits {
 
     /// Returns the maximum SEQPACKET message size from the kernel.
     ///
@@ -28,7 +28,7 @@ enum SocketLimits {
     /// conservative 64KB if the query fails.
     ///
     /// - Returns: Maximum message size in bytes (typically 65536)
-    static func maxSeqpacketSize() -> Int {
+    public static func maxSeqpacketSize() -> Int {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
 
@@ -51,7 +51,7 @@ enum SocketLimits {
     /// message size for Unix-domain DATAGRAM sockets.
     ///
     /// - Returns: Maximum datagram size in bytes (typically 8192)
-    static func maxDatagramSize() -> Int {
+    public static func maxDatagramSize() -> Int {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
 
