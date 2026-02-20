@@ -298,7 +298,19 @@ public actor BSDEndpoint: BPCEndpoint {
     //   4. Its kind in the trailer is marked as oolPayloadWireValue (255)
     //   5. payloadLength is set to 0 and hasOOLPayload flag is set
 
-    private static let MAX_INLINE_PAYLOAD = 1024 * 1024  // 1 MB
+    /// Maximum inline payload size before switching to out-of-line shared memory.
+    ///
+    /// Queried from `net.local.seqpacket.maxseqpacket` sysctl at first use.
+    /// Typically 64KB (65536 bytes) on FreeBSD. Messages larger than this are
+    /// automatically sent via anonymous shared memory.
+    private static let MAX_INLINE_PAYLOAD: Int = {
+        // Account for header (256) + trailer (256) in the total message
+        let overhead = 512
+        let kernelMax = SocketLimits.maxSeqpacketSize()
+
+        // Leave some headroom for the wire format overhead
+        return max(kernelMax - overhead, 1024)
+    }()
 
     nonisolated private func socketSend(_ message: Message) throws {
         var payload = message.payload
@@ -387,8 +399,8 @@ public actor BSDEndpoint: BPCEndpoint {
     }
 
     nonisolated private func socketReceive() throws -> Message {
-        // Max buffer: 256-byte header + 1 MB payload + 256-byte trailer
-        let maxBufferSize = 256 + (1024 * 1024) + 256
+        // Max buffer: 256-byte header + max payload + 256-byte trailer
+        let maxBufferSize = 256 + Self.MAX_INLINE_PAYLOAD + 256
 
         let (wireData, receivedDescriptors) = try socketHolder.withSocketOrThrow { socket in
             try socket.recvDescriptors(maxDescriptors: 255, bufferSize: maxBufferSize)
