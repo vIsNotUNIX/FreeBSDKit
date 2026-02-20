@@ -39,6 +39,24 @@ public protocol BPCEndpoint: Actor {
     /// reply is matched by that same ID and delivered to the caller.
     func request(_ message: Message) async throws -> Message
 
+    /// Sends a reply to a previously received request.
+    ///
+    /// Automatically copies the correlation ID from the original request to ensure
+    /// the reply is routed back to the waiting caller. Use this instead of ``send(_:)``
+    /// when responding to a request.
+    ///
+    /// - Parameters:
+    ///   - request: The original request message to reply to
+    ///   - id: The message ID for the reply (e.g., `.lookupReply`, `.pong`)
+    ///   - payload: Optional payload data for the reply
+    ///   - descriptors: Optional file descriptors to send with the reply
+    func reply(
+        to request: Message,
+        id: MessageID,
+        payload: Data,
+        descriptors: [OpaqueDescriptorRef]
+    ) async throws
+
     /// Returns the stream of unsolicited inbound messages.
     ///
     /// Can only be claimed by one task. The stream finishes when the connection
@@ -126,6 +144,25 @@ public actor BSDEndpoint: BPCEndpoint {
         return try await withCheckedThrowingContinuation { continuation in
             pendingReplies[outgoing.correlationID] = continuation
         }
+    }
+
+    /// Sends a reply to a previously received request.
+    ///
+    /// Automatically copies the correlation ID from the original request message.
+    /// This ensures the reply is routed back to the caller waiting in `request()`.
+    public func reply(
+        to request: Message,
+        id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) async throws {
+        let replyMessage = Message(
+            id: id,
+            correlationID: request.correlationID,
+            payload: payload,
+            descriptors: descriptors
+        )
+        try await send(replyMessage)
     }
 
     /// Returns the stream of unsolicited inbound messages.

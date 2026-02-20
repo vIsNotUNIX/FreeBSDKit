@@ -65,6 +65,31 @@ public struct Message: Sendable {
     ) -> Message {
         Message(id: id, correlationID: 0, payload: payload, descriptors: descriptors)
     }
+
+    /// Creates a reply to a previously received request.
+    ///
+    /// Automatically copies the correlation ID from the original request to ensure
+    /// proper routing. Use this when manually constructing reply messages.
+    ///
+    /// - Parameters:
+    ///   - request: The original request message to reply to
+    ///   - id: The message ID for the reply (e.g., `.lookupReply`, `.pong`)
+    ///   - payload: Optional payload data for the reply
+    ///   - descriptors: Optional file descriptors to send with the reply
+    /// - Returns: A message with the same correlation ID as the request
+    public static func reply(
+        to request: Message,
+        id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) -> Message {
+        Message(
+            id: id,
+            correlationID: request.correlationID,
+            payload: payload,
+            descriptors: descriptors
+        )
+    }
 }
 
 // MARK: - MessageID
