@@ -9,7 +9,7 @@ import Foundation
 import FreeBSDKit
 import Glibc
 
-struct ProcessCapability: Capability, ProcessDescriptor, ~Copyable {
+public struct ProcessCapability: Capability, ProcessDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle
 

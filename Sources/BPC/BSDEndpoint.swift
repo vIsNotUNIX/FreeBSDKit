@@ -24,6 +24,14 @@ import Capsicum
 /// 2. Use ``send(_:)``, ``request(_:)``, and ``messages()`` to exchange messages.
 /// 3. Call ``stop()`` to tear down the connection and fail any pending callers.
 public protocol BPCEndpoint: Actor {
+    /// The current connection state.
+    ///
+    /// Check this to determine if the endpoint is ready to use:
+    /// - `.idle`: Need to call `start()`
+    /// - `.running`: Active and ready
+    /// - `.stopped`: Connection closed, cannot be reused
+    var connectionState: ConnectionState { get }
+
     /// Starts the receive loop. Must be called before ``messages()`` or sending.
     func start()
 
@@ -37,7 +45,13 @@ public protocol BPCEndpoint: Actor {
     ///
     /// The endpoint assigns a correlation ID to `message` before sending. The
     /// reply is matched by that same ID and delivered to the caller.
-    func request(_ message: Message) async throws -> Message
+    ///
+    /// - Parameters:
+    ///   - message: The request message to send
+    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``BPCError/timeout``
+    /// - Returns: The reply message with matching correlation ID
+    /// - Throws: ``BPCError/timeout`` if timeout is specified and exceeded
+    func request(_ message: Message, timeout: Duration?) async throws -> Message
 
     /// Sends a reply to a previously received request.
     ///
@@ -120,6 +134,12 @@ public actor BSDEndpoint: BPCEndpoint {
         self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated)
     }
 
+    // MARK: - Connection State
+
+    public var connectionState: ConnectionState {
+        state
+    }
+
     // MARK: Lifecycle
 
     public func start() {
@@ -161,15 +181,32 @@ public actor BSDEndpoint: BPCEndpoint {
     ///
     /// A correlation ID is assigned automatically; the `correlationID` field of
     /// `message` is overwritten before sending.
-    public func request(_ message: Message) async throws -> Message {
+    ///
+    /// - Parameters:
+    ///   - message: The request message to send
+    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``BPCError/timeout``
+    /// - Returns: The reply message with matching correlation ID
+    /// - Throws: ``BPCError/timeout`` if timeout is specified and exceeded
+    public func request(_ message: Message, timeout: Duration? = nil) async throws -> Message {
         var outgoing = message
         outgoing.correlationID = nextCorrelationID
+        let correlationID = nextCorrelationID
         nextCorrelationID &+= 1
 
         try await send(outgoing)
 
         return try await withCheckedThrowingContinuation { continuation in
-            pendingReplies[outgoing.correlationID] = continuation
+            pendingReplies[correlationID] = continuation
+
+            // Start a timeout task if timeout is specified
+            if let timeout = timeout {
+                Task {
+                    try? await Task.sleep(for: timeout)
+                    if let pending = pendingReplies.removeValue(forKey: correlationID) {
+                        pending.resume(throwing: BPCError.timeout)
+                    }
+                }
+            }
         }
     }
 

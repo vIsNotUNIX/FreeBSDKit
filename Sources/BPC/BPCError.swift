@@ -25,3 +25,26 @@ public enum BPCError: Error, Sendable {
     /// An operation did not complete within the allowed time.
     case timeout
 }
+
+extension BPCError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .disconnected:
+            return "BPC connection lost"
+        case .listenerClosed:
+            return "BPC listener socket closed"
+        case .notStarted:
+            return "BPC endpoint/listener not started - call start() first"
+        case .streamAlreadyClaimed:
+            return "BPC message stream already claimed by another task"
+        case .invalidMessageFormat:
+            return "Invalid BPC wire format"
+        case .unsupportedVersion(let version):
+            return "Unsupported BPC protocol version: \(version)"
+        case .unexpectedMessage(let id):
+            return "Unexpected BPC message: \(id)"
+        case .timeout:
+            return "BPC operation timed out"
+        }
+    }
+}

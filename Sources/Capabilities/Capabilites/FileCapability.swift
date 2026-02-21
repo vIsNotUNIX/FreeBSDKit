@@ -9,7 +9,7 @@ import Descriptors
 import Foundation
 import FreeBSDKit
 
-struct FileCapability: Capability, FileDescriptor, ~Copyable {
+public struct FileCapability: Capability, FileDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle
 

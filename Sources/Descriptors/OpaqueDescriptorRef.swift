@@ -62,6 +62,20 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
         return fd
     }
 
+    /// Transfers ownership of the file descriptor to the caller.
+    ///
+    /// After calling this method, the descriptor will not be closed on deinit.
+    /// The caller is responsible for closing the returned file descriptor.
+    ///
+    /// - Returns: The file descriptor, or `nil` if already taken or closed
+    public func take() -> Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let descriptor = fd else { return nil }
+        fd = nil
+        return descriptor
+    }
+
     // MARK: - Deinitialization
 
     deinit {

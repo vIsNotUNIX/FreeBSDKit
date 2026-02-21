@@ -8,10 +8,24 @@ import Foundation
 import Glibc
 import Capabilities
 
-// MARK: - LifecycleState
+// MARK: - ConnectionState
 
-/// Tracks the three-phase lifecycle shared by ``BSDEndpoint`` and ``BSDListener``.
-enum LifecycleState { case idle, running, stopped }
+/// Tracks the connection state of a BPC endpoint or listener.
+///
+/// - `idle`: Created but not yet started
+/// - `running`: Active and processing messages/connections
+/// - `stopped`: Shut down and no longer usable
+public enum ConnectionState: Sendable {
+    /// Created but not yet started. Call `start()` to transition to `running`.
+    case idle
+    /// Active and processing messages or connections.
+    case running
+    /// Shut down and no longer usable. The connection cannot be restarted.
+    case stopped
+}
+
+// Internal alias for backward compatibility
+typealias LifecycleState = ConnectionState
 
 // MARK: - SocketHolder
 
