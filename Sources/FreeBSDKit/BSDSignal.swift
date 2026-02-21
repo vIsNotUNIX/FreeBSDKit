@@ -6,8 +6,7 @@
 
 /// Standard BSD signals.
 ///
-/// Signal numbers are specific to FreeBSD. For portable code, always use the
-/// enum cases rather than raw values.
+/// Signal numbers are specific to FreeBSD.
 public enum BSDSignal: Int32, Sendable {
     case hup    = 1      // hangup
     case int    = 2      // interrupt
