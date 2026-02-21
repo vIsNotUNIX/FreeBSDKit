@@ -57,6 +57,29 @@ public protocol BPCEndpoint: Actor {
         descriptors: [OpaqueDescriptorRef]
     ) async throws
 
+    /// Sends a reply using a reply handle from a previously received request.
+    ///
+    /// Use this when you don't want to keep the entire message around:
+    ///
+    /// ```swift
+    /// let request = try await endpoint.receive()
+    /// let handle = request.replyHandle
+    /// // ... process request ...
+    /// try await endpoint.reply(to: handle, id: .pong, payload: data)
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - handle: Reply handle extracted from the original request
+    ///   - id: The message ID for the reply
+    ///   - payload: Optional payload data for the reply
+    ///   - descriptors: Optional file descriptors to send with the reply
+    func reply(
+        to handle: ReplyHandle,
+        id: MessageID,
+        payload: Data,
+        descriptors: [OpaqueDescriptorRef]
+    ) async throws
+
     /// Returns the stream of unsolicited inbound messages.
     ///
     /// Can only be claimed by one task. The stream finishes when the connection
@@ -163,6 +186,31 @@ public actor BSDEndpoint: BPCEndpoint {
         let replyMessage = Message(
             id: id,
             correlationID: request.correlationID,
+            payload: payload,
+            descriptors: descriptors
+        )
+        try await send(replyMessage)
+    }
+
+    /// Sends a reply using a reply handle from a previously received request.
+    ///
+    /// Use this when you don't want to keep the entire message around:
+    ///
+    /// ```swift
+    /// let request = try await endpoint.receive()
+    /// let handle = request.replyHandle
+    /// // ... process request ...
+    /// try await endpoint.reply(to: handle, id: .pong, payload: data)
+    /// ```
+    public func reply(
+        to handle: ReplyHandle,
+        id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) async throws {
+        let replyMessage = Message(
+            id: id,
+            correlationID: handle.correlationID,
             payload: payload,
             descriptors: descriptors
         )

@@ -7,6 +7,30 @@
 import Foundation
 import Descriptors
 
+// MARK: - ReplyHandle
+
+/// A lightweight token for replying to a received message.
+///
+/// Instead of holding onto the entire `Message`, extract a reply handle and use it later:
+///
+/// ```swift
+/// let request = try await endpoint.receive()
+/// let handle = request.replyHandle
+///
+/// // ... process request ...
+///
+/// try await endpoint.reply(to: handle, id: .pong, payload: data)
+/// ```
+public struct ReplyHandle: Sendable, Hashable {
+    /// The correlation ID to echo back in the reply.
+    public let correlationID: UInt32
+
+    /// Creates a reply handle with the specified correlation ID.
+    public init(correlationID: UInt32) {
+        self.correlationID = correlationID
+    }
+}
+
 // MARK: - Message
 
 /// A unit of communication between a BPC client and server.
@@ -43,6 +67,20 @@ public struct Message: Sendable {
         self.correlationID = correlationID
         self.payload = payload
         self.descriptors = descriptors
+    }
+
+    /// Returns a lightweight handle for replying to this message.
+    ///
+    /// Use this when you don't want to keep the entire message around:
+    ///
+    /// ```swift
+    /// let request = try await endpoint.receive()
+    /// let handle = request.replyHandle
+    /// // Can discard the original request now
+    /// try await endpoint.reply(to: handle, id: .pong)
+    /// ```
+    public var replyHandle: ReplyHandle {
+        ReplyHandle(correlationID: correlationID)
     }
 
     /// Creates a message intended for a request/reply exchange.
@@ -86,6 +124,38 @@ public struct Message: Sendable {
         Message(
             id: id,
             correlationID: request.correlationID,
+            payload: payload,
+            descriptors: descriptors
+        )
+    }
+
+    /// Creates a reply using a reply handle from a previously received request.
+    ///
+    /// Useful when you don't want to keep the entire message around:
+    ///
+    /// ```swift
+    /// let request = try await endpoint.receive()
+    /// let handle = request.replyHandle
+    /// // ... later ...
+    /// let reply = Message.reply(to: handle, id: .pong)
+    /// try await endpoint.send(reply)
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - handle: Reply handle extracted from the original request
+    ///   - id: The message ID for the reply
+    ///   - payload: Optional payload data for the reply
+    ///   - descriptors: Optional file descriptors to send with the reply
+    /// - Returns: A message with the correlation ID from the handle
+    public static func reply(
+        to handle: ReplyHandle,
+        id: MessageID,
+        payload: Data = Data(),
+        descriptors: [OpaqueDescriptorRef] = []
+    ) -> Message {
+        Message(
+            id: id,
+            correlationID: handle.correlationID,
             payload: payload,
             descriptors: descriptors
         )
