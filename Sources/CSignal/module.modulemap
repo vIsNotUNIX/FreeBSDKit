@@ -1,0 +1,4 @@
+module CSignal {
+    header "include/csignal.h"
+    export *
+}

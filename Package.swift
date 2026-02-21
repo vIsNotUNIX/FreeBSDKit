@@ -74,9 +74,13 @@ let package = Package(
             path: "Sources/CINotify"
         ),
         .target(
+            name: "CSignal",
+            path: "Sources/CSignal"
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
-                "Capsicum", "CProcessDescriptor", 
+                "Capsicum", "CProcessDescriptor",
                 "CEventDescriptor", "CJails", "Jails",
                 "CINotify"
             ]
@@ -87,7 +91,7 @@ let package = Package(
         ),
         .target(
             name: "SignalDispatchers",
-            dependencies: ["Descriptors", "FreeBSDKit"]
+            dependencies: ["Descriptors", "FreeBSDKit", "CSignal"]
         ),
         .target(
             name: "BPC",

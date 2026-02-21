@@ -7,7 +7,7 @@
 /// Standard BSD signals.
 ///
 /// Signal numbers are specific to FreeBSD.
-public enum BSDSignal: Int32, Sendable {
+public enum BSDSignal: Int32, Hashable, Sendable {
     case hup    = 1      // hangup
     case int    = 2      // interrupt
     case quit   = 3      // quit

@@ -46,7 +46,99 @@ final class KqueueSignalDispatcherTests: XCTestCase {
         XCTAssertThrowsError(try kq.registerSignal(.kill))
         XCTAssertThrowsError(try kq.registerSignal(.stop))
     }
+
+    func testNextSignalReceivesSignal() async throws {
+        let kq = SystemKqueueDescriptor(kqueue())
+        defer { kq.close() }
+
+        // Block and register SIGUSR1
+        try SystemKqueueDescriptor.blockSignals([.usr1])
+        try kq.registerSignal(.usr1)
+
+        // Send signal to self in background
+        Task {
+            try? await Task.sleep(for: .milliseconds(100))
+            kill(getpid(), SIGUSR1)
+        }
+
+        // Wait for signal with timeout
+        let receivedSignal = try await withTimeout(seconds: 2) {
+            try await kq.nextSignal(maxEvents: 8)
+        }
+
+        XCTAssertEqual(receivedSignal, .usr1)
+    }
+
+    func testKqueueSignalDispatcherInit() throws {
+        let kq = SystemKqueueDescriptor(kqueue())
+
+        let dispatcher = try KqueueSignalDispatcher(
+            kqueue: kq,
+            signals: [.usr1, .usr2]
+        )
+
+        // Init should not throw - dispatcher is now valid
+    }
+
+    func testKqueueSignalDispatcherHandlerRegistration() async throws {
+        let kq = SystemKqueueDescriptor(kqueue())
+
+        let dispatcher = try KqueueSignalDispatcher(
+            kqueue: kq,
+            signals: [.usr1]
+        )
+
+        var handlerCalled = false
+        await dispatcher.on(.usr1) {
+            handlerCalled = true
+        }
+
+        // Handler registration should not throw
+        XCTAssertFalse(handlerCalled)
+    }
+
+    func testMultipleSignalsCanBeRegistered() throws {
+        let kq = SystemKqueueDescriptor(kqueue())
+        defer { kq.close() }
+
+        let signals: [BSDSignal] = [.usr1, .usr2, .alrm, .term]
+
+        for signal in signals {
+            XCTAssertNoThrow(try kq.registerSignal(signal))
+        }
+    }
+
+    func testSignalBlockingValidatesSignals() throws {
+        // Should succeed with valid signals
+        XCTAssertNoThrow(try SystemKqueueDescriptor.blockSignals([.usr1, .usr2]))
+
+        // BSDSignal enum only has valid signals, so all should work
+        XCTAssertNoThrow(try SystemKqueueDescriptor.blockSignals([.int, .term]))
+    }
 }
+
+// Helper for async tests with timeout
+func withTimeout<T>(
+    seconds: TimeInterval,
+    operation: @escaping () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw TimeoutError()
+        }
+
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+struct TimeoutError: Error {}
 
 // Concrete implementation for testing
 struct SystemKqueueDescriptor: KqueueDescriptor {
