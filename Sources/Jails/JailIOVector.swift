@@ -32,9 +32,8 @@ public final class JailIOVector {
     /// [name, value, name, value, ...]
     /// ```
     ///
-    /// The contents are intended to be passed directly to `jail_set(2)` or
-    /// `jail_get(2)`.
-    public private(set) var iovecs: [iovec] = []
+    /// Access is provided via `withUnsafeMutableIOVecs` to prevent dangling pointers.
+    private var iovecs: [iovec] = []
 
     private var storage: [UnsafeMutableRawPointer] = []
 
@@ -60,12 +59,19 @@ public final class JailIOVector {
         _ name: String,
         value: String
     ) throws {
-        guard let key = strdup(name) else {
-            try BSDError.throwErrno()
+        let key: UnsafeMutablePointer<CChar> = try name.withCString { cName in
+            guard let p = strdup(cName) else {
+                try BSDError.throwErrno()
+            }
+            return p
         }
-        guard let val = strdup(value) else {
-            free(key)
-            try BSDError.throwErrno()
+
+        let val: UnsafeMutablePointer<CChar> = try value.withCString { cVal in
+            guard let p = strdup(cVal) else {
+                free(key)
+                try BSDError.throwErrno()
+            }
+            return p
         }
 
         storage.append(UnsafeMutableRawPointer(key))
@@ -73,9 +79,9 @@ public final class JailIOVector {
 
         appendPair(
             key: UnsafeMutableRawPointer(key),
-            keyLen: strlen(key) + 1,
+            keyLen: Int(strlen(key) + 1),
             value: UnsafeMutableRawPointer(val),
-            valueLen: strlen(val) + 1
+            valueLen: Int(strlen(val) + 1)
         )
     }
 
@@ -143,8 +149,11 @@ public final class JailIOVector {
         value: T
     ) throws where T: FixedWidthInteger {
 
-        guard let key = strdup(name) else {
-            try BSDError.throwErrno()
+        let key: UnsafeMutablePointer<CChar> = try name.withCString { cName in
+            guard let p = strdup(cName) else {
+                try BSDError.throwErrno()
+            }
+            return p
         }
 
         let size = MemoryLayout<T>.size
@@ -160,13 +169,21 @@ public final class JailIOVector {
 
         appendPair(
             key: UnsafeMutableRawPointer(key),
-            keyLen: strlen(key) + 1,
+            keyLen: Int(strlen(key) + 1),
             value: val,
             valueLen: size
         )
     }
 
+    /// The number of `iovec` entries (always even: name/value pairs).
+    public var count: Int {
+        return iovecs.count
+    }
+
     /// Provides unsafe mutable access to the underlying `iovec` array.
+    ///
+    /// The pointer is only valid for the duration of the closure. Do not retain
+    /// pointers beyond the closure's scope.
     ///
     /// - Parameter body: A closure that takes an `UnsafeMutableBufferPointer<iovec>`.
     /// - Returns: The value returned by the closure.
@@ -185,8 +202,8 @@ public final class JailIOVector {
         value: UnsafeMutableRawPointer,
         valueLen: Int
     ) {
-        iovecs.append(iovec(iov_base: key, iov_len: keyLen))
-        iovecs.append(iovec(iov_base: value, iov_len: valueLen))
+        iovecs.append(iovec(iov_base: key, iov_len: size_t(keyLen)))
+        iovecs.append(iovec(iov_base: value, iov_len: size_t(valueLen)))
 
         assert(
             iovecs.count % 2 == 0,
