@@ -59,9 +59,13 @@ public extension KqueueDescriptor where Self: ~Copyable {
         maxEvents: Int,
         timeout: TimeInterval?
     ) throws -> (Int, [kevent]) {
-        precondition(maxEvents >= 0)
+        guard maxEvents >= 0 else {
+            throw POSIXError(.EINVAL)
+        }
         if let t = timeout {
-            precondition(t >= 0)
+            guard t >= 0 else {
+                throw POSIXError(.EINVAL)
+            }
         }
 
         var tsStorage: timespec?

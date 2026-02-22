@@ -33,7 +33,9 @@ public typealias ReadWriteDescriptor = ReadableDescriptor & WritableDescriptor
 public extension ReadableDescriptor where Self: ~Copyable {
 
     func read(maxBytes: Int) throws -> ReadResult {
-        precondition(maxBytes > 0, "maxBytes must be greater than 0")
+        guard maxBytes > 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         var buffer = Data(count: maxBytes)
 
@@ -60,7 +62,9 @@ public extension ReadableDescriptor where Self: ~Copyable {
     }
 
     func readExact(_ count: Int) throws -> Data {
-        precondition(count >= 0, "count must be non-negative")
+        guard count >= 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         if count == 0 {
             return Data()

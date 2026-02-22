@@ -141,7 +141,9 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
 
     private static func extractDescFD(from iov: inout JailIOVector) throws -> RawDesc {
         try iov.withUnsafeMutableIOVecs { buf in
-            precondition(buf.count % 2 == 0)
+            guard buf.count % 2 == 0 else {
+                throw POSIXError(.EINVAL)
+            }
 
             var i = 0
             while i < buf.count {

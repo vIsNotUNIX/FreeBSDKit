@@ -219,7 +219,7 @@ public extension SocketDescriptor where Self: ~Copyable {
                             dataPtr[i] = fd
                         }
 
-                        let ret = Glibc.sendmsg(sockFD, &msg, 0)
+                        let ret = Glibc.sendmsg(sockFD, &msg, MSG_NOSIGNAL)
                         guard ret >= 0 else {
                             try BSDError.throwErrno(errno)
                         }

@@ -30,7 +30,9 @@ public extension FileDescriptor where Self: ~Copyable {
     }
 
     func pread(count: Int, offset: off_t) throws -> Data {
-        precondition(count >= 0)
+        guard count >= 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         var buffer = Data(count: count)
 

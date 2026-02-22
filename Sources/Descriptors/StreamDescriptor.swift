@@ -17,6 +17,7 @@ public struct SocketFlags: OptionSet {
     public static let peek       = SocketFlags(rawValue: MSG_PEEK)
     public static let waitAll    = SocketFlags(rawValue: MSG_WAITALL)
     public static let dontWait   = SocketFlags(rawValue: MSG_DONTWAIT)
+    public static let noSignal   = SocketFlags(rawValue: MSG_NOSIGNAL)
 
     // Control-message–related (sendmsg / recvmsg)
     public static let cmsgCloExec = SocketFlags(rawValue: MSG_CMSG_CLOEXEC)
@@ -48,10 +49,14 @@ public enum RecvResult {
 public extension StreamDescriptor where Self: ~Copyable {
 
     func sendOnce(_ data: Data, flags: SocketFlags = []) throws -> Int {
-        try self.unsafe { fd in
+        // Handle empty data up front to avoid nil baseAddress
+        if data.isEmpty {
+            return 0
+        }
+        return try self.unsafe { fd in
             let sent: Int = data.withUnsafeBytes { ptr in
                 while true {
-                    let result = Glibc.send(fd, ptr.baseAddress, ptr.count, flags.rawValue)
+                    let result = Glibc.send(fd, ptr.baseAddress, ptr.count, flags.rawValue | MSG_NOSIGNAL)
                     if result == -1 && errno == EINTR { continue }
                     return Int(result)
                 }
@@ -78,7 +83,7 @@ public extension StreamDescriptor where Self: ~Copyable {
                         fd,
                         base.advanced(by: offset),
                         ptr.count - offset,
-                        flags.rawValue
+                        flags.rawValue | MSG_NOSIGNAL
                     )
 
                     if n == -1 {
@@ -98,7 +103,7 @@ public extension StreamDescriptor where Self: ~Copyable {
     }
 
     func recv(maxBytes: Int, flags: SocketFlags = []) throws -> RecvResult {
-        precondition(maxBytes > 0, "maxBytes must be greater than 0")
+        guard maxBytes > 0 else { throw POSIXError(.EINVAL) }
 
         var buffer = Data(count: maxBytes)
 
@@ -125,7 +130,9 @@ public extension StreamDescriptor where Self: ~Copyable {
     }
 
     func recvExact(_ count: Int, flags: SocketFlags = []) throws -> Data {
-        precondition(count >= 0, "count must be non-negative")
+        guard count >= 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         if count == 0 {
             return Data()

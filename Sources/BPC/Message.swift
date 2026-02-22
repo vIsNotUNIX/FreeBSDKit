@@ -9,25 +9,25 @@ import Descriptors
 import Capabilities
 import Glibc
 
-// MARK: - ReplyHandle
+// MARK: - ReplyToken
 
 /// A lightweight token for replying to a received message.
 ///
-/// Instead of holding onto the entire `Message`, extract a reply handle and use it later:
+/// Instead of holding onto the entire `Message`, extract a reply token and use it later:
 ///
 /// ```swift
 /// let request = try await endpoint.receive()
-/// let handle = request.replyHandle
+/// let token = request.replyToken
 ///
 /// // ... process request ...
 ///
-/// try await endpoint.reply(to: handle, id: .pong, payload: data)
+/// try await endpoint.reply(to: token, id: .pong, payload: data)
 /// ```
-public struct ReplyHandle: Sendable, Hashable {
+public struct ReplyToken: Sendable, Hashable {
     /// The correlation ID to echo back in the reply.
     public let correlationID: UInt32
 
-    /// Creates a reply handle with the specified correlation ID.
+    /// Creates a reply token with the specified correlation ID.
     public init(correlationID: UInt32) {
         self.correlationID = correlationID
     }
@@ -71,18 +71,18 @@ public struct Message: Sendable {
         self.descriptors = descriptors
     }
 
-    /// Returns a lightweight handle for replying to this message.
+    /// Returns a lightweight token for replying to this message.
     ///
     /// Use this when you don't want to keep the entire message around:
     ///
     /// ```swift
     /// let request = try await endpoint.receive()
-    /// let handle = request.replyHandle
+    /// let token = request.replyToken
     /// // Can discard the original request now
-    /// try await endpoint.reply(to: handle, id: .pong)
+    /// try await endpoint.reply(to: token, id: .pong)
     /// ```
-    public var replyHandle: ReplyHandle {
-        ReplyHandle(correlationID: correlationID)
+    public var replyToken: ReplyToken {
+        ReplyToken(correlationID: correlationID)
     }
 
     /// Creates a message intended for a request/reply exchange.
@@ -124,33 +124,33 @@ public struct Message: Sendable {
         )
     }
 
-    /// Creates a reply using a reply handle from a previously received request.
+    /// Creates a reply using a reply token from a previously received request.
     ///
     /// Useful when you don't want to keep the entire message around:
     ///
     /// ```swift
     /// let request = try await endpoint.receive()
-    /// let handle = request.replyHandle
+    /// let token = request.replyToken
     /// // ... later ...
-    /// let reply = Message.reply(to: handle, id: .pong)
+    /// let reply = Message.reply(to: token, id: .pong)
     /// try await endpoint.send(reply)
     /// ```
     ///
     /// - Parameters:
-    ///   - handle: Reply handle extracted from the original request
+    ///   - token: Reply token extracted from the original request
     ///   - id: The message ID for the reply
     ///   - payload: Optional payload data for the reply
     ///   - descriptors: Optional file descriptors to send with the reply
-    /// - Returns: A message with the correlation ID from the handle
+    /// - Returns: A message with the correlation ID from the token
     public static func reply(
-        to handle: ReplyHandle,
+        to token: ReplyToken,
         id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
     ) -> Message {
         Message(
             id: id,
-            correlationID: handle.correlationID,
+            correlationID: token.correlationID,
             payload: payload,
             descriptors: descriptors
         )

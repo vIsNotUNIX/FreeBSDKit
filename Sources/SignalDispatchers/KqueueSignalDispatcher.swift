@@ -114,7 +114,9 @@ public actor KqueueSignalDispatcher {
     ///   dispatcher cannot interrupt a blocked kevent syscall. If you need immediate
     ///   cancellation, consider using a timeout-based implementation or EVFILT_USER wakeup.
     public func run(maxEvents: Int = 8) async throws {
-        precondition(maxEvents > 0, "maxEvents must be greater than zero")
+        guard maxEvents > 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         // Prevent multiple concurrent run() calls
         guard !isRunning else {

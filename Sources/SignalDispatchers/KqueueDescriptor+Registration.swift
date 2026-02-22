@@ -111,7 +111,9 @@ public extension KqueueDescriptor where Self: ~Copyable {
     ///   If the task is cancelled when kevent returns, `CancellationError` is thrown.
     /// - Note: Cannot implement AsyncStream here because Self: ~Copyable
     func nextSignal(maxEvents: Int = 8) async throws -> BSDSignal {
-        precondition(maxEvents > 0)
+        guard maxEvents > 0 else {
+            throw POSIXError(.EINVAL)
+        }
 
         // Duplicate the fd so the blocking work has an owned copy
         // with guaranteed lifetime independent of self's lifecycle.
