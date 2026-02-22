@@ -120,8 +120,9 @@ public extension SocketDescriptor where Self: ~Copyable {
 
 @inline(__always)
 private func _CMSG_ALIGN(_ len: Int) -> Int {
-    let align = MemoryLayout<cmsghdr>.alignment
-    return (len + align - 1) & ~(align - 1)
+    // CMSG_ALIGN uses alignment of size_t, not cmsghdr struct alignment
+    let a = MemoryLayout<size_t>.size
+    return (len + a - 1) & ~(a - 1)
 }
 
 @inline(__always)
@@ -167,22 +168,26 @@ public extension SocketDescriptor where Self: ~Copyable {
         _ descriptors: [OpaqueDescriptorRef],
         payload: Data
     ) throws {
-        precondition(!payload.isEmpty)
-
         try self.unsafe { sockFD in
             var rawFDs: [RawDesc] = []
             rawFDs.reserveCapacity(descriptors.count)
 
+            // Convert all descriptors to FDs, throwing if any conversion fails
             for d in descriptors {
-                if let rawFD = d.toBSDValue() {
-                    rawFDs.append(rawFD)
+                guard let rawFD = d.toBSDValue() else {
+                    throw POSIXError(.EINVAL)
                 }
+                rawFDs.append(rawFD)
             }
+
+            // Allow empty payload for FD-only messages
+            // Use a 1-byte dummy if payload is empty (portable pattern)
+            let actualPayload = payload.isEmpty ? Data([0]) : payload
 
             let controlLen = CMSG_SPACE(rawFDs.count * MemoryLayout<RawDesc>.size)
             var control = [UInt8](repeating: 0, count: controlLen)
 
-            try payload.withUnsafeBytes { payloadPtr in
+            try actualPayload.withUnsafeBytes { payloadPtr in
                 var iov = iovec(
                     iov_base: UnsafeMutableRawPointer(mutating: payloadPtr.baseAddress),
                     iov_len: payloadPtr.count
@@ -256,12 +261,19 @@ public extension SocketDescriptor where Self: ~Copyable {
                             msg_flags: 0
                         )
 
-                        let bytesRead = Glibc.recvmsg(sockFD, &msg, 0)
+                        // Use MSG_CMSG_CLOEXEC to set close-on-exec on received FDs
+                        let bytesRead = Glibc.recvmsg(sockFD, &msg, MSG_CMSG_CLOEXEC)
                         guard bytesRead >= 0 else {
                             try BSDError.throwErrno(errno)
                         }
 
+                        // Check for control data truncation
                         if (msg.msg_flags & MSG_CTRUNC) != 0 {
+                            throw POSIXError(.EMSGSIZE)
+                        }
+
+                        // Check for payload truncation
+                        if (msg.msg_flags & MSG_TRUNC) != 0 {
                             throw POSIXError(.EMSGSIZE)
                         }
 
@@ -274,6 +286,15 @@ public extension SocketDescriptor where Self: ~Copyable {
 
                                 let dataLen =
                                     Int(hdr.pointee.cmsg_len) - CMSG_LEN(0)
+
+                                // Validate SCM_RIGHTS payload length
+                                guard dataLen >= 0 else {
+                                    throw POSIXError(.EINVAL)
+                                }
+
+                                guard dataLen % MemoryLayout<RawDesc>.size == 0 else {
+                                    throw POSIXError(.EINVAL)
+                                }
 
                                 let count = dataLen / MemoryLayout<RawDesc>.size
                                 let dataPtr =
@@ -304,16 +325,6 @@ public extension SocketDescriptor where Self: ~Copyable {
     }
 }
 
-public extension SocketDescriptor {
-    static func socketPair(
-        domain: SocketDomain,
-        type: SocketType,
-        protocol: SocketProtocol = .default
-    ) throws -> (Self, Self) {
-        var fds = [Int32](repeating: -1, count: 2)
-        guard Glibc.socketpair(domain.rawValue, type.rawValue, `protocol`.rawValue, &fds) == 0 else {
-            try BSDError.throwErrno(errno)
-        }
-        return (Self(fds[0]), Self(fds[1]))
-    }
-}
+// Note: The ~Copyable version above returns SocketPair<Self> for proper ownership.
+// For Copyable conformers, the tuple version is also available via the wrapper's
+// accessors (first/second).

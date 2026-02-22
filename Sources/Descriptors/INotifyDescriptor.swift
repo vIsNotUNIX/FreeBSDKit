@@ -77,36 +77,58 @@ public extension InotifyDescriptor where Self: ~Copyable {
         try self.unsafe { fd in
             var buffer = [UInt8](repeating: 0, count: maxBytes)
 
-            let n = buffer.withUnsafeMutableBytes {
-                Glibc.read(fd, $0.baseAddress, maxBytes)
-            }
+            // Retry on EINTR, return empty on EAGAIN/EWOULDBLOCK
+            let bytesRead: Int = try buffer.withUnsafeMutableBytes { bufPtr in
+                while true {
+                    let result = Glibc.read(fd, bufPtr.baseAddress, maxBytes)
+                    if result >= 0 {
+                        return Int(result)
+                    }
 
-            guard n >= 0 else {
-                try BSDError.throwErrno(errno)
+                    let err = errno
+                    if err == EINTR {
+                        continue
+                    }
+                    if err == EAGAIN || err == EWOULDBLOCK {
+                        return 0  // No events available (nonblocking mode)
+                    }
+                    try BSDError.throwErrno(err)
+                }
             }
 
             var events: [InotifyEvent] = []
             var offset = 0
 
             buffer.withUnsafeBytes { ptr in
-                while offset < n {
+                while offset < bytesRead {
+                    // Bounds check: ensure we can read inotify_event header
+                    guard offset + MemoryLayout<inotify_event>.size <= bytesRead else {
+                        break  // Truncated read, stop parsing
+                    }
+
                     let base = ptr.baseAddress!.advanced(by: offset)
                     let ev = base
                         .assumingMemoryBound(to: inotify_event.self)
                         .pointee
 
+                    // Bounds check: ensure we can read the full event including name
+                    guard offset + MemoryLayout<inotify_event>.size + Int(ev.len) <= bytesRead else {
+                        break  // Truncated name, stop parsing
+                    }
+
                     let namePtr = base
                         .advanced(by: MemoryLayout<inotify_event>.size)
                         .assumingMemoryBound(to: UInt8.self)
 
-                    let name =
-                        ev.len > 0
+                    // Safe string construction via copying conversion
+                    let name: String? = (ev.len > 1)
                         ? String(
-                            bytesNoCopy: UnsafeMutableRawPointer(mutating: namePtr),
-                            length: Int(ev.len) - 1,
-                            encoding: .utf8,
-                            freeWhenDone: false
-                        )
+                            decoding: UnsafeBufferPointer(
+                                start: namePtr,
+                                count: Int(ev.len) - 1  // Exclude trailing NUL
+                            ),
+                            as: UTF8.self
+                          )
                         : nil
 
                     events.append(
@@ -149,6 +171,8 @@ public struct InotifyEventMask: OptionSet, BSDValue, Sendable {
         UInt32(bitPattern: v)
     }
 
+    // MARK: - Event Flags
+
     public static let access        = Self(rawValue: flag(IN_ACCESS))
     public static let attrib        = Self(rawValue: flag(IN_ATTRIB))
     public static let modify        = Self(rawValue: flag(IN_MODIFY))
@@ -162,10 +186,27 @@ public struct InotifyEventMask: OptionSet, BSDValue, Sendable {
     public static let deleteSelf    = Self(rawValue: flag(IN_DELETE_SELF))
     public static let moveSelf      = Self(rawValue: flag(IN_MOVE_SELF))
 
+    // MARK: - Metadata Flags
+
     public static let ignored       = Self(rawValue: flag(IN_IGNORED))
     public static let isDir         = Self(rawValue: flag(IN_ISDIR))
     public static let queueOverflow = Self(rawValue: flag(IN_Q_OVERFLOW))
     public static let unmount       = Self(rawValue: flag(IN_UNMOUNT))
+
+    // MARK: - Watch Creation Flags
+
+    /// Only watch if path is a directory
+    public static let onlyDir       = Self(rawValue: flag(IN_ONLYDIR))
+    /// Don't follow symbolic links
+    public static let dontFollow    = Self(rawValue: flag(IN_DONT_FOLLOW))
+    /// Currently has no effect on FreeBSD
+    public static let exclUnlink    = Self(rawValue: flag(IN_EXCL_UNLINK))
+    /// Fail if watch already exists
+    public static let maskCreate    = Self(rawValue: flag(IN_MASK_CREATE))
+    /// OR with existing watch mask instead of replacing
+    public static let maskAdd       = Self(rawValue: flag(IN_MASK_ADD))
+    /// Remove watch after first event (0x80000000 exceeds Int32.max)
+    public static let oneshot       = Self(rawValue: 0x8000_0000 as UInt32)
 }
 
 public struct InotifyEvent: Sendable {

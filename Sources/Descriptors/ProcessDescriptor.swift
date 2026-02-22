@@ -59,8 +59,6 @@ public struct ProcessDescriptorForkResult: ~Copyable {
     }
 }
 
-// MARK: - Protocol
-
 /// Capability-oriented handle to a process.
 public protocol ProcessDescriptor: Descriptor, ~Copyable {
 
@@ -69,7 +67,9 @@ public protocol ProcessDescriptor: Descriptor, ~Copyable {
 
     /// Wait for the process to exit.
     ///
-    /// Implemented via `pdgetpid(2)` + `wait4(2)`.
+    /// Uses kqueue with EVFILT_PROCDESC to monitor process state, then collects
+    /// exit status via wait4(). This is the proper way to wait on process descriptors,
+    /// avoiding PID-reuse races while still obtaining resource usage and exit status.
     func wait() throws -> ProcessExitStatus
 
     /// Send a signal using `pdkill(2)`.
@@ -78,8 +78,6 @@ public protocol ProcessDescriptor: Descriptor, ~Copyable {
     /// Query the underlying PID (escape hatch).
     func pid() throws -> pid_t
 }
-
-// MARK: - Implementation
 
 public extension ProcessDescriptor where Self: ~Copyable {
 
@@ -110,17 +108,54 @@ public extension ProcessDescriptor where Self: ~Copyable {
     }
 
     func wait() throws -> ProcessExitStatus {
-        let pid = try self.pid()
+        try self.unsafe { fd in
+            // Create a kqueue for monitoring the process descriptor
+            let kq = Glibc.kqueue()
+            guard kq >= 0 else {
+                try BSDError.throwErrno(errno)
+            }
+            defer { _ = Glibc.close(kq) }
 
-        var status: Int32 = 0
-        var rusage = rusage()
+            // Register EVFILT_PROCDESC to monitor process exit
+            var kev = Glibc.kevent()
+            kev.ident = UInt(bitPattern: Int(fd))
+            kev.filter = Int16(EVFILT_PROCDESC)
+            kev.flags = UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT)
+            kev.fflags = UInt32(NOTE_EXIT)
+            kev.data = 0
+            kev.udata = nil
 
-        let ret = wait4(pid, &status, 0, &rusage)
-        guard ret >= 0 else {
-            try BSDError.throwErrno(errno)
+            var events = Array<Glibc.kevent>(repeating: Glibc.kevent(), count: 1)
+
+            // Register the event and wait for process exit
+            let n = events.withUnsafeMutableBufferPointer { evBuf in
+                withUnsafePointer(to: &kev) { kevPtr in
+                    _kevent_c(kq, kevPtr, 1, evBuf.baseAddress, 1, nil)
+                }
+            }
+
+            guard n >= 0 else {
+                try BSDError.throwErrno(errno)
+            }
+
+            // Process has exited, now collect its status via wait4()
+            // We still need the PID for wait4(), but the kqueue ensured
+            // we only call it after the process actually exited
+            var pid: pid_t = 0
+            guard pdgetpid(fd, &pid) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+
+            var status: Int32 = 0
+            var rusage = rusage()
+
+            let ret = wait4(pid, &status, 0, &rusage)
+            guard ret >= 0 else {
+                try BSDError.throwErrno(errno)
+            }
+
+            return decodeWaitStatus(status)
         }
-
-        return decodeWaitStatus(status)
     }
 
     func kill(signal: BSDSignal) throws {
@@ -143,30 +178,38 @@ public extension ProcessDescriptor where Self: ~Copyable {
 }
 
 // Wait Status Decoding
+//
+// Uses the standard FreeBSD wait(2) status macros via C helpers.
+// DO NOT manually decode status with bit shifts - the encoding is OS-specific
+// and not guaranteed to remain stable across BSD variants.
 @inline(__always)
 private func decodeWaitStatus(_ status: Int32) -> ProcessExitStatus {
-    let exitCode = (status >> 8) & 0xff
-    let sig      = status & 0x7f
-    let core     = (status & 0x80) != 0
-
-    // Normal exit
-    if sig == 0 {
-        return .exited(code: exitCode)
+    // Check if process exited normally
+    if cwait_wifexited(status) {
+        let code = cwait_wexitstatus(status)
+        return .exited(code: code)
     }
 
-    // Stopped (SIGSTOP / SIGTSTP / etc.)
-    if sig == 0x7f {
-        let raw = exitCode
-        return .stopped(
-            signal: BSDSignal(rawValue: raw),
-            rawSignal: raw
+    // Check if process was terminated by a signal
+    if cwait_wifsignaled(status) {
+        let signum = cwait_wtermsig(status)
+        let core = cwait_wcoredump(status)
+        return .signaled(
+            signal: BSDSignal(rawValue: signum),
+            rawSignal: signum,
+            coreDumped: core
         )
     }
 
-    // Signaled
-    return .signaled(
-        signal: BSDSignal(rawValue: sig),
-        rawSignal: sig,
-        coreDumped: core
-    )
+    // Check if process was stopped
+    if cwait_wifstopped(status) {
+        let signum = cwait_wstopsig(status)
+        return .stopped(
+            signal: BSDSignal(rawValue: signum),
+            rawSignal: signum
+        )
+    }
+
+    // Fallback for unknown status (should not happen)
+    return .exited(code: -1)
 }

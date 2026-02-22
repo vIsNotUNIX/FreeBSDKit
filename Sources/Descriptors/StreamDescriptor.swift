@@ -49,11 +49,14 @@ public extension StreamDescriptor where Self: ~Copyable {
 
     func sendOnce(_ data: Data, flags: SocketFlags = []) throws -> Int {
         try self.unsafe { fd in
-            let sent = data.withUnsafeBytes { ptr in
-                Glibc.send(fd, ptr.baseAddress, ptr.count, flags.rawValue)
+            let sent: Int = data.withUnsafeBytes { ptr in
+                while true {
+                    let result = Glibc.send(fd, ptr.baseAddress, ptr.count, flags.rawValue)
+                    if result == -1 && errno == EINTR { continue }
+                    return Int(result)
+                }
             }
-            if sent == -1 {
-                if errno == EINTR { return 0 }
+            if sent < 0 {
                 try BSDError.throwErrno(errno)
             }
             return sent
@@ -61,20 +64,33 @@ public extension StreamDescriptor where Self: ~Copyable {
     }
 
     func sendAll(_ data: Data, flags: SocketFlags = []) throws {
+        // Handle empty data up front to avoid nil baseAddress
+        if data.isEmpty {
+            return
+        }
+
         try self.unsafe { fd in
             try data.withUnsafeBytes { ptr in
                 var offset = 0
                 while offset < ptr.count {
+                    let base = ptr.baseAddress! // Safe because data not empty
                     let n = Glibc.send(
                         fd,
-                        ptr.baseAddress!.advanced(by: offset),
+                        base.advanced(by: offset),
                         ptr.count - offset,
                         flags.rawValue
                     )
+
                     if n == -1 {
                         if errno == EINTR { continue }
                         try BSDError.throwErrno(errno)
                     }
+
+                    if n == 0 {
+                        // No forward progress => avoid infinite loop
+                        throw POSIXError(.EIO)
+                    }
+
                     offset += n
                 }
             }
@@ -82,16 +98,21 @@ public extension StreamDescriptor where Self: ~Copyable {
     }
 
     func recv(maxBytes: Int, flags: SocketFlags = []) throws -> RecvResult {
+        precondition(maxBytes > 0, "maxBytes must be greater than 0")
+
         var buffer = Data(count: maxBytes)
 
-        let n = self.unsafe { fd in
+        let n: Int = self.unsafe { fd in
             buffer.withUnsafeMutableBytes { ptr in
-                Glibc.recv(fd, ptr.baseAddress, ptr.count, flags.rawValue)
+                while true {
+                    let result = Glibc.recv(fd, ptr.baseAddress, ptr.count, flags.rawValue)
+                    if result == -1 && errno == EINTR { continue }
+                    return Int(result)
+                }
             }
         }
 
-        if n == -1 {
-            if errno == EINTR { return .data(Data()) }
+        if n < 0 {
             try BSDError.throwErrno(errno)
         }
 
@@ -104,13 +125,20 @@ public extension StreamDescriptor where Self: ~Copyable {
     }
 
     func recvExact(_ count: Int, flags: SocketFlags = []) throws -> Data {
+        precondition(count >= 0, "count must be non-negative")
+
+        if count == 0 {
+            return Data()
+        }
+
         var result = Data()
         result.reserveCapacity(count)
 
         while result.count < count {
             switch try recv(maxBytes: count - result.count, flags: flags) {
             case .eof:
-                throw POSIXError(.ENOTCONN)
+                // Unexpected EOF before reading all requested bytes
+                throw POSIXError(.EIO)
             case .data(let chunk):
                 result.append(chunk)
             }

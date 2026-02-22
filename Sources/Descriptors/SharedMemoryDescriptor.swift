@@ -16,19 +16,37 @@ import FreeBSDKit
 /// This is safe to use in capability mode.
 public let SHM_ANON = UnsafeMutablePointer<CChar>(bitPattern: 1)!
 
+// MARK: - Access Mode
+
+/// Access mode for shared memory objects.
+///
+/// The access mode is a masked field (O_ACCMODE) that determines read/write
+/// permissions. It cannot be changed after opening and must be specified
+/// separately from creation flags.
+public enum ShmAccessMode: Sendable {
+    case readOnly
+    case writeOnly
+    case readWrite
+
+    var rawValue: Int32 {
+        switch self {
+        case .readOnly:  return O_RDONLY
+        case .writeOnly: return O_WRONLY
+        case .readWrite: return O_RDWR
+        }
+    }
+}
+
 // MARK: - Open Flags
 
 /// Flags for opening shared memory objects.
+///
+/// These are the creation and truncation flags that can be combined.
+/// Access mode (read/write permissions) is specified separately via `ShmAccessMode`.
 public struct ShmOpenFlags: OptionSet {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
-    /// Open for reading
-    public static let readOnly  = ShmOpenFlags(rawValue: O_RDONLY)
-    /// Open for writing
-    public static let writeOnly = ShmOpenFlags(rawValue: O_WRONLY)
-    /// Open for reading and writing
-    public static let readWrite = ShmOpenFlags(rawValue: O_RDWR)
     /// Create if it doesn't exist
     public static let create    = ShmOpenFlags(rawValue: O_CREAT)
     /// Ensure creation (fail if exists)
@@ -115,8 +133,17 @@ public struct MappedRegion: ~Copyable {
 public protocol SharedMemoryDescriptor: Descriptor, ~Copyable {
 
     /// Open or create a POSIX shared memory object.
+    ///
+    /// - Parameters:
+    ///   - name: The shared memory object name
+    ///   - accessMode: Read/write access mode
+    ///   - flags: Creation and truncation flags
+    ///   - mode: Permission mode (default: 0o600)
+    /// - Returns: A new shared memory descriptor
+    /// - Throws: BSD error if opening fails
     static func open(
         name: String,
+        accessMode: ShmAccessMode,
         flags: ShmOpenFlags,
         mode: mode_t
     ) throws -> Self
@@ -130,11 +157,16 @@ public protocol SharedMemoryDescriptor: Descriptor, ~Copyable {
     /// - Work in capability mode (no namespace access required)
     ///
     /// - Parameters:
-    ///   - flags: Open flags (typically `.readWrite`)
-    ///   - mode: Permission mode (usually `0o600`)
+    ///   - accessMode: Read/write access mode (typically `.readWrite`)
+    ///   - flags: Creation flags (typically empty or `.create`)
+    ///   - mode: Permission mode (default: 0o600)
     /// - Returns: A new anonymous shared memory descriptor
     /// - Throws: BSD error if creation fails
-    static func anonymous(flags: ShmOpenFlags, mode: mode_t) throws -> Self
+    static func anonymous(
+        accessMode: ShmAccessMode,
+        flags: ShmOpenFlags,
+        mode: mode_t
+    ) throws -> Self
 
     /// Remove the shared memory object name.
     static func unlink(name: String) throws
@@ -156,11 +188,13 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
 
     static func open(
         name: String,
-        flags: ShmOpenFlags,
+        accessMode: ShmAccessMode,
+        flags: ShmOpenFlags = [],
         mode: mode_t = 0o600
     ) throws -> Self {
+        let combinedFlags = accessMode.rawValue | flags.rawValue
         let fd = name.withCString { ptr in
-            Glibc.shm_open(ptr, flags.rawValue, mode)
+            Glibc.shm_open(ptr, combinedFlags, mode)
         }
         guard fd >= 0 else {
             try BSDError.throwErrno(errno)
@@ -168,8 +202,13 @@ public extension SharedMemoryDescriptor where Self: ~Copyable {
         return Self(fd)
     }
 
-    static func anonymous(flags: ShmOpenFlags = .readWrite, mode: mode_t = 0o600) throws -> Self {
-        let fd = Glibc.shm_open(SHM_ANON, flags.rawValue, mode)
+    static func anonymous(
+        accessMode: ShmAccessMode = .readWrite,
+        flags: ShmOpenFlags = [],
+        mode: mode_t = 0o600
+    ) throws -> Self {
+        let combinedFlags = accessMode.rawValue | flags.rawValue
+        let fd = Glibc.shm_open(SHM_ANON, combinedFlags, mode)
         guard fd >= 0 else {
             try BSDError.throwErrno(errno)
         }

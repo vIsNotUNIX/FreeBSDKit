@@ -90,7 +90,9 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
     }
 
     consuming public func take() -> RAWBSD {
-        return fd
+        let desc = fd
+        fd = -1
+        return desc
     }
 
     public func unsafe<R>(
@@ -137,25 +139,33 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
     }
 
 
-    private static func extractDescFD(
-        from iov: inout JailIOVector
-    ) throws -> RawDesc {
+    private static func extractDescFD(from iov: inout JailIOVector) throws -> RawDesc {
+        try iov.withUnsafeMutableIOVecs { buf in
+            precondition(buf.count % 2 == 0)
 
-        let fd: RawDesc? = iov.withUnsafeMutableIOVecs { buf in
-            for entry in buf {
-                guard entry.iov_len == MemoryLayout<RawDesc>.size,
-                    let base = entry.iov_base
-                else { continue }
+            var i = 0
+            while i < buf.count {
+                let keyIOV = buf[i]
+                let valIOV = buf[i + 1]
 
-                return base.load(as: RawDesc.self)
+                guard let keyBase = keyIOV.iov_base else { i += 2; continue }
+                let key = keyBase.assumingMemoryBound(to: CChar.self)
+
+                if strcmp(key, "jid") == 0 {
+                    guard valIOV.iov_len == MemoryLayout<RawDesc>.size,
+                        let valBase = valIOV.iov_base
+                    else { throw POSIXError(.EINVAL) }
+
+                    // Alignment is OK because you allocated scalars via malloc().
+                    let fd = valBase.load(as: RawDesc.self)
+                    guard fd >= 0 else { throw POSIXError(.EBADF) }
+                    return fd
+                }
+
+                i += 2
             }
-            return nil
-        }
 
-        guard let fd else {
             throw POSIXError(.EINVAL)
         }
-
-        return fd
     }
 }

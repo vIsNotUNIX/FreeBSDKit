@@ -47,15 +47,17 @@ final class SocketDescriptorTests: XCTestCase {
     }
 
     func testSocketPair() throws {
-        let (sock1, sock2) = try SystemSocketDescriptor.socketPair(
+        let pair = try SystemSocketDescriptor.socketPair(
             domain: .unix,
             type: .stream,
             protocol: .default
         )
         defer {
-            sock1.close()
-            sock2.close()
+            pair.first.close()
+            pair.second.close()
         }
+        let sock1 = pair.first
+        let sock2 = pair.second
 
         // Send data through sock1
         let testData = "Hello, Socket!".data(using: .utf8)!
@@ -72,15 +74,17 @@ final class SocketDescriptorTests: XCTestCase {
     }
 
     func testShutdown() throws {
-        let (sock1, sock2) = try SystemSocketDescriptor.socketPair(
+        let pair = try SystemSocketDescriptor.socketPair(
             domain: .unix,
             type: .stream,
             protocol: .default
         )
         defer {
-            sock1.close()
-            sock2.close()
+            pair.first.close()
+            pair.second.close()
         }
+        let sock1 = pair.first
+        let sock2 = pair.second
 
         // Shutdown write on sock1
         try sock1.shutdown(how: .write)

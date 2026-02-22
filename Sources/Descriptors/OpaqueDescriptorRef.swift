@@ -25,8 +25,6 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
     private var _kind: DescriptorKind = .unknown
     private let lock = NSLock()
 
-    // MARK: - Initializers
-
     public init(_ value: Int32) {
         self.fd = value
     }
@@ -35,8 +33,6 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
         self.fd = fd
         self._kind = kind
     }
-
-    // MARK: - Descriptor Metadata
 
     public var kind: DescriptorKind {
         get {
@@ -50,8 +46,6 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
             lock.unlock()
         }
     }
-
-    // MARK: - Raw FD Access
 
     /// Return the underlying BSD descriptor, if still valid.
     ///
@@ -76,8 +70,6 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
         return descriptor
     }
 
-    // MARK: - Deinitialization
-
     deinit {
         lock.lock()
         if let desc = fd {
@@ -86,8 +78,6 @@ open class OpaqueDescriptorRef: CustomDebugStringConvertible, @unchecked Sendabl
         }
         lock.unlock()
     }
-
-    // MARK: - Debugging
 
     open var debugDescription: String {
         lock.lock()

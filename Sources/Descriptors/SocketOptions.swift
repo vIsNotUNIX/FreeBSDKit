@@ -217,7 +217,6 @@ public struct UnixSocketAddress: SocketAddress {
 
     public init(path: String) throws {
         var addr = sockaddr_un()
-        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
         addr.sun_family = sa_family_t(AF_UNIX)
 
         // Copy path into sun_path, leaving room for null terminator
@@ -232,13 +231,19 @@ public struct UnixSocketAddress: SocketAddress {
             }
         }
 
+        // Calculate actual address length: sun_len + sun_family + path length
+        // Matches SUN_LEN() macro: offsetof(sockaddr_un, sun_path) + strlen(path)
+        let pathLen = path.utf8.count
+        addr.sun_len = UInt8(2 + pathLen)  // 2 = sizeof(sun_len) + sizeof(sun_family)
+
         self.storage = addr
     }
 
     public func withSockAddr<R>(_ body: (UnsafePointer<sockaddr>, socklen_t) throws -> R) rethrows -> R {
         try withUnsafePointer(to: storage) { ptr in
             try ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                try body(sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                // Use actual address length from sun_len, not full struct size
+                try body(sockaddrPtr, socklen_t(storage.sun_len))
             }
         }
     }

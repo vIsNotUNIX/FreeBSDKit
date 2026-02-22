@@ -406,7 +406,7 @@ public actor BSDEndpoint: BPCEndpoint {
         if payload.count > Self.MAX_INLINE_PAYLOAD {
             // Create anonymous shared memory for the payload
             // This is capability-mode safe (no namespace access required)
-            let shm = try SharedMemoryCapability.anonymous(flags: .readWrite)
+            let shm = try SharedMemoryCapability.anonymous(accessMode: .readWrite)
 
             // Set size and map
             try shm.setSize(payload.count)

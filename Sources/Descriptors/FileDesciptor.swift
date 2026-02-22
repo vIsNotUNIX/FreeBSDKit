@@ -30,44 +30,41 @@ public extension FileDescriptor where Self: ~Copyable {
     }
 
     func pread(count: Int, offset: off_t) throws -> Data {
+        precondition(count >= 0)
+
         var buffer = Data(count: count)
 
-        let n = self.unsafe { fd in
-            buffer.withUnsafeMutableBytes { ptr in
+        let (n, err): (Int, Int32) = self.unsafe { fd in
+            buffer.withUnsafeMutableBytes { ptr -> (Int, Int32) in
                 while true {
                     let r = Glibc.pread(fd, ptr.baseAddress, ptr.count, offset)
-                    if r != -1 { return r }
+                    if r >= 0 { return (Int(r), 0) }
                     if errno == EINTR { continue }
-                    return -1
+                    return (-1, errno)
                 }
             }
         }
 
-        if n == -1 {
-            try BSDError.throwErrno(errno)
-        }
+        if n < 0 { try BSDError.throwErrno(err) }
 
         buffer.removeSubrange(n..<buffer.count)
         return buffer
     }
 
     func pwrite(_ data: Data, offset: off_t) throws -> Int {
-        try self.unsafe { fd in
-            let n = data.withUnsafeBytes { ptr in
+        let (n, err): (Int, Int32) = try self.unsafe { fd in
+            data.withUnsafeBytes { ptr -> (Int, Int32) in
                 while true {
                     let r = Glibc.pwrite(fd, ptr.baseAddress, ptr.count, offset)
-                    if r != -1 { return r }
+                    if r >= 0 { return (Int(r), 0) }
                     if errno == EINTR { continue }
-                    return -1
+                    return (-1, errno)
                 }
             }
-
-            if n == -1 {
-                try BSDError.throwErrno(errno)
-            }
-
-            return n
         }
+
+        if n < 0 { try BSDError.throwErrno(err) }
+        return n
     }
 
     func truncate(to length: off_t) throws {

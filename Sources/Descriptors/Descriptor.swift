@@ -12,20 +12,43 @@ import FreeBSDKit
 
 public typealias RawDesc = Int32
 
+/// File access mode from `fcntl(F_GETFL)`.
+///
+/// The access mode is a masked field extracted from the file status word
+/// using `O_ACCMODE`. It is distinct from file status flags and cannot be
+/// changed after a descriptor is opened.
+public enum FileAccessMode: Sendable {
+    case readOnly
+    case writeOnly
+    case readWrite
+
+    init(getfl: Int32) {
+        switch getfl & O_ACCMODE {
+        case O_WRONLY: self = .writeOnly
+        case O_RDWR:   self = .readWrite
+        default:       self = .readOnly  // O_RDONLY is 0
+        }
+    }
+}
+
 /// File status flags used with `fcntl(F_GETFL)` / `fcntl(F_SETFL)`.
 ///
-/// This maps directly to the POSIX `O_*` flags.
+/// These represent the changeable flags that can be modified via `F_SETFL`.
+/// The access mode (O_RDONLY/O_WRONLY/O_RDWR) is **not** included, as it
+/// is a masked field handled separately via `FileAccessMode`.
 public struct FileStatusFlags: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
-    public static let readOnly  = FileStatusFlags(rawValue: O_RDONLY)
-    public static let writeOnly = FileStatusFlags(rawValue: O_WRONLY)
-    public static let readWrite = FileStatusFlags(rawValue: O_RDWR)
-
     public static let nonBlocking = FileStatusFlags(rawValue: O_NONBLOCK)
     public static let append      = FileStatusFlags(rawValue: O_APPEND)
     public static let sync        = FileStatusFlags(rawValue: O_SYNC)
+
+    /// Mask of all changeable status flags.
+    ///
+    /// Used to extract only the settable bits from F_GETFL and to preserve
+    /// non-changeable bits when setting flags via F_SETFL.
+    static let changeableMask: Int32 = O_NONBLOCK | O_APPEND | O_SYNC
 }
 
 // MARK: - Descriptor
@@ -50,16 +73,46 @@ where RAWBSD == Int32 {
     /// Consume and close the descriptor.
     ///
     /// After calling this method, the descriptor is invalid.
+    ///
+    /// - Important: Conforming types must invalidate internal state (e.g., set
+    ///   the stored fd to -1) to prevent accidental reuse via `unsafe`.
     consuming func close()
 
     /// Perform `fstat(2)` on the descriptor.
     func stat() throws -> stat
 
-    /// Get file status flags.
+    /// Get the file access mode.
+    ///
+    /// The access mode (read-only, write-only, or read-write) is determined at
+    /// open time and cannot be changed.
+    func accessMode() throws -> FileAccessMode
+
+    /// Get the changeable file status flags.
+    ///
+    /// Returns only the flags that can be modified via `setStatusFlags()`,
+    /// such as `O_NONBLOCK`, `O_APPEND`, and `O_SYNC`. The access mode is
+    /// excluded and available separately via `accessMode()`.
     func statusFlags() throws -> FileStatusFlags
 
-    /// Replace file status flags.
+    /// Set the changeable file status flags.
+    ///
+    /// Only the flags in `FileStatusFlags.changeableMask` are modified.
+    /// The access mode and other non-changeable bits are preserved.
     func setStatusFlags(_ flags: FileStatusFlags) throws
+
+    /// Update the changeable file status flags.
+    ///
+    /// Reads the current flags, applies the closure to modify them, and writes
+    /// the result back. This is useful for toggling specific flags without
+    /// affecting others.
+    ///
+    /// Example:
+    /// ```swift
+    /// try descriptor.updateStatusFlags { flags in
+    ///     flags.insert(.nonBlocking)
+    /// }
+    /// ```
+    func updateStatusFlags(_ body: (inout FileStatusFlags) throws -> Void) throws
 
     /// Enable or disable close-on-exec (`FD_CLOEXEC`).
     func setCloseOnExec(_ enabled: Bool) throws
@@ -94,22 +147,48 @@ public extension Descriptor where Self: ~Copyable {
         }
     }
 
-    func statusFlags() throws -> FileStatusFlags {
+    func accessMode() throws -> FileAccessMode {
         try self.unsafe { fd in
-            let flags = Glibc.fcntl(fd, F_GETFL)
-            guard flags != -1 else {
+            let getfl = Glibc.fcntl(fd, F_GETFL)
+            guard getfl != -1 else {
                 try BSDError.throwErrno(errno)
             }
-            return FileStatusFlags(rawValue: flags)
+            return FileAccessMode(getfl: getfl)
+        }
+    }
+
+    func statusFlags() throws -> FileStatusFlags {
+        try self.unsafe { fd in
+            let getfl = Glibc.fcntl(fd, F_GETFL)
+            guard getfl != -1 else {
+                try BSDError.throwErrno(errno)
+            }
+            // Extract only changeable flags, excluding access mode
+            return FileStatusFlags(rawValue: getfl & FileStatusFlags.changeableMask)
         }
     }
 
     func setStatusFlags(_ flags: FileStatusFlags) throws {
         try self.unsafe { fd in
-            guard Glibc.fcntl(fd, F_SETFL, flags.rawValue) != -1 else {
+            // Read current flags to preserve non-changeable bits
+            let getfl = Glibc.fcntl(fd, F_GETFL)
+            guard getfl != -1 else {
+                try BSDError.throwErrno(errno)
+            }
+
+            // Preserve non-changeable bits, set only changeable bits from flags
+            let newFlags = (getfl & ~FileStatusFlags.changeableMask) | (flags.rawValue & FileStatusFlags.changeableMask)
+
+            guard Glibc.fcntl(fd, F_SETFL, newFlags) != -1 else {
                 try BSDError.throwErrno(errno)
             }
         }
+    }
+
+    func updateStatusFlags(_ body: (inout FileStatusFlags) throws -> Void) throws {
+        var flags = try statusFlags()
+        try body(&flags)
+        try setStatusFlags(flags)
     }
 
     func setCloseOnExec(_ enabled: Bool) throws {

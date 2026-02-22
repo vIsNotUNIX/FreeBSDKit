@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+import Glibc
 import Foundation
 import FreeBSDKit
 import CEventDescriptor
