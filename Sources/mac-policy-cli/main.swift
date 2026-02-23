@@ -45,9 +45,6 @@ struct CommonOptions: ParsableArguments {
 
     @Flag(name: .long, help: "Output results in JSON format")
     var json: Bool = false
-
-    @Flag(name: .long, help: "Disable Capsicum (use path-based operations)")
-    var noCapsicum: Bool = false
 }
 
 // MARK: - Helper Functions
@@ -102,7 +99,6 @@ extension MacLabelCLI {
             }
 
             var labeler = Labeler(configuration: config)
-            labeler.useCapsicum = !options.noCapsicum
             labeler.verbose = options.verbose && !options.json
 
             do {
@@ -171,15 +167,12 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
-                if !options.noCapsicum {
-                    print("Using Capsicum for defense-in-depth")
-                }
+                print("Using Capsicum for defense-in-depth")
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
             labeler.overwriteExisting = !noOverwrite
-            labeler.useCapsicum = !options.noCapsicum
 
             // Use expanded method to handle recursive patterns
             let results = try labeler.applyExpanded()
@@ -231,14 +224,11 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
-                if !options.noCapsicum {
-                    print("Using Capsicum for defense-in-depth")
-                }
+                print("Using Capsicum for defense-in-depth")
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
-            labeler.useCapsicum = !options.noCapsicum
 
             // Use expanded method to handle recursive patterns
             let results = try labeler.removeExpanded()
@@ -289,15 +279,12 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
-                if !options.noCapsicum {
-                    print("Using Capsicum for defense-in-depth")
-                }
+                print("Using Capsicum for defense-in-depth")
                 print()
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = false
-            labeler.useCapsicum = !options.noCapsicum
 
             // Use expanded method to handle recursive patterns
             let results = try labeler.showExpanded()
@@ -348,15 +335,12 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
-                if !options.noCapsicum {
-                    print("Using Capsicum for defense-in-depth")
-                }
+                print("Using Capsicum for defense-in-depth")
                 print()
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
-            labeler.useCapsicum = !options.noCapsicum
 
             // Use expanded method to handle recursive patterns
             let results = try labeler.verifyExpanded()

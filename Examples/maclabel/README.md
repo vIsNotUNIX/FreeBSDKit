@@ -70,6 +70,27 @@ maclabel show Examples/maclabel/minimal.json --json
 }
 ```
 
+### Recursive Directory Labeling
+
+Use `/*` suffix to label all files in a directory recursively:
+
+```json
+{
+  "attributeName": "mac_labels",
+  "labels": [
+    {
+      "path": "/usr/local/bin/*",
+      "attributes": {
+        "type": "local_binary",
+        "trust": "user"
+      }
+    }
+  ]
+}
+```
+
+This applies the label to all files in `/usr/local/bin/` and its subdirectories.
+
 ### Field Constraints
 
 **attributeName** (required):

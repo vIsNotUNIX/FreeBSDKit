@@ -31,16 +31,6 @@ public struct Labeler<Label: Labelable> {
     /// Whether to print verbose output
     public var verbose: Bool = false
 
-    /// Whether to use Capsicum for defense-in-depth (default: true)
-    ///
-    /// When enabled, files are opened as FileCapability with minimal rights:
-    /// - Apply: .read, .write, .fstat, .extattr_get, .extattr_set
-    /// - Verify/Show: .read, .fstat, .extattr_get
-    /// - Remove: .write, .fstat, .extattr_delete
-    ///
-    /// This provides kernel-enforced restrictions and TOCTOU protection.
-    public var useCapsicum: Bool = true
-
     /// Creates a labeler with the given configuration.
     ///
     /// - Parameter configuration: Label configuration to apply
@@ -156,11 +146,7 @@ public struct Labeler<Label: Labelable> {
     /// - Parameter label: Label to apply
     /// - Returns: Result of the operation
     private func applyTo(_ label: Label) -> LabelingResult {
-        if useCapsicum {
-            return applyToCapsicum(label)
-        } else {
-            return applyToPath(label)
-        }
+        return applyToCapsicum(label)
     }
 
     /// Applies a label using path-based operations (traditional method).
@@ -333,11 +319,7 @@ public struct Labeler<Label: Labelable> {
 
     /// Removes a label from a single resource.
     private func removeLabelFrom(_ label: Label) -> LabelingResult {
-        if useCapsicum {
-            return removeLabelCapsicum(label)
-        } else {
-            return removeLabelPath(label)
-        }
+        return removeLabelCapsicum(label)
     }
 
     /// Removes a label using path-based operations.
@@ -439,11 +421,7 @@ public struct Labeler<Label: Labelable> {
 
     /// Gets labels from a single resource.
     private func getLabelsFrom(_ label: Label) -> (path: String, labels: String?) {
-        if useCapsicum {
-            return getLabelsCapsicum(label)
-        } else {
-            return getLabelsPath(label)
-        }
+        return getLabelsCapsicum(label)
     }
 
     /// Gets labels using path-based operations.
@@ -553,11 +531,7 @@ public struct Labeler<Label: Labelable> {
 
     /// Verifies a single label.
     private func verifyLabel(_ label: Label) -> VerificationResult {
-        if useCapsicum {
-            return verifyLabelCapsicum(label)
-        } else {
-            return verifyLabelPath(label)
-        }
+        return verifyLabelCapsicum(label)
     }
 
     /// Verifies a label using path-based operations.
@@ -921,12 +895,7 @@ extension Labeler where Label == FileLabel {
                 print("Processing: \(label.path)")
             }
 
-            let result: LabelingResult
-            if useCapsicum {
-                result = applyToCapsicum(label)
-            } else {
-                result = applyToPath(label)
-            }
+            let result = applyToCapsicum(label)
             results.append(result)
 
             if verbose {
@@ -964,12 +933,7 @@ extension Labeler where Label == FileLabel {
                 print("Removing label from: \(label.path)")
             }
 
-            let result: LabelingResult
-            if useCapsicum {
-                result = removeLabelCapsicum(label)
-            } else {
-                result = removeLabelPath(label)
-            }
+            let result = removeLabelCapsicum(label)
             results.append(result)
 
             if verbose {
@@ -1003,12 +967,7 @@ extension Labeler where Label == FileLabel {
         var results: [(path: String, labels: String?)] = []
 
         for label in allLabels {
-            let result: (path: String, labels: String?)
-            if useCapsicum {
-                result = getLabelsCapsicum(label)
-            } else {
-                result = getLabelsPath(label)
-            }
+            let result = getLabelsCapsicum(label)
             results.append(result)
         }
 
@@ -1038,12 +997,7 @@ extension Labeler where Label == FileLabel {
                 print("Verifying: \(label.path)")
             }
 
-            let result: VerificationResult
-            if useCapsicum {
-                result = verifyLabelCapsicum(label)
-            } else {
-                result = verifyLabelPath(label)
-            }
+            let result = verifyLabelCapsicum(label)
             results.append(result)
 
             if verbose {

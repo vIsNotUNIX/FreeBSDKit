@@ -2,6 +2,42 @@
 
 This guide demonstrates a complete end-to-end workflow for using `maclabel`.
 
+## Recursive Directory Labeling
+
+Use `/*` suffix to label all files in a directory recursively:
+
+```json
+{
+  "attributeName": "mac_labels",
+  "labels": [
+    {
+      "path": "/usr/local/bin/*",
+      "attributes": {
+        "type": "local_binary",
+        "trust": "user"
+      }
+    }
+  ]
+}
+```
+
+Validation shows expanded files:
+
+```bash
+$ maclabel validate recursive-config.json -v
+Loaded 1 label(s)
+Using attribute name: mac_labels
+Validating configuration...
+  /usr/local/bin/* (recursive pattern, 42 files)
+    → /usr/local/bin/app1
+    → /usr/local/bin/app2
+    → /usr/local/bin/subdir/tool1
+    ...
+✓ Configuration is valid
+```
+
+---
+
 ## Step 1: Create Configuration
 
 Create `my-policy.json`:

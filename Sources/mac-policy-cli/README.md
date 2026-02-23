@@ -34,7 +34,6 @@ maclabel <command> <config-file> [options]
 - `-v, --verbose` - Print detailed output
 - `--no-overwrite` - Don't overwrite existing labels (apply only)
 - `--json` - Machine-readable output
-- `--no-capsicum` - Disable Capsicum (use path-based operations instead of fd-based)
 
 ### Examples
 
@@ -96,8 +95,44 @@ The configuration is a JSON file with the following structure:
   - Only alphanumeric characters, underscores, and hyphens: `A-Za-z0-9_-`
   - Will be used as `system.<attributeName>` in extended attributes
 - `labels` (array) - List of file labels to apply
-  - `path` (string) - Absolute path to the file
+  - `path` (string) - Absolute path to the file, or a directory pattern ending with `/*`
   - `attributes` (object) - Key-value pairs of security attributes
+
+### Recursive Directory Labeling
+
+Use `/*` at the end of a path to recursively label all files in a directory:
+
+```json
+{
+  "attributeName": "mac_labels",
+  "labels": [
+    {
+      "path": "/usr/local/bin/*",
+      "attributes": {
+        "type": "local_binary",
+        "trust": "user"
+      }
+    }
+  ]
+}
+```
+
+This will apply the same label to all files in `/usr/local/bin/` and all subdirectories.
+
+When validating, the tool shows how patterns expand:
+
+```bash
+$ maclabel validate config.json -v
+Loaded 1 label(s)
+Using attribute name: mac_labels
+Validating configuration...
+  /usr/local/bin/* (recursive pattern, 42 files)
+    → /usr/local/bin/app1
+    → /usr/local/bin/app2
+    → /usr/local/bin/subdir/tool1
+    ...
+✓ Configuration is valid
+```
 
 ### Attribute Constraints
 
@@ -177,14 +212,15 @@ int read_mac_labels(const char *path, const char *attr_name) {
 
 ### Capsicum Integration
 
-The tool uses FreeBSD's Capsicum capability system for defense-in-depth:
+All operations use FreeBSD's Capsicum capability system for defense-in-depth:
 
 - **Configuration files** are opened with restricted rights (read-only)
 - **File descriptors** are wrapped in `FileCapability` with minimal rights:
   - `.read` - Read file contents
   - `.fstat` - Get file metadata
   - `.seek` - Position seeking
-- **Kernel enforcement** prevents write operations even if code is exploited
+  - `.extattrGet`, `.extattrSet`, `.extattrDelete` - As needed for operation
+- **Kernel enforcement** prevents unauthorized operations even if code is exploited
 - **TOCTOU protection** via file descriptor-based operations
 
 ### Privilege Separation
