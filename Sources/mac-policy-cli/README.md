@@ -33,6 +33,7 @@ maclabel <command> <config-file> [options]
 
 - `-v, --verbose` - Print detailed output
 - `--no-overwrite` - Don't overwrite existing labels (apply only)
+- `--json` - Machine readbale output.
 
 ### Examples
 

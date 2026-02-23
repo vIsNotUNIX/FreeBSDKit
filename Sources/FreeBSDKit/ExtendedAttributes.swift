@@ -6,7 +6,6 @@
 
 import Foundation
 import Glibc
-import Descriptors
 
 // MARK: - ExtendedAttributes
 
@@ -47,7 +46,7 @@ public struct ExtendedAttributes {
     ///   - namespace: Attribute namespace (`.system` for MACF labels)
     ///   - name: Attribute name (from configuration file)
     ///   - data: Attribute value data (newline-separated key=value pairs for labels)
-    /// - Throws: ``LabelError/extAttrSetFailed`` on failure
+    /// - Throws: ``ExtAttrError`` on failure
     public static func set(
         path: String,
         namespace: ExtAttrNamespace,
@@ -56,10 +55,10 @@ public struct ExtendedAttributes {
     ) throws {
         // Validate inputs
         guard !path.isEmpty && !path.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid path for extended attribute operation")
+            throw ExtAttrError.invalidPath("Path cannot be empty or contain null bytes")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         // Capture errno immediately after syscall to avoid Swift/Foundation overwriting it
@@ -75,7 +74,7 @@ public struct ExtendedAttributes {
         }
 
         guard result >= 0 else {
-            throw LabelError.extAttrSetFailed(path: path, errno: err)
+            throw ExtAttrError.setFailed(path: path, namespace: namespace.description, name: name, errno: err)
         }
     }
 
@@ -86,7 +85,7 @@ public struct ExtendedAttributes {
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
     /// - Returns: Attribute data, or `nil` if attribute doesn't exist
-    /// - Throws: ``LabelError/extAttrGetFailed`` on error other than ENOATTR
+    /// - Throws: ``ExtAttrError`` on error other than ENOATTR
     public static func get(
         path: String,
         namespace: ExtAttrNamespace,
@@ -94,10 +93,10 @@ public struct ExtendedAttributes {
     ) throws -> Data? {
         // Validate inputs
         guard !path.isEmpty && !path.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid path for extended attribute operation")
+            throw ExtAttrError.invalidPath("Path cannot be empty or contain null bytes")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         // Retry loop to handle race conditions where attribute size changes
@@ -111,7 +110,7 @@ public struct ExtendedAttributes {
                 if sizeErrno == ENOATTR {
                     return nil
                 }
-                throw LabelError.extAttrGetFailed(path: path, errno: sizeErrno)
+                throw ExtAttrError.getFailed(path: path, namespace: namespace.description, name: name, errno: sizeErrno)
             }
 
             // Empty attribute (exists but has no data)
@@ -141,7 +140,7 @@ public struct ExtendedAttributes {
                 if readErrno == ERANGE && attempt < 2 {
                     continue
                 }
-                throw LabelError.extAttrGetFailed(path: path, errno: readErrno)
+                throw ExtAttrError.getFailed(path: path, namespace: namespace.description, name: name, errno: readErrno)
             }
 
             // Successful read - resize buffer to actual data size
@@ -150,7 +149,7 @@ public struct ExtendedAttributes {
         }
 
         // Should not reach here, but if retry exhausted
-        throw LabelError.extAttrGetFailed(path: path, errno: ERANGE)
+        throw ExtAttrError.getFailed(path: path, namespace: namespace.description, name: name, errno: ERANGE)
     }
 
     /// Deletes an extended attribute from a file.
@@ -159,7 +158,7 @@ public struct ExtendedAttributes {
     ///   - path: Absolute path to the file
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
-    /// - Throws: ``LabelError/extAttrDeleteFailed`` on failure
+    /// - Throws: ``ExtAttrError`` on failure
     public static func delete(
         path: String,
         namespace: ExtAttrNamespace,
@@ -167,10 +166,10 @@ public struct ExtendedAttributes {
     ) throws {
         // Validate inputs
         guard !path.isEmpty && !path.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid path for extended attribute operation")
+            throw ExtAttrError.invalidPath("Path cannot be empty or contain null bytes")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         let result = extattr_delete_file(path, namespace.rawValue, name)
@@ -181,7 +180,7 @@ public struct ExtendedAttributes {
             if err == ENOATTR {
                 return
             }
-            throw LabelError.extAttrDeleteFailed(path: path, errno: err)
+            throw ExtAttrError.deleteFailed(path: path, namespace: namespace.description, name: name, errno: err)
         }
     }
 
@@ -191,14 +190,14 @@ public struct ExtendedAttributes {
     ///   - path: Absolute path to the file
     ///   - namespace: Attribute namespace
     /// - Returns: Array of attribute names
-    /// - Throws: ``LabelError/extAttrListFailed`` on failure or malformed data
+    /// - Throws: ``ExtAttrError`` on failure or malformed data
     public static func list(
         path: String,
         namespace: ExtAttrNamespace
     ) throws -> [String] {
         // Validate inputs
         guard !path.isEmpty && !path.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid path for extended attribute operation")
+            throw ExtAttrError.invalidPath("Path cannot be empty or contain null bytes")
         }
 
         // Get size needed
@@ -206,7 +205,7 @@ public struct ExtendedAttributes {
         let sizeErrno = errno
 
         guard size >= 0 else {
-            throw LabelError.extAttrListFailed(path: path, errno: sizeErrno)
+            throw ExtAttrError.listFailed(path: path, namespace: namespace.description, errno: sizeErrno)
         }
 
         if size == 0 {
@@ -226,7 +225,7 @@ public struct ExtendedAttributes {
         }
 
         guard result >= 0 else {
-            throw LabelError.extAttrListFailed(path: path, errno: readErrno)
+            throw ExtAttrError.listFailed(path: path, namespace: namespace.description, errno: readErrno)
         }
 
         // Parse the list format: length-prefixed strings
@@ -238,8 +237,9 @@ public struct ExtendedAttributes {
         while offset < buffer.count {
             // Ensure we can read the length byte
             guard offset < buffer.count else {
-                throw LabelError.extAttrListFailed(
+                throw ExtAttrError.listFailed(
                     path: path,
+                    namespace: namespace.description,
                     errno: EINVAL  // Malformed list data
                 )
             }
@@ -249,8 +249,9 @@ public struct ExtendedAttributes {
 
             // Ensure we have enough data for the name
             guard offset + len <= buffer.count else {
-                throw LabelError.extAttrListFailed(
+                throw ExtAttrError.listFailed(
                     path: path,
+                    namespace: namespace.description,
                     errno: EINVAL  // Truncated list data
                 )
             }
@@ -260,8 +261,9 @@ public struct ExtendedAttributes {
                 data: buffer[offset..<offset + len],
                 encoding: .utf8
             ) else {
-                throw LabelError.extAttrListFailed(
+                throw ExtAttrError.listFailed(
                     path: path,
+                    namespace: namespace.description,
                     errno: EILSEQ  // Invalid character sequence
                 )
             }
@@ -284,7 +286,7 @@ public struct ExtendedAttributes {
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
     ///   - data: Attribute value data
-    /// - Throws: ``LabelError/extAttrSetFailed`` on failure
+    /// - Throws: ``ExtAttrError`` on failure
     public static func set(
         fd: Int32,
         namespace: ExtAttrNamespace,
@@ -293,10 +295,10 @@ public struct ExtendedAttributes {
     ) throws {
         // Validate inputs
         guard fd >= 0 else {
-            throw LabelError.invalidConfiguration("Invalid file descriptor for extended attribute operation")
+            throw ExtAttrError.invalidFileDescriptor("File descriptor must be non-negative")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         let (result, err): (Int, Int32) = data.withUnsafeBytes { bytes in
@@ -311,7 +313,7 @@ public struct ExtendedAttributes {
         }
 
         guard result >= 0 else {
-            throw LabelError.extAttrSetFailed(path: "fd:\(fd)", errno: err)
+            throw ExtAttrError.setFailed(path: "fd:\(fd)", namespace: namespace.description, name: name, errno: err)
         }
     }
 
@@ -322,7 +324,7 @@ public struct ExtendedAttributes {
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
     /// - Returns: Attribute data, or `nil` if attribute doesn't exist
-    /// - Throws: ``LabelError/extAttrGetFailed`` on error
+    /// - Throws: ``ExtAttrError`` on error
     public static func get(
         fd: Int32,
         namespace: ExtAttrNamespace,
@@ -330,10 +332,10 @@ public struct ExtendedAttributes {
     ) throws -> Data? {
         // Validate inputs
         guard fd >= 0 else {
-            throw LabelError.invalidConfiguration("Invalid file descriptor for extended attribute operation")
+            throw ExtAttrError.invalidFileDescriptor("File descriptor must be non-negative")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         for attempt in 0..<3 {
@@ -344,7 +346,7 @@ public struct ExtendedAttributes {
                 if sizeErrno == ENOATTR {
                     return nil
                 }
-                throw LabelError.extAttrGetFailed(path: "fd:\(fd)", errno: sizeErrno)
+                throw ExtAttrError.getFailed(path: "fd:\(fd)", namespace: namespace.description, name: name, errno: sizeErrno)
             }
 
             if size == 0 {
@@ -370,14 +372,14 @@ public struct ExtendedAttributes {
                 if readErrno == ERANGE && attempt < 2 {
                     continue
                 }
-                throw LabelError.extAttrGetFailed(path: "fd:\(fd)", errno: readErrno)
+                throw ExtAttrError.getFailed(path: "fd:\(fd)", namespace: namespace.description, name: name, errno: readErrno)
             }
 
             buffer.count = Int(result)
             return buffer
         }
 
-        throw LabelError.extAttrGetFailed(path: "fd:\(fd)", errno: ERANGE)
+        throw ExtAttrError.getFailed(path: "fd:\(fd)", namespace: namespace.description, name: name, errno: ERANGE)
     }
 
     /// Deletes an extended attribute from an open file descriptor.
@@ -386,7 +388,7 @@ public struct ExtendedAttributes {
     ///   - fd: Open file descriptor
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
-    /// - Throws: ``LabelError/extAttrDeleteFailed`` on failure
+    /// - Throws: ``ExtAttrError`` on failure
     public static func delete(
         fd: Int32,
         namespace: ExtAttrNamespace,
@@ -394,10 +396,10 @@ public struct ExtendedAttributes {
     ) throws {
         // Validate inputs
         guard fd >= 0 else {
-            throw LabelError.invalidConfiguration("Invalid file descriptor for extended attribute operation")
+            throw ExtAttrError.invalidFileDescriptor("File descriptor must be non-negative")
         }
         guard !name.isEmpty && !name.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid attribute name for extended attribute operation")
+            throw ExtAttrError.invalidAttributeName("Attribute name cannot be empty or contain null bytes")
         }
 
         let result = extattr_delete_fd(fd, namespace.rawValue, name)
@@ -407,68 +409,7 @@ public struct ExtendedAttributes {
             if err == ENOATTR {
                 return
             }
-            throw LabelError.extAttrDeleteFailed(path: "fd:\(fd)", errno: err)
-        }
-    }
-}
-
-// MARK: - FileDescriptor Overloads
-
-extension ExtendedAttributes {
-    /// Sets an extended attribute on a FileDescriptor.
-    ///
-    /// **TOCTOU Protection**: Using FileDescriptor ensures the validated
-    /// descriptor is the one being modified.
-    ///
-    /// - Parameters:
-    ///   - descriptor: Open file descriptor
-    ///   - namespace: Attribute namespace
-    ///   - name: Attribute name
-    ///   - data: Attribute value data
-    /// - Throws: ``LabelError/extAttrSetFailed`` on failure
-    public static func set<D: Descriptor>(
-        descriptor: borrowing D,
-        namespace: ExtAttrNamespace,
-        name: String,
-        data: Data
-    ) throws where D: ~Copyable {
-        try descriptor.unsafe { fd in
-            try set(fd: fd, namespace: namespace, name: name, data: data)
-        }
-    }
-
-    /// Gets an extended attribute from a FileDescriptor.
-    ///
-    /// - Parameters:
-    ///   - descriptor: Open file descriptor
-    ///   - namespace: Attribute namespace
-    ///   - name: Attribute name
-    /// - Returns: Attribute data, or `nil` if attribute doesn't exist
-    /// - Throws: ``LabelError/extAttrGetFailed`` on error
-    public static func get<D: Descriptor>(
-        descriptor: borrowing D,
-        namespace: ExtAttrNamespace,
-        name: String
-    ) throws -> Data? where D: ~Copyable {
-        try descriptor.unsafe { fd in
-            try get(fd: fd, namespace: namespace, name: name)
-        }
-    }
-
-    /// Deletes an extended attribute from a FileDescriptor.
-    ///
-    /// - Parameters:
-    ///   - descriptor: Open file descriptor
-    ///   - namespace: Attribute namespace
-    ///   - name: Attribute name
-    /// - Throws: ``LabelError/extAttrDeleteFailed`` on failure
-    public static func delete<D: Descriptor>(
-        descriptor: borrowing D,
-        namespace: ExtAttrNamespace,
-        name: String
-    ) throws where D: ~Copyable {
-        try descriptor.unsafe { fd in
-            try delete(fd: fd, namespace: namespace, name: name)
+            throw ExtAttrError.deleteFailed(path: "fd:\(fd)", namespace: namespace.description, name: name, errno: err)
         }
     }
 }

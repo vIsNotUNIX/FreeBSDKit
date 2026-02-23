@@ -23,7 +23,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("cannot be empty"))
@@ -42,7 +42,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("invalid characters"))
@@ -61,7 +61,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("invalid characters"))
@@ -81,7 +81,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("maximum length"))
@@ -100,7 +100,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        let config = try LabelConfiguration<FileLabel>.load(from: tempFile)
+        let config = try TestHelpers.loadConfiguration(from: tempFile)
         XCTAssertEqual(config.attributeName, "mac.labels")
         XCTAssertEqual(config.labels.count, 0)
     }
@@ -211,7 +211,7 @@ final class LabelConfigurationTests: XCTestCase {
             attributes: [:]
         )
 
-        XCTAssertThrowsError(try label.validatePath()) { error in
+        XCTAssertThrowsError(try label.validate()) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("cannot be empty"))
@@ -225,7 +225,7 @@ final class LabelConfigurationTests: XCTestCase {
             attributes: [:]
         )
 
-        XCTAssertThrowsError(try label.validatePath()) { error in
+        XCTAssertThrowsError(try label.validate()) { error in
             XCTAssertTrue(error is LabelError)
             if case .fileNotFound(let path) = error as? LabelError {
                 XCTAssertEqual(path, "/this/file/does/not/exist")
@@ -240,7 +240,7 @@ final class LabelConfigurationTests: XCTestCase {
             attributes: [:]
         )
 
-        XCTAssertNoThrow(try label.validatePath())
+        XCTAssertNoThrow(try label.validate())
     }
 
     // MARK: - Configuration Loading
@@ -264,7 +264,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        let config = try LabelConfiguration<FileLabel>.load(from: tempFile)
+        let config = try TestHelpers.loadConfiguration(from: tempFile)
         XCTAssertEqual(config.attributeName, "mac.test")
         XCTAssertEqual(config.labels.count, 1)
         XCTAssertEqual(config.labels[0].path, "/bin/sh")
@@ -278,7 +278,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile))
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile))
     }
 
     func testLabelConfiguration_LoadMissingAttributeName() throws {
@@ -291,7 +291,7 @@ final class LabelConfigurationTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile))
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile))
     }
 
     // MARK: - Helper Methods

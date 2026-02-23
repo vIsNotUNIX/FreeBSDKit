@@ -41,3 +41,14 @@ public enum ExtAttrNamespace {
         }
     }
 }
+
+extension ExtAttrNamespace: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .user:
+            return "user"
+        case .system:
+            return "system"
+        }
+    }
+}

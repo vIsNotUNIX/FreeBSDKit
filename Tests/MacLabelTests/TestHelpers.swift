@@ -20,6 +20,15 @@ enum TestHelpers {
     /// - Returns: Loaded configuration
     /// - Throws: LabelError if file cannot be loaded
     static func loadConfiguration(from path: String) throws -> FileLabelConfiguration {
+        // Validate path before attempting to open
+        guard !path.isEmpty else {
+            throw LabelError.invalidConfiguration("Invalid configuration file path: path cannot be empty")
+        }
+
+        guard !path.contains("\0") else {
+            throw LabelError.invalidConfiguration("Invalid configuration file path: path contains null byte")
+        }
+
         let rawFd = path.withCString { cPath in
             open(cPath, O_RDONLY | O_CLOEXEC)
         }

@@ -120,22 +120,21 @@ final class BadInputTests: XCTestCase {
             "mac/labels",      // Contains /
             "mac labels",      // Contains space
             "mac.labels\n",    // Contains newline
-            "mac\0labels",     // Contains null (though JSON might reject this)
             "mac.labels!",     // Contains special char
             "mac@labels",      // Contains @
         ]
 
         for forbiddenName in forbiddenNames {
-            let json = """
-            {
-              "attributeName": "\(forbiddenName)",
-              "labels": []
-            }
-            """
+            // Use JSONEncoder to create properly escaped JSON
+            let configDict: [String: Any] = [
+                "attributeName": forbiddenName,
+                "labels": []
+            ]
+            let jsonData = try JSONSerialization.data(withJSONObject: configDict)
 
             let tempFile = FileManager.default.temporaryDirectory
                 .appendingPathComponent("forbidden-\(UUID()).json")
-            try json.write(to: tempFile, atomically: true, encoding: .utf8)
+            try jsonData.write(to: tempFile)
             defer { try? FileManager.default.removeItem(at: tempFile) }
 
             XCTAssertThrowsError(

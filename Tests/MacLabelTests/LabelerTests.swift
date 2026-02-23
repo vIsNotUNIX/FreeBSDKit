@@ -6,6 +6,7 @@
 
 import XCTest
 @testable import MacLabel
+@testable import FreeBSDKit
 import Foundation
 
 final class LabelerTests: XCTestCase {
@@ -76,7 +77,7 @@ final class LabelerTests: XCTestCase {
         let labeler = Labeler(configuration: config)
 
         // Should not throw
-        XCTAssertNoThrow(try labeler.validateAllPaths())
+        XCTAssertNoThrow(try labeler.validateAll())
     }
 
     func testLabeler_ValidateAllPaths_OneMissing() throws {
@@ -90,7 +91,7 @@ final class LabelerTests: XCTestCase {
 
         let labeler = Labeler(configuration: config)
 
-        XCTAssertThrowsError(try labeler.validateAllPaths()) { error in
+        XCTAssertThrowsError(try labeler.validateAll()) { error in
             XCTAssertTrue(error is LabelError)
             if case .fileNotFound(let path) = error as? LabelError {
                 XCTAssertEqual(path, missingFile)
@@ -115,7 +116,7 @@ final class LabelerTests: XCTestCase {
         var labeler = Labeler(configuration: config)
         labeler.verbose = false
 
-        let results = try labeler.applyLabels()
+        let results = try labeler.apply()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(results[0].success)
@@ -148,7 +149,7 @@ final class LabelerTests: XCTestCase {
         let labeler = Labeler(configuration: config)
 
         // Should throw because one file is missing
-        XCTAssertThrowsError(try labeler.applyLabels()) { error in
+        XCTAssertThrowsError(try labeler.apply()) { error in
             XCTAssertTrue(error is LabelError)
             if case .fileNotFound(let path) = error as? LabelError {
                 XCTAssertEqual(path, missingFile)
@@ -177,7 +178,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var initialLabeler = Labeler(configuration: initialConfig)
-        _ = try initialLabeler.applyLabels()
+        _ = try initialLabeler.apply()
 
         // Now apply new labels with overwrite
         let newConfig = createTestConfiguration(labels: [
@@ -187,7 +188,7 @@ final class LabelerTests: XCTestCase {
         var newLabeler = Labeler(configuration: newConfig)
         newLabeler.overwriteExisting = true
 
-        let results = try newLabeler.applyLabels()
+        let results = try newLabeler.apply()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(results[0].success)
@@ -216,7 +217,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var initialLabeler = Labeler(configuration: initialConfig)
-        _ = try initialLabeler.applyLabels()
+        _ = try initialLabeler.apply()
 
         // Try to apply new labels without overwrite
         let newConfig = createTestConfiguration(labels: [
@@ -226,7 +227,7 @@ final class LabelerTests: XCTestCase {
         var newLabeler = Labeler(configuration: newConfig)
         newLabeler.overwriteExisting = false
 
-        let results = try newLabeler.applyLabels()
+        let results = try newLabeler.apply()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(results[0].success) // Success but didn't overwrite
@@ -256,7 +257,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var labeler = Labeler(configuration: config)
-        _ = try labeler.applyLabels()
+        _ = try labeler.apply()
 
         // Verify labels exist
         var data = try ExtendedAttributes.get(
@@ -267,7 +268,7 @@ final class LabelerTests: XCTestCase {
         XCTAssertNotNil(data)
 
         // Remove labels
-        let results = try labeler.removeLabels()
+        let results = try labeler.remove()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(results[0].success)
@@ -298,10 +299,10 @@ final class LabelerTests: XCTestCase {
         var labeler = Labeler(configuration: config)
 
         // Apply labels
-        _ = try labeler.applyLabels()
+        _ = try labeler.apply()
 
         // Verify labels
-        let results = try labeler.verifyLabels()
+        let results = try labeler.verify()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertTrue(results[0].matches)
@@ -321,7 +322,7 @@ final class LabelerTests: XCTestCase {
         let labeler = Labeler(configuration: config)
 
         // Don't apply labels, just verify
-        let results = try labeler.verifyLabels()
+        let results = try labeler.verify()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertFalse(results[0].matches)
@@ -340,7 +341,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var applyLabeler = Labeler(configuration: applyConfig)
-        _ = try applyLabeler.applyLabels()
+        _ = try applyLabeler.apply()
 
         // Verify with more attributes expected
         let verifyConfig = createTestConfiguration(labels: [
@@ -351,7 +352,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         let verifyLabeler = Labeler(configuration: verifyConfig)
-        let results = try verifyLabeler.verifyLabels()
+        let results = try verifyLabeler.verify()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertFalse(results[0].matches)
@@ -372,7 +373,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var applyLabeler = Labeler(configuration: applyConfig)
-        _ = try applyLabeler.applyLabels()
+        _ = try applyLabeler.apply()
 
         // Verify with fewer attributes expected
         let verifyConfig = createTestConfiguration(labels: [
@@ -380,7 +381,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         let verifyLabeler = Labeler(configuration: verifyConfig)
-        let results = try verifyLabeler.verifyLabels()
+        let results = try verifyLabeler.verify()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertFalse(results[0].matches)
@@ -398,7 +399,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         var applyLabeler = Labeler(configuration: applyConfig)
-        _ = try applyLabeler.applyLabels()
+        _ = try applyLabeler.apply()
 
         // Verify expecting different value
         let verifyConfig = createTestConfiguration(labels: [
@@ -406,7 +407,7 @@ final class LabelerTests: XCTestCase {
         ])
 
         let verifyLabeler = Labeler(configuration: verifyConfig)
-        let results = try verifyLabeler.verifyLabels()
+        let results = try verifyLabeler.verify()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertFalse(results[0].matches)
@@ -425,9 +426,9 @@ final class LabelerTests: XCTestCase {
         ])
 
         var labeler = Labeler(configuration: config)
-        _ = try labeler.applyLabels()
+        _ = try labeler.apply()
 
-        let results = try labeler.showLabels()
+        let results = try labeler.show()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].path, file)
@@ -446,7 +447,7 @@ final class LabelerTests: XCTestCase {
 
         let labeler = Labeler(configuration: config)
 
-        let results = try labeler.showLabels()
+        let results = try labeler.show()
 
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].path, file)

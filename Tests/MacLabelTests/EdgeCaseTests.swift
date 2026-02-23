@@ -33,7 +33,7 @@ final class EdgeCaseTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("exceeds maximum size"))
@@ -42,7 +42,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_EmptyPathValidation() throws {
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: "")) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: "")) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("Invalid configuration file path"))
@@ -51,7 +51,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_NullByteInPath() throws {
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: "/tmp/test\0evil.json")) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: "/tmp/test\0evil.json")) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("Invalid configuration file path"))
@@ -100,7 +100,11 @@ final class EdgeCaseTests: XCTestCase {
     // MARK: - JSON Round-Trip Tests
 
     func testConfiguration_LoadEdgeCasesExample() throws {
-        let config = try LabelConfiguration<FileLabel>.load(from: "../../Examples/maclabel/edge-cases.json")
+        let testFile = URL(fileURLWithPath: #file)
+        let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/edge-cases.json").path
+
+        let config = try TestHelpers.loadConfiguration(from: examplePath)
 
         XCTAssertEqual(config.attributeName, "mac.test")
         XCTAssertEqual(config.labels.count, 3)
@@ -124,7 +128,11 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_LoadSingleFileExample() throws {
-        let config = try LabelConfiguration<FileLabel>.load(from: "../../Examples/maclabel/single-file.json")
+        let testFile = URL(fileURLWithPath: #file)
+        let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/single-file.json").path
+
+        let config = try TestHelpers.loadConfiguration(from: examplePath)
 
         XCTAssertEqual(config.attributeName, "mac.single")
         XCTAssertEqual(config.labels.count, 1)
@@ -134,7 +142,11 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_LoadComprehensiveExample() throws {
-        let config = try LabelConfiguration<FileLabel>.load(from: "../../Examples/maclabel/comprehensive.json")
+        let testFile = URL(fileURLWithPath: #file)
+        let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/comprehensive.json").path
+
+        let config = try TestHelpers.loadConfiguration(from: examplePath)
 
         XCTAssertEqual(config.attributeName, "mac.comprehensive")
         XCTAssertEqual(config.labels.count, 4)

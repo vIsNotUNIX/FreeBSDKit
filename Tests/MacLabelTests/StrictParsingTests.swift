@@ -90,7 +90,7 @@ final class StrictParsingTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("whitespace"))
@@ -109,7 +109,7 @@ final class StrictParsingTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("whitespace"))
@@ -128,7 +128,7 @@ final class StrictParsingTests: XCTestCase {
         let tempFile = createTempFile(content: json)
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-        XCTAssertThrowsError(try LabelConfiguration<FileLabel>.load(from: tempFile)) { error in
+        XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
                 XCTAssertTrue(message.contains("outside safe set"))
@@ -157,7 +157,7 @@ final class StrictParsingTests: XCTestCase {
             let tempFile = createTempFile(content: json)
             defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
-            let config = try LabelConfiguration<FileLabel>.load(from: tempFile)
+            let config = try TestHelpers.loadConfiguration(from: tempFile)
             XCTAssertEqual(config.attributeName, name)
         }
     }

@@ -5,7 +5,7 @@
  */
 
 import XCTest
-@testable import MacLabel
+@testable import FreeBSDKit
 import Foundation
 
 final class ExtendedAttributesTests: XCTestCase {
@@ -23,10 +23,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 data: data
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid path"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidPath = error as? ExtAttrError {}
         }
     }
 
@@ -41,10 +39,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 data: data
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid path"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidPath = error as? ExtAttrError {}
         }
     }
 
@@ -59,10 +55,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 data: data
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid attribute name"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidAttributeName = error as? ExtAttrError {}
         }
     }
 
@@ -77,10 +71,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 data: data
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid attribute name"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidAttributeName = error as? ExtAttrError {}
         }
     }
 
@@ -92,10 +84,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 name: "test.attr"
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid path"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidPath = error as? ExtAttrError {}
         }
     }
 
@@ -107,10 +97,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 name: ""
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid attribute name"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidAttributeName = error as? ExtAttrError {}
         }
     }
 
@@ -122,10 +110,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 name: "test.attr"
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid path"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidPath = error as? ExtAttrError {}
         }
     }
 
@@ -136,10 +122,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 namespace: .system
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid path"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidPath = error as? ExtAttrError {}
         }
     }
 
@@ -154,10 +138,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 data: data
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid file descriptor"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidFileDescriptor = error as? ExtAttrError {}
         }
     }
 
@@ -169,10 +151,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 name: "test.attr"
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid file descriptor"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidFileDescriptor = error as? ExtAttrError {}
         }
     }
 
@@ -184,10 +164,8 @@ final class ExtendedAttributesTests: XCTestCase {
                 name: "test.attr"
             )
         ) { error in
-            XCTAssertTrue(error is LabelError)
-            if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("Invalid file descriptor"))
-            }
+            XCTAssertTrue(error is ExtAttrError)
+            if case .invalidFileDescriptor = error as? ExtAttrError {}
         }
     }
 }

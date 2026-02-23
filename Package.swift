@@ -48,7 +48,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "FreeBSDKit"
+            name: "FreeBSDKit",
+            dependencies: ["CExtendedAttributes"]
         ),
         .target(
             name: "CCapsicum",
@@ -76,7 +77,7 @@ let package = Package(
         ),
         .target(
             name: "Jails",
-            dependencies: ["CJails"],
+            dependencies: ["CJails", "CExtendedAttributes"],
             path: "Sources/Jails"
 
         ),
@@ -146,7 +147,7 @@ let package = Package(
         ),
         .target(
             name: "MacLabel",
-            dependencies: ["CExtendedAttributes", "Capabilities", "Descriptors"]
+            dependencies: ["FreeBSDKit", "Capabilities", "Descriptors"]
         ),
         .testTarget(
             name: "MacLabelTests",
