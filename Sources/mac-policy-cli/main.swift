@@ -112,12 +112,16 @@ extension MacLabelCLI {
 
                 if options.json {
                     let pathInfos = labeler.pathInfo()
+                    let duplicates = try labeler.detectDuplicates()
                     let output = ValidationSummary(
                         success: true,
                         totalFiles: config.labels.count,
                         attributeName: config.attributeName,
                         symlinks: pathInfos.filter { $0.isSymlink }.map {
                             SymlinkInfo(path: $0.path, target: $0.resolvedPath ?? $0.symlinkTarget ?? "")
+                        },
+                        duplicates: duplicates.map {
+                            DuplicateInfo(path: $0.path, sources: $0.sources)
                         }
                     )
                     try printJSON(output)

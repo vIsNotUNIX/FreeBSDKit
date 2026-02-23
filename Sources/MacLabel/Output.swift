@@ -130,6 +130,19 @@ public struct SymlinkInfo: Codable, Sendable {
     }
 }
 
+/// Information about a file that would be labeled multiple times.
+public struct DuplicateInfo: Codable, Sendable {
+    /// The file path that would be labeled multiple times
+    public let path: String
+    /// The sources (patterns or explicit paths) that would label this file, in order
+    public let sources: [String]
+
+    public init(path: String, sources: [String]) {
+        self.path = path
+        self.sources = sources
+    }
+}
+
 /// Summary of configuration validation.
 public struct ValidationSummary: Codable, Sendable {
     public let success: Bool
@@ -138,13 +151,16 @@ public struct ValidationSummary: Codable, Sendable {
     public let error: String?
     /// Symlinks detected in the configuration (labels will be applied to targets)
     public let symlinks: [SymlinkInfo]?
+    /// Files that would be labeled multiple times (last wins)
+    public let duplicates: [DuplicateInfo]?
 
-    public init(success: Bool, totalFiles: Int, attributeName: String, error: String? = nil, symlinks: [SymlinkInfo]? = nil) {
+    public init(success: Bool, totalFiles: Int, attributeName: String, error: String? = nil, symlinks: [SymlinkInfo]? = nil, duplicates: [DuplicateInfo]? = nil) {
         self.success = success
         self.totalFiles = totalFiles
         self.attributeName = attributeName
         self.error = error
         self.symlinks = symlinks?.isEmpty == true ? nil : symlinks
+        self.duplicates = duplicates?.isEmpty == true ? nil : duplicates
     }
 }
 

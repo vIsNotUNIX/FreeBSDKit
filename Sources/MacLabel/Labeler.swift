@@ -828,6 +828,20 @@ extension Labeler where Label == FileLabel {
                 }
             }
         }
+
+        // Check for duplicates and warn (to stderr so it doesn't interfere with JSON output)
+        let duplicates = try detectDuplicates()
+        if !duplicates.isEmpty {
+            fputs("\n", stderr)
+            fputs("⚠ Warning: \(duplicates.count) file(s) will be labeled multiple times (last wins):\n", stderr)
+            for dup in duplicates.prefix(10) {
+                fputs("  \(dup.path)\n", stderr)
+                fputs("    labeled by: \(dup.sources.joined(separator: " → "))\n", stderr)
+            }
+            if duplicates.count > 10 {
+                fputs("  ... and \(duplicates.count - 10) more\n", stderr)
+            }
+        }
     }
 
     /// Returns all expanded labels, with recursive patterns expanded to individual files.
@@ -846,6 +860,43 @@ extension Labeler where Label == FileLabel {
             }
         }
         return result
+    }
+
+    /// Information about a file that would be labeled multiple times.
+    public struct DuplicateLabel {
+        /// The file path that would be labeled multiple times
+        public let path: String
+        /// The sources that would label this file (pattern or explicit path), in order
+        public let sources: [String]
+    }
+
+    /// Detects files that would be labeled multiple times.
+    ///
+    /// When multiple label entries match the same file (either through recursive
+    /// patterns or explicit paths), later entries will overwrite earlier ones.
+    /// This method identifies such cases.
+    ///
+    /// - Returns: Array of duplicate information, empty if no duplicates
+    /// - Throws: ``LabelError`` if pattern expansion fails
+    public func detectDuplicates() throws -> [DuplicateLabel] {
+        // Track: file path -> list of source patterns/paths that would label it
+        var fileToSources: [String: [String]] = [:]
+
+        for label in configuration.labels {
+            let source = label.path
+            if label.isRecursivePattern {
+                for file in try label.expandedPaths() {
+                    fileToSources[file, default: []].append(source)
+                }
+            } else {
+                fileToSources[label.path, default: []].append(source)
+            }
+        }
+
+        // Find files with multiple sources
+        return fileToSources.compactMap { (path, sources) in
+            sources.count > 1 ? DuplicateLabel(path: path, sources: sources) : nil
+        }.sorted { $0.path < $1.path }
     }
 
     /// Returns the total count of files that will be labeled.
