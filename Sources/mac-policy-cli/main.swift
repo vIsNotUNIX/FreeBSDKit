@@ -1,6 +1,7 @@
 import Foundation
 import ArgumentParser
 import MacLabel
+import Glibc
 
 struct MacLabelCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -33,7 +34,25 @@ struct CommonOptions: ParsableArguments {
     var json: Bool = false
 }
 
-// MARK: - Validate Command
+// MARK: - Helper Functions
+
+/// Loads a configuration file by opening a descriptor and passing it to load.
+///
+/// Opens the file with O_RDONLY | O_CLOEXEC, loads the configuration,
+/// and closes the descriptor.
+func loadConfiguration(path: String) throws -> LabelConfiguration<FileLabel> {
+    let fd = path.withCString { cPath in
+        open(cPath, O_RDONLY | O_CLOEXEC)
+    }
+
+    guard fd >= 0 else {
+        throw LabelError.invalidConfiguration("Cannot open configuration file: \(String(cString: strerror(errno)))")
+    }
+
+    defer { close(fd) }
+
+    return try LabelConfiguration<FileLabel>.load(from: fd)
+}
 
 extension MacLabelCLI {
     struct Validate: ParsableCommand {
@@ -44,7 +63,7 @@ extension MacLabelCLI {
         @OptionGroup var options: CommonOptions
 
         func run() throws {
-            let config = try LabelConfiguration<FileLabel>.load(from: options.configFile)
+            let config = try loadConfiguration(path: options.configFile)
 
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
@@ -58,7 +77,7 @@ extension MacLabelCLI {
             }
 
             do {
-                try labeler.validateAllPaths()
+                try labeler.validateAll()
 
                 if options.json {
                     let output = ValidateOutput(
@@ -89,8 +108,6 @@ extension MacLabelCLI {
     }
 }
 
-// MARK: - Apply Command
-
 extension MacLabelCLI {
     struct Apply: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -108,7 +125,7 @@ extension MacLabelCLI {
         var noOverwrite: Bool = false
 
         func run() throws {
-            let config = try LabelConfiguration<FileLabel>.load(from: options.configFile)
+            let config = try loadConfiguration(path: options.configFile)
 
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
@@ -163,7 +180,7 @@ extension MacLabelCLI {
         @OptionGroup var options: CommonOptions
 
         func run() throws {
-            let config = try LabelConfiguration<FileLabel>.load(from: options.configFile)
+            let config = try loadConfiguration(path: options.configFile)
 
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
@@ -201,8 +218,6 @@ extension MacLabelCLI {
     }
 }
 
-// MARK: - Show Command
-
 extension MacLabelCLI {
     struct Show: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -216,7 +231,7 @@ extension MacLabelCLI {
         @OptionGroup var options: CommonOptions
 
         func run() throws {
-            let config = try LabelConfiguration<FileLabel>.load(from: options.configFile)
+            let config = try loadConfiguration(path: options.configFile)
 
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
@@ -254,8 +269,6 @@ extension MacLabelCLI {
     }
 }
 
-// MARK: - Verify Command
-
 extension MacLabelCLI {
     struct Verify: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -270,7 +283,7 @@ extension MacLabelCLI {
         @OptionGroup var options: CommonOptions
 
         func run() throws {
-            let config = try LabelConfiguration<FileLabel>.load(from: options.configFile)
+            let config = try loadConfiguration(path: options.configFile)
 
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")

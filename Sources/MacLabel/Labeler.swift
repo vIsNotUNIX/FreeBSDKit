@@ -36,15 +36,15 @@ public struct Labeler<Label: Labelable> {
         self.configuration = configuration
     }
 
-    /// Validates that all paths in the configuration exist.
+    /// Validates that all resources in the configuration exist.
     ///
-    /// This is a critical safety check. If any file is missing, the entire
+    /// This is a critical safety check. If any resource is missing, the entire
     /// operation must fail to prevent partial policy application.
     ///
-    /// - Throws: ``LabelError/fileNotFound`` for the first missing file
-    public func validateAllPaths() throws {
+    /// - Throws: ``LabelError/fileNotFound`` for the first missing resource
+    public func validateAll() throws {
         for label in configuration.labels {
-            try label.validatePath()
+            try label.validate()
         }
     }
 
@@ -60,7 +60,7 @@ public struct Labeler<Label: Labelable> {
         if verbose {
             print("Validating all paths...")
         }
-        try validateAllPaths()
+        try validateAll()
 
         // Now apply labels to each file
         var results: [LabelingResult] = []
@@ -87,7 +87,7 @@ public struct Labeler<Label: Labelable> {
 
     /// Applies a single label to a resource.
     ///
-    /// Path is already validated by validateAllPaths() before this is called.
+    /// Path is already validated by validateAll() before this is called.
     ///
     /// - Parameter label: Label to apply
     /// - Returns: Result of the operation
@@ -152,7 +152,7 @@ public struct Labeler<Label: Labelable> {
         if verbose {
             print("Validating all paths...")
         }
-        try validateAllPaths()
+        try validateAll()
 
         var results: [LabelingResult] = []
 
@@ -207,7 +207,7 @@ public struct Labeler<Label: Labelable> {
         if verbose {
             print("Validating all paths...")
         }
-        try validateAllPaths()
+        try validateAll()
 
         var results: [(String, String?)] = []
 
@@ -245,7 +245,7 @@ public struct Labeler<Label: Labelable> {
         if verbose {
             print("Validating all paths...")
         }
-        try validateAllPaths()
+        try validateAll()
 
         var results: [VerificationResult] = []
 

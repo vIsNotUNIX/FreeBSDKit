@@ -284,7 +284,7 @@ public struct ExtendedAttributes {
     ///   - name: Attribute name
     ///   - data: Attribute value data
     /// - Throws: ``LabelError/extAttrSetFailed`` on failure
-    public static func setFd(
+    public static func set(
         fd: Int32,
         namespace: ExtAttrNamespace,
         name: String,
@@ -322,7 +322,7 @@ public struct ExtendedAttributes {
     ///   - name: Attribute name
     /// - Returns: Attribute data, or `nil` if attribute doesn't exist
     /// - Throws: ``LabelError/extAttrGetFailed`` on error
-    public static func getFd(
+    public static func get(
         fd: Int32,
         namespace: ExtAttrNamespace,
         name: String
@@ -386,7 +386,7 @@ public struct ExtendedAttributes {
     ///   - namespace: Attribute namespace
     ///   - name: Attribute name
     /// - Throws: ``LabelError/extAttrDeleteFailed`` on failure
-    public static func deleteFd(
+    public static func delete(
         fd: Int32,
         namespace: ExtAttrNamespace,
         name: String

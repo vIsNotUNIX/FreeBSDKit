@@ -54,31 +54,24 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
     /// List of labels to apply
     public let labels: [Label]
 
-    /// Loads a configuration from a JSON file using a file descriptor.
+    /// Loads a configuration from a JSON file using an open file descriptor.
     ///
-    /// Uses file descriptors to prevent TOCTOU (Time-of-Check, Time-of-Use)
-    /// vulnerabilities. The file is opened, validated with fstat(), and read
-    /// all through the same descriptor.
+    /// **TOCTOU Protection**: Accepting a file descriptor instead of a path
+    /// prevents time-of-check-time-of-use vulnerabilities. The caller opens
+    /// the file once and passes the descriptor, ensuring the validated file
+    /// is the one being read.
     ///
-    /// - Parameter path: Path to the JSON configuration file
+    /// **Ownership**: This method does NOT close the file descriptor. The
+    /// caller retains ownership and is responsible for closing it.
+    ///
+    /// - Parameter fd: Open file descriptor to read from (must be readable)
     /// - Returns: Decoded configuration
     /// - Throws: Error if file cannot be read or JSON is invalid
-    public static func load(from path: String) throws -> LabelConfiguration<Label> {
-        // Validate path
-        guard !path.isEmpty && !path.contains("\0") else {
-            throw LabelError.invalidConfiguration("Invalid configuration file path")
-        }
-
-        // Open file descriptor with O_RDONLY | O_CLOEXEC
-        let fd = path.withCString { cPath in
-            open(cPath, O_RDONLY | O_CLOEXEC)
-        }
-
+    public static func load(from fd: Int32) throws -> LabelConfiguration<Label> {
+        // Validate file descriptor
         guard fd >= 0 else {
-            throw LabelError.invalidConfiguration("Cannot open configuration file: \(String(cString: strerror(errno)))")
+            throw LabelError.invalidConfiguration("Invalid file descriptor")
         }
-
-        defer { close(fd) }
 
         // Use fstat on the descriptor to check file properties
         var st = stat()
@@ -88,7 +81,7 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
 
         // Validate it's a regular file
         guard (st.st_mode & S_IFMT) == S_IFREG else {
-            throw LabelError.invalidConfiguration("Configuration path is not a regular file")
+            throw LabelError.invalidConfiguration("Configuration descriptor is not a regular file")
         }
 
         // Check size limit (10MB should be more than enough for any reasonable config)

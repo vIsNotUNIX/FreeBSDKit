@@ -39,14 +39,14 @@ public struct FileLabel: Labelable {
     /// - May be empty (empty values are allowed)
     public let attributes: [String: String]
 
-    /// Validates that the path exists on the filesystem.
+    /// Validates that the file exists on the filesystem.
     ///
     /// This validation is a critical safety check to ensure that labels are only
     /// applied to files that actually exist, preventing partial policy application.
     ///
     /// - Throws: ``LabelError/fileNotFound`` if the file does not exist
     /// - Throws: ``LabelError/invalidConfiguration`` if the path is invalid
-    public func validatePath() throws {
+    public func validate() throws {
         // Path should not be empty
         guard !path.isEmpty else {
             throw LabelError.invalidConfiguration("File path cannot be empty")

@@ -49,14 +49,15 @@ public protocol Labelable: Codable {
     /// - May be empty (empty values are allowed)
     var attributes: [String: String] { get }
 
-    /// Validates that the resource path/identifier is valid.
+    /// Validates that the resource exists and is accessible.
     ///
-    /// Implementations should verify that the resource exists and is accessible.
+    /// Implementations should verify that the resource identified by `path` exists.
     /// For file-based labels, this checks if the file exists on the filesystem.
+    /// For other resources, this validates the identifier is reachable.
     ///
     /// - Throws: ``LabelError/fileNotFound`` if resource doesn't exist
     /// - Throws: ``LabelError/invalidConfiguration`` if path is invalid
-    func validatePath() throws
+    func validate() throws
 
     /// Validates that all attributes have valid keys and values.
     ///
