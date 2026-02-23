@@ -60,7 +60,7 @@ public struct Labeler<Label: Labelable> {
         }
     }
 
-    /// Information about a path including symlink resolution.
+    /// Information about a path including symlink resolution and pattern expansion.
     public struct PathInfo {
         /// The original path from the configuration
         public let path: String
@@ -70,6 +70,24 @@ public struct Labeler<Label: Labelable> {
         public let resolvedPath: String?
         /// Whether this path is a symbolic link
         public var isSymlink: Bool { symlinkTarget != nil }
+        /// Whether this path is a recursive pattern (ends with /*)
+        public let isRecursivePattern: Bool
+        /// For recursive patterns, the expanded file paths
+        public let expandedPaths: [String]?
+
+        public init(
+            path: String,
+            symlinkTarget: String? = nil,
+            resolvedPath: String? = nil,
+            isRecursivePattern: Bool = false,
+            expandedPaths: [String]? = nil
+        ) {
+            self.path = path
+            self.symlinkTarget = symlinkTarget
+            self.resolvedPath = resolvedPath
+            self.isRecursivePattern = isRecursivePattern
+            self.expandedPaths = expandedPaths
+        }
     }
 
     /// Validates both resource paths and attribute formatting.
@@ -772,26 +790,37 @@ public typealias FileLabeler = Labeler<FileLabel>
 extension Labeler where Label == FileLabel {
     /// Returns path information for all files in the configuration.
     ///
-    /// This includes symlink detection and resolution, which is important for
-    /// understanding which files will actually be labeled. FreeBSD extended
-    /// attributes follow symlinks, so labels are applied to the target file,
-    /// not the symlink itself.
+    /// This includes symlink detection, resolution, and pattern expansion,
+    /// helping users understand which files will actually be labeled.
     ///
-    /// - Returns: Array of path information including symlink targets
+    /// - Returns: Array of path information including symlink targets and pattern expansion
     public func pathInfo() -> [PathInfo] {
         return configuration.labels.map { label in
-            PathInfo(
-                path: label.path,
-                symlinkTarget: label.symlinkTarget(),
-                resolvedPath: label.resolvedPath()
-            )
+            if label.isRecursivePattern {
+                let expanded = try? label.expandedPaths()
+                return PathInfo(
+                    path: label.path,
+                    symlinkTarget: nil,
+                    resolvedPath: nil,
+                    isRecursivePattern: true,
+                    expandedPaths: expanded
+                )
+            } else {
+                return PathInfo(
+                    path: label.path,
+                    symlinkTarget: label.symlinkTarget(),
+                    resolvedPath: label.resolvedPath(),
+                    isRecursivePattern: false,
+                    expandedPaths: nil
+                )
+            }
         }
     }
 
-    /// Validates paths and prints symlink information in verbose mode.
+    /// Validates paths and prints symlink/pattern information in verbose mode.
     ///
-    /// This combines validation with informative output about symlinks,
-    /// helping users understand which files will actually be labeled.
+    /// This combines validation with informative output about symlinks and
+    /// recursive patterns, helping users understand which files will be labeled.
     ///
     /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
     public func validatePathsVerbose() throws {
@@ -799,7 +828,21 @@ extension Labeler where Label == FileLabel {
             try label.validate()
 
             if verbose {
-                if let target = label.symlinkTarget() {
+                if label.isRecursivePattern {
+                    let expanded = try label.expandedPaths()
+                    print("  \(label.path) (recursive pattern, \(expanded.count) files)")
+                    for file in expanded.prefix(5) {
+                        let expandedLabel = FileLabel(path: file, attributes: [:])
+                        if let target = expandedLabel.symlinkTarget() {
+                            print("    → \(file) → \(target) (symlink)")
+                        } else {
+                            print("    → \(file)")
+                        }
+                    }
+                    if expanded.count > 5 {
+                        print("    ... and \(expanded.count - 5) more files")
+                    }
+                } else if let target = label.symlinkTarget() {
                     if let resolved = label.resolvedPath(), resolved != target {
                         // Multi-level symlink
                         print("  \(label.path) → \(target) → \(resolved) (symlink)")
@@ -811,5 +854,209 @@ extension Labeler where Label == FileLabel {
                 }
             }
         }
+    }
+
+    /// Returns all expanded labels, with recursive patterns expanded to individual files.
+    ///
+    /// This is used internally to process all files that need to be labeled.
+    ///
+    /// - Returns: Array of FileLabel instances for all files to be labeled
+    /// - Throws: ``LabelError`` if pattern expansion fails
+    public func expandedLabels() throws -> [FileLabel] {
+        var result: [FileLabel] = []
+        for label in configuration.labels {
+            if label.isRecursivePattern {
+                result.append(contentsOf: try label.expandedLabels())
+            } else {
+                result.append(label)
+            }
+        }
+        return result
+    }
+
+    /// Returns the total count of files that will be labeled.
+    ///
+    /// This includes files from recursive pattern expansion.
+    ///
+    /// - Returns: Total number of files to be labeled
+    public func totalFileCount() -> Int {
+        var count = 0
+        for label in configuration.labels {
+            if label.isRecursivePattern {
+                count += (try? label.expandedPaths().count) ?? 0
+            } else {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// Applies labels with recursive pattern expansion.
+    ///
+    /// This method expands any recursive patterns (paths ending with `/*`) to
+    /// their individual files before applying labels. Results are returned for
+    /// each individual file.
+    ///
+    /// - Returns: Array of results for each file (including expanded patterns)
+    /// - Throws: ``LabelError`` if validation or expansion fails
+    public func applyExpanded() throws -> [LabelingResult] {
+        // SAFETY: Validate ALL paths and attributes before applying ANY labels
+        if verbose {
+            print("Validating configuration...")
+        }
+        try validateConfiguration()
+
+        // Expand all patterns
+        let allLabels = try expandedLabels()
+
+        if verbose && allLabels.count != configuration.labels.count {
+            print("Expanded to \(allLabels.count) files")
+        }
+
+        // Now apply labels to each file
+        var results: [LabelingResult] = []
+
+        for label in allLabels {
+            if verbose {
+                print("Processing: \(label.path)")
+            }
+
+            let result: LabelingResult
+            if useCapsicum {
+                result = applyToCapsicum(label)
+            } else {
+                result = applyToPath(label)
+            }
+            results.append(result)
+
+            if verbose {
+                if result.success {
+                    print("  ✓ Successfully labeled")
+                } else {
+                    print("  ✗ Failed: \(result.error?.localizedDescription ?? "unknown error")")
+                }
+            }
+        }
+
+        return results
+    }
+
+    /// Removes labels with recursive pattern expansion.
+    ///
+    /// - Returns: Array of results for each file
+    /// - Throws: ``LabelError`` if validation or expansion fails
+    public func removeExpanded() throws -> [LabelingResult] {
+        if verbose {
+            print("Validating configuration...")
+        }
+        try validatePaths()
+
+        let allLabels = try expandedLabels()
+
+        if verbose && allLabels.count != configuration.labels.count {
+            print("Expanded to \(allLabels.count) files")
+        }
+
+        var results: [LabelingResult] = []
+
+        for label in allLabels {
+            if verbose {
+                print("Removing label from: \(label.path)")
+            }
+
+            let result: LabelingResult
+            if useCapsicum {
+                result = removeLabelCapsicum(label)
+            } else {
+                result = removeLabelPath(label)
+            }
+            results.append(result)
+
+            if verbose {
+                if result.success {
+                    print("  ✓ Successfully removed")
+                } else {
+                    print("  ✗ Failed: \(result.error?.localizedDescription ?? "unknown error")")
+                }
+            }
+        }
+
+        return results
+    }
+
+    /// Shows labels with recursive pattern expansion.
+    ///
+    /// - Returns: Array of (path, labels) tuples
+    /// - Throws: ``LabelError`` if validation or expansion fails
+    public func showExpanded() throws -> [(path: String, labels: String?)] {
+        if verbose {
+            print("Validating configuration...")
+        }
+        try validatePaths()
+
+        let allLabels = try expandedLabels()
+
+        if verbose && allLabels.count != configuration.labels.count {
+            print("Expanded to \(allLabels.count) files")
+        }
+
+        var results: [(path: String, labels: String?)] = []
+
+        for label in allLabels {
+            let result: (path: String, labels: String?)
+            if useCapsicum {
+                result = getLabelsCapsicum(label)
+            } else {
+                result = getLabelsPath(label)
+            }
+            results.append(result)
+        }
+
+        return results
+    }
+
+    /// Verifies labels with recursive pattern expansion.
+    ///
+    /// - Returns: Array of verification results
+    /// - Throws: ``LabelError`` if validation or expansion fails
+    public func verifyExpanded() throws -> [VerificationResult] {
+        if verbose {
+            print("Validating configuration...")
+        }
+        try validatePaths()
+
+        let allLabels = try expandedLabels()
+
+        if verbose && allLabels.count != configuration.labels.count {
+            print("Expanded to \(allLabels.count) files")
+        }
+
+        var results: [VerificationResult] = []
+
+        for label in allLabels {
+            if verbose {
+                print("Verifying: \(label.path)")
+            }
+
+            let result: VerificationResult
+            if useCapsicum {
+                result = verifyLabelCapsicum(label)
+            } else {
+                result = verifyLabelPath(label)
+            }
+            results.append(result)
+
+            if verbose {
+                if result.matches {
+                    print("  ✓ Labels match")
+                } else if let error = result.error {
+                    print("  ✗ Error: \(error.localizedDescription)")
+                } else {
+                    print("  ✗ Mismatches found")
+                }
+            }
+        }
+
+        return results
     }
 }

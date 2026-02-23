@@ -181,7 +181,8 @@ extension MacLabelCLI {
             labeler.overwriteExisting = !noOverwrite
             labeler.useCapsicum = !options.noCapsicum
 
-            let results = try labeler.apply()
+            // Use expanded method to handle recursive patterns
+            let results = try labeler.applyExpanded()
             let failures = results.filter { !$0.success }
 
             if options.json {
@@ -239,7 +240,8 @@ extension MacLabelCLI {
             labeler.verbose = options.verbose && !options.json
             labeler.useCapsicum = !options.noCapsicum
 
-            let results = try labeler.remove()
+            // Use expanded method to handle recursive patterns
+            let results = try labeler.removeExpanded()
             let failures = results.filter { !$0.success }
 
             if options.json {
@@ -297,7 +299,8 @@ extension MacLabelCLI {
             labeler.verbose = false
             labeler.useCapsicum = !options.noCapsicum
 
-            let results = try labeler.show()
+            // Use expanded method to handle recursive patterns
+            let results = try labeler.showExpanded()
 
             if options.json {
                 let output = LabelsSummary(results: results)
@@ -355,7 +358,8 @@ extension MacLabelCLI {
             labeler.verbose = options.verbose && !options.json
             labeler.useCapsicum = !options.noCapsicum
 
-            let results = try labeler.verify()
+            // Use expanded method to handle recursive patterns
+            let results = try labeler.verifyExpanded()
             let mismatches = results.filter { !$0.matches }
 
             if options.json {

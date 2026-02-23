@@ -25,7 +25,11 @@ import Glibc
 /// )
 /// ```
 public struct FileLabel: Labelable {
-    /// Absolute path to the file to be labeled
+    /// Absolute path to the file to be labeled.
+    ///
+    /// Can be either:
+    /// - A specific file path: `/bin/sh`
+    /// - A recursive pattern: `/usr/bin/*` (labels all files recursively)
     public let path: String
 
     /// Security attributes as key-value pairs.
@@ -40,12 +44,97 @@ public struct FileLabel: Labelable {
     /// - May be empty (empty values are allowed)
     public let attributes: [String: String]
 
-    /// Validates that the file exists on the filesystem.
+    // MARK: - Recursive Pattern Support
+
+    /// Whether this path is a recursive pattern (ends with `/*`).
     ///
-    /// This validation is a critical safety check to ensure that labels are only
-    /// applied to files that actually exist, preventing partial policy application.
+    /// Recursive patterns apply the label to all regular files in the
+    /// directory tree, excluding directories and special files.
+    public var isRecursivePattern: Bool {
+        path.hasSuffix("/*")
+    }
+
+    /// The directory path for recursive patterns.
     ///
-    /// - Throws: ``LabelError/fileNotFound`` if the file does not exist
+    /// For `/usr/bin/*` returns `/usr/bin`.
+    /// For regular paths, returns `nil`.
+    public var directoryPath: String? {
+        guard isRecursivePattern else { return nil }
+        return String(path.dropLast(2))  // Remove "/*"
+    }
+
+    /// Expands this label to all matching file paths.
+    ///
+    /// For recursive patterns (`/path/*`), returns all regular files
+    /// in the directory tree. For regular paths, returns just the path.
+    ///
+    /// **Note**: Only regular files are included. Directories, symlinks to
+    /// directories, and special files are excluded.
+    ///
+    /// - Returns: Array of file paths this label applies to
+    /// - Throws: ``LabelError`` if directory doesn't exist or can't be read
+    public func expandedPaths() throws -> [String] {
+        guard isRecursivePattern, let dirPath = directoryPath else {
+            // Regular path - just return it
+            return [path]
+        }
+
+        // Verify directory exists
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dirPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw LabelError.invalidConfiguration(
+                "Recursive pattern '\(path)' - '\(dirPath)' is not a directory"
+            )
+        }
+
+        // Enumerate all files recursively
+        var files: [String] = []
+        let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: dirPath),
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        guard let enumerator = enumerator else {
+            throw LabelError.invalidConfiguration(
+                "Cannot enumerate directory '\(dirPath)'"
+            )
+        }
+
+        for case let fileURL as URL in enumerator {
+            // Check if it's a regular file (or symlink to regular file)
+            do {
+                let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                if resourceValues.isRegularFile == true {
+                    files.append(fileURL.path)
+                }
+            } catch {
+                // Skip files we can't access
+                continue
+            }
+        }
+
+        return files.sorted()
+    }
+
+    /// Creates expanded FileLabel instances for each file in a recursive pattern.
+    ///
+    /// - Returns: Array of FileLabel instances, one per file
+    /// - Throws: ``LabelError`` if expansion fails
+    public func expandedLabels() throws -> [FileLabel] {
+        let paths = try expandedPaths()
+        return paths.map { FileLabel(path: $0, attributes: self.attributes) }
+    }
+
+    // MARK: - Validation
+
+    /// Validates that the file or directory pattern exists on the filesystem.
+    ///
+    /// For recursive patterns, validates that the directory exists.
+    /// For regular paths, validates that the file exists.
+    ///
+    /// - Throws: ``LabelError/fileNotFound`` if the file/directory does not exist
     /// - Throws: ``LabelError/invalidConfiguration`` if the path is invalid
     public func validate() throws {
         // Path should not be empty
@@ -58,10 +147,27 @@ public struct FileLabel: Labelable {
             throw LabelError.invalidConfiguration("File path '\(path)' contains null bytes")
         }
 
-        // Check if file exists
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            throw LabelError.fileNotFound(path)
+        if isRecursivePattern {
+            // For recursive patterns, validate directory exists
+            guard let dirPath = directoryPath else {
+                throw LabelError.invalidConfiguration("Invalid recursive pattern: \(path)")
+            }
+
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: dirPath, isDirectory: &isDirectory) else {
+                throw LabelError.fileNotFound(dirPath)
+            }
+            guard isDirectory.boolValue else {
+                throw LabelError.invalidConfiguration(
+                    "Recursive pattern '\(path)' - '\(dirPath)' is not a directory"
+                )
+            }
+        } else {
+            // Regular path - check if file exists
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                throw LabelError.fileNotFound(path)
+            }
         }
     }
 
