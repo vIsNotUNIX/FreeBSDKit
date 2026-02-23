@@ -8,7 +8,7 @@ Create `my-policy.json`:
 
 ```json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/bin/sh",
@@ -53,7 +53,7 @@ $ maclabel validate my-policy.json
 ```bash
 $ maclabel validate my-policy.json -v
 Loaded 3 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 ✓ All 3 file(s) exist
 ✓ Configuration is valid
@@ -64,7 +64,7 @@ Validating all paths...
 ```bash
 $ maclabel validate my-policy.json --json
 {
-  "attributeName" : "mac.labels",
+  "attributeName" : "mac_labels",
   "success" : true,
   "totalFiles" : 3
 }
@@ -108,7 +108,7 @@ $ maclabel show my-policy.json --json
 ```bash
 $ sudo maclabel apply my-policy.json -v
 Loaded 3 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 Processing: /bin/sh
   ✓ Successfully labeled
@@ -161,7 +161,7 @@ $ maclabel verify my-policy.json
 ```bash
 $ maclabel verify my-policy.json -v
 Loaded 3 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 Verifying: /bin/sh
   ✓ Labels match
@@ -264,9 +264,9 @@ You can verify labels manually using FreeBSD's built-in tools:
 
 ```bash
 $ getextattr -l system /bin/sh
-mac.labels
+mac_labels
 
-$ getextattr system mac.labels /bin/sh
+$ getextattr system mac_labels /bin/sh
 network=deny
 trust=system
 type=shell
@@ -278,7 +278,7 @@ Update `my-policy.json` to change curl's trust level:
 
 ```json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/usr/bin/curl",
@@ -298,7 +298,7 @@ Re-apply:
 ```bash
 $ sudo maclabel apply my-policy.json -v
 Loaded 1 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 Processing: /usr/bin/curl
   Previous label: trust=user
@@ -333,7 +333,7 @@ If you want to preserve existing labels:
 # This will NOT overwrite the label on /usr/bin/curl
 $ sudo maclabel apply my-policy.json --no-overwrite -v
 Loaded 1 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 Processing: /usr/bin/curl
   Skipping (label exists and overwrite=false)
@@ -348,7 +348,7 @@ When you're done testing:
 ```bash
 $ sudo maclabel remove my-policy.json -v
 Loaded 3 label(s)
-Using attribute name: mac.labels
+Using attribute name: mac_labels
 Validating all paths...
 Removing label from: /bin/sh
   ✓ Successfully removed
@@ -381,7 +381,7 @@ $ maclabel show my-policy.json
 ```bash
 $ cat missing-file.json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/nonexistent/file",
@@ -400,7 +400,7 @@ Error: File not found at path: /nonexistent/file
 ```bash
 $ cat bad-attrs.json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/bin/sh",
@@ -508,7 +508,7 @@ $ maclabel verify config.json --json | \
    # Test with a single file
    cat > test.json <<EOF
    {
-     "attributeName": "mac.test",
+     "attributeName": "mac_test",
      "labels": [{"path": "/tmp/testfile", "attributes": {"test": "value"}}]
    }
    EOF
@@ -527,10 +527,10 @@ Make sure you're using the correct attribute name:
 
 ```bash
 # Wrong:
-$ getextattr system mac.labels /bin/sh
+$ getextattr system mac_labels /bin/sh
 
 # Right (use attributeName from config):
-$ getextattr system mac.network /bin/sh
+$ getextattr system mac_network /bin/sh
 ```
 
 ### Permission denied even as root

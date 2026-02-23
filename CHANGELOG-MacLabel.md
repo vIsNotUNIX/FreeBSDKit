@@ -1,5 +1,29 @@
 # MacLabel Integration - Comprehensive Summary
 
+## Recent Changes (2026-02-23)
+
+### Bug Fix: Attribute Name Validation
+- **Issue**: FreeBSD extended attributes do NOT allow dots (`.`) in attribute names. Calling `extattr_set_file()` with a name containing dots returns `EINVAL` (errno 22).
+- **Fix**: Updated `validateAttributeName()` to reject dots. Only `[A-Za-z0-9_-]` are now allowed.
+- **Impact**: All documentation and examples updated to use underscores (e.g., `mac_labels` instead of `mac.labels`).
+
+### Capsicum Defense-in-Depth for Labeling Operations
+- Added `useCapsicum` property to `Labeler` struct
+- Operations (`apply`, `remove`, `show`, `verify`) now use Capsicum-restricted file descriptors by default
+- Minimal rights granted: `.read`, `.write`, `.fstat`, `.extattrGet`, `.extattrSet`, `.extattrDelete` as needed
+- Added `--no-capsicum` CLI flag to disable (for debugging or compatibility)
+
+### API Renames
+- `validateAll()` → `validatePaths()` (validates file paths exist)
+- Added `validateConfiguration()` (validates both paths AND attribute formatting)
+- Output types renamed for clarity:
+  - `ApplyOutput` → `OperationSummary`
+  - `VerifyOutput` → `VerificationSummary`
+  - `ShowOutput` → `LabelsSummary`
+  - `ValidateOutput` → `ValidationSummary`
+
+---
+
 ## Overview
 
 This document summarizes the complete integration of Capsicum capabilities and Descriptors into the MacLabel tool, along with comprehensive documentation, testing infrastructure, and API improvements.
@@ -288,7 +312,7 @@ Tests/MacLabelTests/BadInputTests.swift (new version)
 
 1. **Input Validation**
    - JSON schema
-   - Attribute name format ([A-Za-z0-9._-], ≤ 255 bytes)
+   - Attribute name format (`[A-Za-z0-9_-]`, ≤ 255 bytes) - **dots NOT allowed**
    - Key/value constraints (no `=` in keys, no `\n`/`\0`)
 
 2. **Capsicum Restriction**

@@ -6,7 +6,7 @@ A command-line tool for applying security labels to binaries and files using Fre
 
 `maclabel` reads a JSON configuration file describing which files should be labeled and with what attributes, then applies those labels to the filesystem using extended attributes in the `system` namespace.
 
-Labels are stored in the extended attribute `system.mac.labels` in a simple, C-parseable format.
+Labels are stored in a configurable extended attribute (e.g., `system.mac_labels`) in a simple, C-parseable format.
 
 ## Installation
 
@@ -33,7 +33,8 @@ maclabel <command> <config-file> [options]
 
 - `-v, --verbose` - Print detailed output
 - `--no-overwrite` - Don't overwrite existing labels (apply only)
-- `--json` - Machine readbale output.
+- `--json` - Machine-readable output
+- `--no-capsicum` - Disable Capsicum (use path-based operations instead of fd-based)
 
 ### Examples
 
@@ -63,7 +64,7 @@ The configuration is a JSON file with the following structure:
 
 ```json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/bin/sh",
@@ -90,7 +91,9 @@ The configuration is a JSON file with the following structure:
 
 - `attributeName` (string, **required**) - Name of the extended attribute to use
   - This allows different MACF policies to use different attribute names
-  - Common values: `"mac.labels"`, `"mac.policy1"`, `"mac.network"`
+  - Common values: `"mac_labels"`, `"mac_policy"`, `"mac_network"`
+  - **Important**: Dots (`.`) are NOT allowed - FreeBSD extattr rejects them with EINVAL
+  - Only alphanumeric characters, underscores, and hyphens: `A-Za-z0-9_-`
   - Will be used as `system.<attributeName>` in extended attributes
 - `labels` (array) - List of file labels to apply
   - `path` (string) - Absolute path to the file
@@ -122,7 +125,7 @@ This format is designed to be easily parseable from C code.
 
 Here's how a MACF policy or other C code can read the labels:
 
-**Note**: Replace `"mac.labels"` with the attribute name specified in your configuration file.
+**Note**: Replace `"mac_labels"` with the attribute name specified in your configuration file.
 
 ```c
 #include <sys/types.h>
@@ -135,7 +138,7 @@ int read_mac_labels(const char *path, const char *attr_name) {
     ssize_t len = extattr_get_file(
         path,
         EXTATTR_NAMESPACE_SYSTEM,
-        attr_name,  // e.g., "mac.labels", "mac.network", etc.
+        attr_name,  // e.g., "mac_labels", "mac_network", etc.
         buf,
         sizeof(buf)
     );
@@ -228,14 +231,14 @@ The tool uses the FreeBSD extended attribute API:
 You can view labels manually using:
 
 ```bash
-# List extended attributes (replace 'mac.labels' with your attributeName)
-getextattr -l system mac.labels /bin/sh
+# List extended attributes (replace 'mac_labels' with your attributeName)
+getextattr -l system mac_labels /bin/sh
 
 # Get extended attribute value
-getextattr system mac.labels /bin/sh
+getextattr system mac_labels /bin/sh
 
 # Or for a different policy:
-getextattr system mac.network /usr/bin/curl
+getextattr system mac_network /usr/bin/curl
 ```
 
 ## Error Handling
@@ -254,7 +257,7 @@ Errors are reported with descriptive messages and appropriate exit codes.
 To use these labels in a MACF policy:
 
 1. Label binaries using `maclabel` with your policy's attribute name
-2. Write a MACF kernel module that reads `system.<attributeName>` (e.g., `system.mac.mylabels`)
+2. Write a MACF kernel module that reads `system.<attributeName>` (e.g., `system.mac_mylabels`)
 3. Parse the label format in your policy's label hooks
 4. Enforce policy based on the attributes
 

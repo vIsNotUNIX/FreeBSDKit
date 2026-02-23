@@ -28,7 +28,7 @@ Demonstrates:
 - Filesystem access (read)
 
 ### network-policy.json
-Network-specific policy using a dedicated attribute name (`mac.network`).
+Network-specific policy using a dedicated attribute name (`mac_network`).
 
 Demonstrates:
 - Using a custom attribute name for policy separation
@@ -57,7 +57,7 @@ maclabel show Examples/maclabel/minimal.json --json
 
 ```json
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/absolute/path/to/file",
@@ -74,7 +74,8 @@ maclabel show Examples/maclabel/minimal.json --json
 
 **attributeName** (required):
 - Must not be empty
-- Only allows: `A-Za-z0-9._-`
+- Only allows: `A-Za-z0-9_-` (alphanumeric, underscore, hyphen)
+- **Dots (`.`) are NOT allowed** - FreeBSD extattr rejects them with EINVAL
 - No whitespace or control characters
 - Maximum 255 bytes
 
@@ -112,9 +113,11 @@ sudo maclabel remove Examples/maclabel/minimal.json
 
 Different MACF policies can use different attribute names to avoid conflicts:
 
-- `mac.labels` - General purpose policy
-- `mac.network` - Network access policy
-- `mac.filesystem` - Filesystem access policy
-- `mac.custom` - Custom policy
+- `mac_labels` - General purpose policy
+- `mac_network` - Network access policy
+- `mac_filesystem` - Filesystem access policy
+- `mac_custom` - Custom policy
 
 Each policy can have its own configuration file and attribute name.
+
+**Note**: Use underscores (`_`) instead of dots (`.`) in attribute names. FreeBSD extended attributes do not support dots in names.
