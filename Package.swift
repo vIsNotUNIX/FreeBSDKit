@@ -77,7 +77,7 @@ let package = Package(
         ),
         .target(
             name: "Jails",
-            dependencies: ["CJails", "CExtendedAttributes"],
+            dependencies: ["CJails", "FreeBSDKit"],
             path: "Sources/Jails"
 
         ),
