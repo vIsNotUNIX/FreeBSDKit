@@ -1,0 +1,52 @@
+{
+  "attributeName": "mac.comprehensive",
+  "labels": [
+    {
+      "path": "/bin/sh",
+      "attributes": {
+        "type": "shell",
+        "trust_level": "system",
+        "capabilities": "read,write,execute",
+        "network_access": "restricted",
+        "sandbox": "none",
+        "version": "1.0",
+        "description": "System shell with full privileges"
+      }
+    },
+    {
+      "path": "/bin/cat",
+      "attributes": {
+        "type": "utility",
+        "trust_level": "system",
+        "capabilities": "read",
+        "network_access": "none",
+        "filesystem_scope": "read_only",
+        "sandbox": "filesystem"
+      }
+    },
+    {
+      "path": "/bin/cp",
+      "attributes": {
+        "type": "utility",
+        "trust_level": "system",
+        "capabilities": "read,write",
+        "network_access": "none",
+        "filesystem_scope": "user_data",
+        "sandbox": "filesystem",
+        "preserve_attrs": "true"
+      }
+    },
+    {
+      "path": "/bin/ls",
+      "attributes": {
+        "type": "utility",
+        "trust_level": "system",
+        "capabilities": "read",
+        "network_access": "none",
+        "filesystem_scope": "read_only",
+        "sandbox": "filesystem",
+        "show_hidden": "optional"
+      }
+    }
+  ]
+}

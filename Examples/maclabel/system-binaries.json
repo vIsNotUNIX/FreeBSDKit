@@ -1,0 +1,50 @@
+{
+  "attributeName": "mac.labels",
+  "labels": [
+    {
+      "path": "/bin/sh",
+      "attributes": {
+        "type": "shell",
+        "trust": "system",
+        "network": "deny",
+        "filesystem": "read"
+      }
+    },
+    {
+      "path": "/bin/ls",
+      "attributes": {
+        "type": "utility",
+        "trust": "system",
+        "network": "deny",
+        "filesystem": "read"
+      }
+    },
+    {
+      "path": "/usr/bin/grep",
+      "attributes": {
+        "type": "utility",
+        "trust": "system",
+        "network": "deny",
+        "filesystem": "read"
+      }
+    },
+    {
+      "path": "/usr/bin/curl",
+      "attributes": {
+        "type": "network_client",
+        "trust": "user",
+        "network": "allow",
+        "filesystem": "read"
+      }
+    },
+    {
+      "path": "/usr/bin/ssh",
+      "attributes": {
+        "type": "network_client",
+        "trust": "user",
+        "network": "allow",
+        "filesystem": "read"
+      }
+    }
+  ]
+}

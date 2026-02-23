@@ -1,0 +1,12 @@
+{
+  "attributeName": "mac.single",
+  "labels": [
+    {
+      "path": "/bin/echo",
+      "attributes": {
+        "trust": "system",
+        "readonly": "true"
+      }
+    }
+  ]
+}

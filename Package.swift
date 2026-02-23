@@ -30,10 +30,21 @@ let package = Package(
             name: "BPC",
             targets: ["BPC"]
         ),
+        .library(
+            name: "MacLabel",
+            targets: ["MacLabel"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
+        ),
+        .executable(
+            name: "maclabel",
+            targets: ["maclabel"]
         )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0")
     ],
     targets: [
         .target(
@@ -129,9 +140,24 @@ let package = Package(
             name: "BPCTests",
             dependencies: ["BPC", "Capabilities", "Descriptors"]
         ),
+        .target(
+            name: "MacLabel"
+        ),
+        .testTarget(
+            name: "MacLabelTests",
+            dependencies: ["MacLabel"]
+        ),
         .executableTarget(
             name: "TestTool",
             dependencies: ["Capsicum", "Descriptors"]
+        ),
+        .executableTarget(
+            name: "maclabel",
+            dependencies: [
+                "MacLabel",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "Sources/CLI"
         )
 
     ]

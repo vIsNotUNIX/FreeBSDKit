@@ -1,0 +1,39 @@
+{
+  "attributeName": "mac.network",
+  "labels": [
+    {
+      "path": "/usr/bin/curl",
+      "attributes": {
+        "allow_outbound": "true",
+        "allow_inbound": "false",
+        "protocols": "http,https"
+      }
+    },
+    {
+      "path": "/usr/bin/ssh",
+      "attributes": {
+        "allow_outbound": "true",
+        "allow_inbound": "false",
+        "protocols": "ssh"
+      }
+    },
+    {
+      "path": "/usr/sbin/sshd",
+      "attributes": {
+        "allow_outbound": "true",
+        "allow_inbound": "true",
+        "protocols": "ssh",
+        "bind_ports": "22"
+      }
+    },
+    {
+      "path": "/usr/local/bin/nginx",
+      "attributes": {
+        "allow_outbound": "true",
+        "allow_inbound": "true",
+        "protocols": "http,https",
+        "bind_ports": "80,443"
+      }
+    }
+  ]
+}

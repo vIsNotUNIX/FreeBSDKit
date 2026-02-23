@@ -1,0 +1,11 @@
+{
+  "attributeName": "mac.labels",
+  "labels": [
+    {
+      "path": "/bin/sh",
+      "attributes": {
+        "type": "shell"
+      }
+    }
+  ]
+}

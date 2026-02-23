@@ -1,0 +1,26 @@
+{
+  "attributeName": "mac.test",
+  "labels": [
+    {
+      "path": "/bin/sh",
+      "attributes": {
+        "simple": "value"
+      }
+    },
+    {
+      "path": "/bin/cat",
+      "attributes": {
+        "empty_value": "",
+        "has_equals": "key=value",
+        "normal": "test"
+      }
+    },
+    {
+      "path": "/usr/bin/wc",
+      "attributes": {
+        "formula": "a=b+c",
+        "equation": "x=y*2"
+      }
+    }
+  ]
+}
