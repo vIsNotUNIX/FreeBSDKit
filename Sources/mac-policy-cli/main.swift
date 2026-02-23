@@ -98,23 +98,31 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
+                print("Validating configuration...")
             }
 
             var labeler = Labeler(configuration: config)
             labeler.useCapsicum = !options.noCapsicum
-
-            if options.verbose && !options.json {
-                print("Validating configuration...")
-            }
+            labeler.verbose = options.verbose && !options.json
 
             do {
-                try labeler.validateConfiguration()
+                // Use verbose validation to show symlink info
+                try labeler.validatePathsVerbose()
+
+                // Also validate attributes
+                for label in config.labels {
+                    try label.validateAttributes()
+                }
 
                 if options.json {
+                    let pathInfos = labeler.pathInfo()
                     let output = ValidationSummary(
                         success: true,
                         totalFiles: config.labels.count,
-                        attributeName: config.attributeName
+                        attributeName: config.attributeName,
+                        symlinks: pathInfos.filter { $0.isSymlink }.map {
+                            SymlinkInfo(path: $0.path, target: $0.resolvedPath ?? $0.symlinkTarget ?? "")
+                        }
                     )
                     try printJSON(output)
                 } else {

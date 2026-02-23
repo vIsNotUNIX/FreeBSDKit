@@ -117,18 +117,34 @@ public struct LabelsSummary: Codable, Sendable {
     }
 }
 
+/// Information about a symlink in the configuration.
+public struct SymlinkInfo: Codable, Sendable {
+    /// The path specified in the configuration
+    public let path: String
+    /// The resolved target path
+    public let target: String
+
+    public init(path: String, target: String) {
+        self.path = path
+        self.target = target
+    }
+}
+
 /// Summary of configuration validation.
 public struct ValidationSummary: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let attributeName: String
     public let error: String?
+    /// Symlinks detected in the configuration (labels will be applied to targets)
+    public let symlinks: [SymlinkInfo]?
 
-    public init(success: Bool, totalFiles: Int, attributeName: String, error: String? = nil) {
+    public init(success: Bool, totalFiles: Int, attributeName: String, error: String? = nil, symlinks: [SymlinkInfo]? = nil) {
         self.success = success
         self.totalFiles = totalFiles
         self.attributeName = attributeName
         self.error = error
+        self.symlinks = symlinks?.isEmpty == true ? nil : symlinks
     }
 }
 

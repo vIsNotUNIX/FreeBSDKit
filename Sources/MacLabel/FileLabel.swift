@@ -5,6 +5,7 @@
  */
 
 import Foundation
+import Glibc
 
 /// Represents a single file and its associated security labels.
 ///
@@ -62,6 +63,46 @@ public struct FileLabel: Labelable {
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
             throw LabelError.fileNotFound(path)
         }
+    }
+
+    /// Returns the symlink target if this path is a symbolic link.
+    ///
+    /// This is useful for informing users that a label will be applied to the
+    /// target file, not the symlink itself. FreeBSD extended attribute operations
+    /// follow symlinks by default.
+    ///
+    /// - Returns: The resolved target path if this is a symlink, `nil` otherwise
+    public func symlinkTarget() -> String? {
+        var statBuf = stat()
+        guard lstat(path, &statBuf) == 0 else {
+            return nil
+        }
+
+        // Check if it's a symlink (S_IFLNK)
+        guard (statBuf.st_mode & S_IFMT) == S_IFLNK else {
+            return nil
+        }
+
+        // Read the symlink target
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let len = readlink(path, &buffer, buffer.count - 1)
+        guard len > 0 else {
+            return nil
+        }
+
+        buffer[len] = 0
+        return String(cString: buffer)
+    }
+
+    /// Returns the fully resolved path, following all symlinks.
+    ///
+    /// - Returns: The canonical path with all symlinks resolved, or `nil` on error
+    public func resolvedPath() -> String? {
+        guard let resolved = realpath(path, nil) else {
+            return nil
+        }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 }
 

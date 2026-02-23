@@ -60,6 +60,18 @@ public struct Labeler<Label: Labelable> {
         }
     }
 
+    /// Information about a path including symlink resolution.
+    public struct PathInfo {
+        /// The original path from the configuration
+        public let path: String
+        /// If this path is a symlink, the immediate target
+        public let symlinkTarget: String?
+        /// The fully resolved path (all symlinks followed)
+        public let resolvedPath: String?
+        /// Whether this path is a symbolic link
+        public var isSymlink: Bool { symlinkTarget != nil }
+    }
+
     /// Validates both resource paths and attribute formatting.
     ///
     /// This performs comprehensive validation of the entire configuration:
@@ -754,3 +766,50 @@ public struct Labeler<Label: Labelable> {
 
 /// Type alias for FileLabel-based labeler (most common use case).
 public typealias FileLabeler = Labeler<FileLabel>
+
+// MARK: - FileLabel-specific Extensions
+
+extension Labeler where Label == FileLabel {
+    /// Returns path information for all files in the configuration.
+    ///
+    /// This includes symlink detection and resolution, which is important for
+    /// understanding which files will actually be labeled. FreeBSD extended
+    /// attributes follow symlinks, so labels are applied to the target file,
+    /// not the symlink itself.
+    ///
+    /// - Returns: Array of path information including symlink targets
+    public func pathInfo() -> [PathInfo] {
+        return configuration.labels.map { label in
+            PathInfo(
+                path: label.path,
+                symlinkTarget: label.symlinkTarget(),
+                resolvedPath: label.resolvedPath()
+            )
+        }
+    }
+
+    /// Validates paths and prints symlink information in verbose mode.
+    ///
+    /// This combines validation with informative output about symlinks,
+    /// helping users understand which files will actually be labeled.
+    ///
+    /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
+    public func validatePathsVerbose() throws {
+        for label in configuration.labels {
+            try label.validate()
+
+            if verbose {
+                if let target = label.symlinkTarget() {
+                    if let resolved = label.resolvedPath(), resolved != target {
+                        // Multi-level symlink
+                        print("  \(label.path) → \(target) → \(resolved) (symlink)")
+                    } else {
+                        print("  \(label.path) → \(target) (symlink)")
+                    }
+                } else {
+                    print("  \(label.path)")
+                }
+            }
+        }
+    }
+}
