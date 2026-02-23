@@ -11,7 +11,7 @@ import Foundation
 
 final class LabelerTests: XCTestCase {
 
-    let testAttributeName = "mac.test.\(UUID().uuidString)"
+    let testAttributeName = "mac_test.\(UUID().uuidString)"
     var testFiles: [String] = []
     var isRoot: Bool = false
 
@@ -77,7 +77,7 @@ final class LabelerTests: XCTestCase {
         let labeler = Labeler(configuration: config)
 
         // Should not throw
-        XCTAssertNoThrow(try labeler.validateAll())
+        XCTAssertNoThrow(try labeler.validatePaths())
     }
 
     func testLabeler_ValidateAllPaths_OneMissing() throws {
@@ -91,7 +91,7 @@ final class LabelerTests: XCTestCase {
 
         let labeler = Labeler(configuration: config)
 
-        XCTAssertThrowsError(try labeler.validateAll()) { error in
+        XCTAssertThrowsError(try labeler.validatePaths()) { error in
             XCTAssertTrue(error is LabelError)
             if case .fileNotFound(let path) = error as? LabelError {
                 XCTAssertEqual(path, missingFile)

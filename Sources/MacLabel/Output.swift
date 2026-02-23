@@ -7,8 +7,8 @@
 import Foundation
 
 
-/// Serializable result for labeling operations.
-public struct SerializableLabelingResult: Codable, Sendable {
+/// JSON-serializable result for a single labeling operation (apply or remove).
+public struct OperationResult: Codable, Sendable {
     public let path: String
     public let success: Bool
     public let error: String?
@@ -24,8 +24,8 @@ public struct SerializableLabelingResult: Codable, Sendable {
     }
 }
 
-/// Serializable result for verification operations.
-public struct SerializableVerificationResult: Codable, Sendable {
+/// JSON-serializable result for a single verification operation.
+public struct VerificationResultJSON: Codable, Sendable {
     public let path: String
     public let matches: Bool
     public let expected: [String: String]
@@ -43,16 +43,16 @@ public struct SerializableVerificationResult: Codable, Sendable {
     }
 }
 
-/// Serializable result for apply operation.
-public struct ApplyOutput: Codable, Sendable {
+/// Summary of apply or remove operations with statistics.
+public struct OperationSummary: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let successfulFiles: Int
     public let failedFiles: Int
-    public let results: [SerializableLabelingResult]
+    public let results: [OperationResult]
 
     public init(results: [LabelingResult]) {
-        self.results = results.map { SerializableLabelingResult(from: $0) }
+        self.results = results.map { OperationResult(from: $0) }
         self.totalFiles = results.count
         self.successfulFiles = results.filter { $0.success }.count
         self.failedFiles = results.filter { !$0.success }.count
@@ -60,16 +60,16 @@ public struct ApplyOutput: Codable, Sendable {
     }
 }
 
-/// Serializable result for verify operation.
-public struct VerifyOutput: Codable, Sendable {
+/// Summary of verification operations with statistics.
+public struct VerificationSummary: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let matchingFiles: Int
     public let mismatchedFiles: Int
-    public let results: [SerializableVerificationResult]
+    public let results: [VerificationResultJSON]
 
     public init(results: [VerificationResult]) {
-        self.results = results.map { SerializableVerificationResult(from: $0) }
+        self.results = results.map { VerificationResultJSON(from: $0) }
         self.totalFiles = results.count
         self.matchingFiles = results.filter { $0.matches }.count
         self.mismatchedFiles = results.filter { !$0.matches }.count
@@ -77,8 +77,8 @@ public struct VerifyOutput: Codable, Sendable {
     }
 }
 
-/// Serializable result for show operation.
-public struct ShowOutput: Codable, Sendable {
+/// Summary of show operation displaying current labels.
+public struct LabelsSummary: Codable, Sendable {
     public struct FileLabels: Codable, Sendable {
         public let path: String
         public let labels: [String: String]?
@@ -117,8 +117,8 @@ public struct ShowOutput: Codable, Sendable {
     }
 }
 
-/// Serializable result for validate operation.
-public struct ValidateOutput: Codable, Sendable {
+/// Summary of configuration validation.
+public struct ValidationSummary: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let attributeName: String

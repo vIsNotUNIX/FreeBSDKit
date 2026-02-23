@@ -6,7 +6,6 @@
 
 import Foundation
 
-// MARK: - Labelable Protocol
 
 /// A protocol for any resource that can be labeled with security attributes.
 ///

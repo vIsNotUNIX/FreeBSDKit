@@ -1,9 +1,17 @@
+/*
+ * Copyright (c) 2026 Kory Heard
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
 import Foundation
 import ArgumentParser
 import MacLabel
 import Glibc
 import Capabilities
 import Capsicum
+
+// MARK: - Root Command
 
 struct MacLabelCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -16,12 +24,17 @@ struct MacLabelCLI: ParsableCommand {
 
             Labels are stored as newline-separated key=value pairs in the
             extended attribute specified in the configuration file.
+
+            By default, all operations use Capsicum for defense-in-depth security,
+            providing kernel-enforced restrictions and TOCTOU protection.
             """,
         version: "1.0.0",
         subcommands: [Validate.self, Apply.self, Verify.self, Remove.self, Show.self],
         defaultSubcommand: nil
     )
 }
+
+// MARK: - Common Options
 
 struct CommonOptions: ParsableArguments {
     @Argument(help: "Path to the JSON configuration file")
@@ -32,54 +45,15 @@ struct CommonOptions: ParsableArguments {
 
     @Flag(name: .long, help: "Output results in JSON format")
     var json: Bool = false
+
+    @Flag(name: .long, help: "Disable Capsicum (use path-based operations)")
+    var noCapsicum: Bool = false
 }
 
 // MARK: - Helper Functions
 
 /// Loads a configuration file using a Capsicum-restricted file capability.
-///
-/// ## Security Model
-///
-/// This function implements defense-in-depth by:
-/// 1. Opening the file with minimal flags (O_RDONLY | O_CLOEXEC)
-/// 2. Wrapping the descriptor in a FileCapability
-/// 3. Restricting rights to the absolute minimum needed (.read, .fstat, .seek)
-/// 4. Using the Descriptor API for all file operations
-///
-/// **Rights Restriction**: The descriptor is limited to:
-/// - `.read` - Read file contents
-/// - `.fstat` - Get file metadata (required for size check)
-/// - `.seek` - Position seeking (needed by readExact())
-///
-/// Even if the configuration parsing code is exploited, the attacker cannot:
-/// - Write to the config file
-/// - Open other files
-/// - Execute operations not granted by these rights
-///
-/// ## Capsicum Lifecycle
-///
-/// **BEFORE Capability Mode**:
-/// - This function can be called normally
-/// - `open()` by path works
-/// - Filesystem namespace is available
-///
-/// **AFTER Capability Mode** (if this tool were to enter it):
-/// - `open()` by path would fail (no ambient authority)
-/// - Must pass pre-opened file descriptors
-/// - Only operations on existing descriptors are allowed
-///
-/// ## TOCTOU Protection
-///
-/// By opening the file once and passing the descriptor:
-/// - Validates and reads the *same* file
-/// - Prevents race conditions where file is replaced between checks
-/// - Capsicum rights ensure descriptor properties can't change
-///
-/// - Parameter path: Path to configuration file to load
-/// - Returns: Validated and parsed configuration
-/// - Throws: LabelError if file cannot be opened, read, or parsed
 func loadConfiguration(path: String) throws -> LabelConfiguration<FileLabel> {
-    // Open file (requires filesystem namespace - must be before capability mode)
     let rawFd = path.withCString { cPath in
         open(cPath, O_RDONLY | O_CLOEXEC)
     }
@@ -88,21 +62,16 @@ func loadConfiguration(path: String) throws -> LabelConfiguration<FileLabel> {
         throw LabelError.invalidConfiguration("Cannot open configuration file: \(String(cString: strerror(errno)))")
     }
 
-    // Wrap in FileCapability for Capsicum protection
     let capability = FileCapability(rawFd)
 
-    // Restrict to minimal rights needed for reading config
-    // This is enforced at the kernel level by Capsicum
     let rights = CapsicumRightSet(rights: [
-        .read,      // Read file contents
-        .fstat,     // Get file metadata
-        .seek       // Position seeking for readExact()
+        .read,
+        .fstat,
+        .seek
     ])
 
     _ = capability.limit(rights: rights)
 
-    // Load configuration using restricted capability
-    // All file operations go through the Descriptor API
     do {
         let config = try LabelConfiguration<FileLabel>.load(from: capability)
         capability.close()
@@ -112,6 +81,8 @@ func loadConfiguration(path: String) throws -> LabelConfiguration<FileLabel> {
         throw error
     }
 }
+
+// MARK: - Validate Command
 
 extension MacLabelCLI {
     struct Validate: ParsableCommand {
@@ -129,17 +100,18 @@ extension MacLabelCLI {
                 print("Using attribute name: \(config.attributeName)")
             }
 
-            let labeler = Labeler(configuration: config)
+            var labeler = Labeler(configuration: config)
+            labeler.useCapsicum = !options.noCapsicum
 
             if options.verbose && !options.json {
-                print("Validating all paths...")
+                print("Validating configuration...")
             }
 
             do {
-                try labeler.validateAll()
+                try labeler.validateConfiguration()
 
                 if options.json {
-                    let output = ValidateOutput(
+                    let output = ValidationSummary(
                         success: true,
                         totalFiles: config.labels.count,
                         attributeName: config.attributeName
@@ -151,7 +123,7 @@ extension MacLabelCLI {
                 }
             } catch {
                 if options.json {
-                    let output = ValidateOutput(
+                    let output = ValidationSummary(
                         success: false,
                         totalFiles: config.labels.count,
                         attributeName: config.attributeName,
@@ -166,6 +138,8 @@ extension MacLabelCLI {
         }
     }
 }
+
+// MARK: - Apply Command
 
 extension MacLabelCLI {
     struct Apply: ParsableCommand {
@@ -189,17 +163,21 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
+                if !options.noCapsicum {
+                    print("Using Capsicum for defense-in-depth")
+                }
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
             labeler.overwriteExisting = !noOverwrite
+            labeler.useCapsicum = !options.noCapsicum
 
             let results = try labeler.apply()
             let failures = results.filter { !$0.success }
 
             if options.json {
-                let output = ApplyOutput(results: results)
+                let output = OperationSummary(results: results)
                 try printJSON(output)
                 if !failures.isEmpty {
                     throw ExitCode.failure
@@ -244,16 +222,20 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
+                if !options.noCapsicum {
+                    print("Using Capsicum for defense-in-depth")
+                }
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
+            labeler.useCapsicum = !options.noCapsicum
 
             let results = try labeler.remove()
             let failures = results.filter { !$0.success }
 
             if options.json {
-                let output = ApplyOutput(results: results)  // Reuse structure
+                let output = OperationSummary(results: results)
                 try printJSON(output)
                 if !failures.isEmpty {
                     throw ExitCode.failure
@@ -277,6 +259,8 @@ extension MacLabelCLI {
     }
 }
 
+// MARK: - Show Command
+
 extension MacLabelCLI {
     struct Show: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -295,16 +279,20 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
+                if !options.noCapsicum {
+                    print("Using Capsicum for defense-in-depth")
+                }
                 print()
             }
 
             var labeler = Labeler(configuration: config)
-            labeler.verbose = false  // Don't use verbose for show
+            labeler.verbose = false
+            labeler.useCapsicum = !options.noCapsicum
 
             let results = try labeler.show()
 
             if options.json {
-                let output = ShowOutput(results: results)
+                let output = LabelsSummary(results: results)
                 try printJSON(output)
             } else {
                 for (path, labels) in results {
@@ -328,6 +316,8 @@ extension MacLabelCLI {
     }
 }
 
+// MARK: - Verify Command
+
 extension MacLabelCLI {
     struct Verify: ParsableCommand {
         static let configuration = CommandConfiguration(
@@ -347,17 +337,21 @@ extension MacLabelCLI {
             if options.verbose && !options.json {
                 print("Loaded \(config.labels.count) label(s)")
                 print("Using attribute name: \(config.attributeName)")
+                if !options.noCapsicum {
+                    print("Using Capsicum for defense-in-depth")
+                }
                 print()
             }
 
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
+            labeler.useCapsicum = !options.noCapsicum
 
             let results = try labeler.verify()
             let mismatches = results.filter { !$0.matches }
 
             if options.json {
-                let output = VerifyOutput(results: results)
+                let output = VerificationSummary(results: results)
                 try printJSON(output)
                 if !mismatches.isEmpty {
                     throw ExitCode.failure

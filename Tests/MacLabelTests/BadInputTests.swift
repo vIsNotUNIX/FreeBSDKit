@@ -35,7 +35,7 @@ final class BadInputTests: XCTestCase {
     func testInvalidJSON() throws {
         let invalidJSON = """
         {
-          "attributeName": "mac.labels",
+          "attributeName": "mac_labels",
           "labels": [
             {
               "path": "/bin/sh"
@@ -119,8 +119,8 @@ final class BadInputTests: XCTestCase {
         let forbiddenNames = [
             "mac/labels",      // Contains /
             "mac labels",      // Contains space
-            "mac.labels\n",    // Contains newline
-            "mac.labels!",     // Contains special char
+            "mac_labels\n",    // Contains newline
+            "mac_labels!",     // Contains special char
             "mac@labels",      // Contains @
         ]
 
@@ -370,7 +370,7 @@ final class BadInputTests: XCTestCase {
     func testConfigurationRejectsInvalidAttributes() throws {
         let json = """
         {
-          "attributeName": "mac.labels",
+          "attributeName": "mac_labels",
           "labels": [
             {
               "path": "/tmp/test",
@@ -394,7 +394,7 @@ final class BadInputTests: XCTestCase {
     func testConfigurationRejectsNonExistentFiles() throws {
         let json = """
         {
-          "attributeName": "mac.labels",
+          "attributeName": "mac_labels",
           "labels": [
             {
               "path": "/nonexistent/\(UUID())",
@@ -412,8 +412,8 @@ final class BadInputTests: XCTestCase {
         let config = try TestHelpers.loadConfiguration(from: tempFile.path)
         let labeler = Labeler(configuration: config)
 
-        // Should fail during validateAll()
-        XCTAssertThrowsError(try labeler.validateAll()) { error in
+        // Should fail during validatePaths()
+        XCTAssertThrowsError(try labeler.validatePaths()) { error in
             guard case .fileNotFound = error as? LabelError else {
                 XCTFail("Expected fileNotFound error")
                 return

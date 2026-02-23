@@ -18,7 +18,7 @@ import Descriptors
 /// ## Example JSON (with FileLabel)
 /// ```json
 /// {
-///   "attributeName": "mac.labels",
+///   "attributeName": "mac_policy",
 ///   "labels": [
 ///     {
 ///       "path": "/bin/sh",
@@ -46,10 +46,13 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
     /// There is no default value - each policy must explicitly specify its
     /// attribute name to prevent conflicts between different policies.
     ///
+    /// **Important**: FreeBSD extended attribute names cannot contain dots (`.`).
+    /// Use underscores or hyphens instead.
+    ///
     /// Common examples:
-    /// - `"mac.labels"` - General purpose security labels
-    /// - `"mac.policy1"` - Policy-specific labels
-    /// - `"mac.network"` - Network-specific policy labels
+    /// - `"mac_labels"` - General purpose security labels
+    /// - `"mac_policy1"` - Policy-specific labels
+    /// - `"mac_network"` - Network-specific policy labels
     public let attributeName: String
 
     /// List of labels to apply
@@ -144,11 +147,12 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
             )
         }
 
-        // Conservative character set: only allow alphanumeric, period, underscore, hyphen
-        let allowedChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        // Conservative character set: only allow alphanumeric, underscore, hyphen
+        // NOTE: Dots (.) are NOT allowed - FreeBSD extattr rejects them with EINVAL
+        let allowedChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
         guard attributeName.rangeOfCharacter(from: allowedChars.inverted) == nil else {
             throw LabelError.invalidConfiguration(
-                "Attribute name '\(attributeName)' contains characters outside safe set [A-Za-z0-9._-]"
+                "Attribute name '\(attributeName)' contains invalid characters (only A-Za-z0-9_- allowed; dots are not permitted)"
             )
         }
 
@@ -160,6 +164,3 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
         }
     }
 }
-
-/// Type alias for FileLabel-based configuration (most common use case).
-public typealias FileLabelConfiguration = LabelConfiguration<FileLabel>

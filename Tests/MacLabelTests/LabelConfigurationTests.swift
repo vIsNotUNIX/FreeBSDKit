@@ -92,7 +92,7 @@ final class LabelConfigurationTests: XCTestCase {
     func testAttributeNameValidation_Valid() throws {
         let json = """
         {
-            "attributeName": "mac.labels",
+            "attributeName": "mac_labels",
             "labels": []
         }
         """
@@ -101,7 +101,7 @@ final class LabelConfigurationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
         let config = try TestHelpers.loadConfiguration(from: tempFile)
-        XCTAssertEqual(config.attributeName, "mac.labels")
+        XCTAssertEqual(config.attributeName, "mac_labels")
         XCTAssertEqual(config.labels.count, 0)
     }
 
@@ -248,7 +248,7 @@ final class LabelConfigurationTests: XCTestCase {
     func testLabelConfiguration_LoadValid() throws {
         let json = """
         {
-            "attributeName": "mac.test",
+            "attributeName": "mac_test",
             "labels": [
                 {
                     "path": "/bin/sh",
@@ -265,7 +265,7 @@ final class LabelConfigurationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: tempFile) }
 
         let config = try TestHelpers.loadConfiguration(from: tempFile)
-        XCTAssertEqual(config.attributeName, "mac.test")
+        XCTAssertEqual(config.attributeName, "mac_test")
         XCTAssertEqual(config.labels.count, 1)
         XCTAssertEqual(config.labels[0].path, "/bin/sh")
         XCTAssertEqual(config.labels[0].attributes["type"], "shell")

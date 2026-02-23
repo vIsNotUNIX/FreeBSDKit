@@ -82,7 +82,7 @@ final class StrictParsingTests: XCTestCase {
     func testAttributeNameValidation_LeadingWhitespace() throws {
         let json = """
         {
-            "attributeName": " mac.labels",
+            "attributeName": " mac_labels",
             "labels": []
         }
         """
@@ -101,7 +101,7 @@ final class StrictParsingTests: XCTestCase {
     func testAttributeNameValidation_TrailingWhitespace() throws {
         let json = """
         {
-            "attributeName": "mac.labels ",
+            "attributeName": "mac_labels ",
             "labels": []
         }
         """
@@ -131,19 +131,20 @@ final class StrictParsingTests: XCTestCase {
         XCTAssertThrowsError(try TestHelpers.loadConfiguration(from: tempFile)) { error in
             XCTAssertTrue(error is LabelError)
             if case .invalidConfiguration(let message) = error as? LabelError {
-                XCTAssertTrue(message.contains("outside safe set"))
+                XCTAssertTrue(message.contains("invalid characters"))
             }
         }
     }
 
     func testAttributeNameValidation_ValidNames() throws {
+        // Note: dots are NOT allowed in FreeBSD extattr names (returns EINVAL)
         let validNames = [
-            "mac.labels",
-            "mac.network",
+            "mac_labels",
+            "mac_network",
             "policy-name",
             "policy_name",
             "Policy123",
-            "a.b.c.d"
+            "a_b_c_d"
         ]
 
         for name in validNames {

@@ -25,7 +25,7 @@ final class EdgeCaseTests: XCTestCase {
 
         let json = """
         {
-            "attributeName": "mac.test",
+            "attributeName": "mac_test",
             "labels": [\(largeArray.joined(separator: ","))]
         }
         """
@@ -106,7 +106,7 @@ final class EdgeCaseTests: XCTestCase {
 
         let config = try TestHelpers.loadConfiguration(from: examplePath)
 
-        XCTAssertEqual(config.attributeName, "mac.test")
+        XCTAssertEqual(config.attributeName, "mac_test")
         XCTAssertEqual(config.labels.count, 3)
 
         // Find the label with empty value
@@ -134,7 +134,7 @@ final class EdgeCaseTests: XCTestCase {
 
         let config = try TestHelpers.loadConfiguration(from: examplePath)
 
-        XCTAssertEqual(config.attributeName, "mac.single")
+        XCTAssertEqual(config.attributeName, "mac_single")
         XCTAssertEqual(config.labels.count, 1)
         XCTAssertEqual(config.labels[0].path, "/bin/echo")
         XCTAssertEqual(config.labels[0].attributes["trust"], "system")
@@ -148,7 +148,7 @@ final class EdgeCaseTests: XCTestCase {
 
         let config = try TestHelpers.loadConfiguration(from: examplePath)
 
-        XCTAssertEqual(config.attributeName, "mac.comprehensive")
+        XCTAssertEqual(config.attributeName, "mac_comprehensive")
         XCTAssertEqual(config.labels.count, 4)
 
         // Verify each label has comprehensive attributes

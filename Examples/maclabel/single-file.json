@@ -1,5 +1,5 @@
 {
-  "attributeName": "mac.single",
+  "attributeName": "mac_single",
   "labels": [
     {
       "path": "/bin/echo",

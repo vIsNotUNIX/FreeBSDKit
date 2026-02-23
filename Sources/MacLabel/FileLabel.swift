@@ -64,3 +64,7 @@ public struct FileLabel: Labelable {
         }
     }
 }
+
+
+/// Type alias for FileLabel-based configuration (most common use case).
+public typealias FileLabelConfiguration = LabelConfiguration<FileLabel>

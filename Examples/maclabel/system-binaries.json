@@ -1,5 +1,5 @@
 {
-  "attributeName": "mac.labels",
+  "attributeName": "mac_labels",
   "labels": [
     {
       "path": "/bin/sh",
