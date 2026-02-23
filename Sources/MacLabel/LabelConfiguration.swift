@@ -6,6 +6,7 @@
 
 import Foundation
 import Glibc
+import Descriptors
 
 
 /// Configuration file format for labeling resources.
@@ -61,23 +62,23 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
     /// the file once and passes the descriptor, ensuring the validated file
     /// is the one being read.
     ///
-    /// **Ownership**: This method does NOT close the file descriptor. The
+    /// **Capsicum Support**: Works with any `Descriptor` type, including
+    /// `FileCapability` for privilege-restricted access. When using FileCapability,
+    /// the descriptor should be restricted to `.read`, `.fstat`, and `.seek` rights.
+    ///
+    /// **Ownership**: This method does NOT close the descriptor. The
     /// caller retains ownership and is responsible for closing it.
     ///
-    /// - Parameter fd: Open file descriptor to read from (must be readable)
+    /// **Lifecycle**: This method must be called BEFORE entering Capsicum capability
+    /// mode if the file needs to be opened by path. After capability mode, only
+    /// file descriptors opened before entering capability mode can be used.
+    ///
+    /// - Parameter descriptor: Open file descriptor to read from (must be readable)
     /// - Returns: Decoded configuration
     /// - Throws: Error if file cannot be read or JSON is invalid
-    public static func load(from fd: Int32) throws -> LabelConfiguration<Label> {
-        // Validate file descriptor
-        guard fd >= 0 else {
-            throw LabelError.invalidConfiguration("Invalid file descriptor")
-        }
-
-        // Use fstat on the descriptor to check file properties
-        var st = stat()
-        guard fstat(fd, &st) == 0 else {
-            throw LabelError.invalidConfiguration("Cannot stat configuration file: \(String(cString: strerror(errno)))")
-        }
+    public static func load<D: Descriptor & ReadableDescriptor>(from descriptor: borrowing D) throws -> LabelConfiguration<Label> where D: ~Copyable {
+        // Get file stats using Descriptor protocol
+        let st = try descriptor.stat()
 
         // Validate it's a regular file
         guard (st.st_mode & S_IFMT) == S_IFREG else {
@@ -93,17 +94,10 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
             throw LabelError.invalidConfiguration("Configuration file is empty")
         }
 
-        // Read file via descriptor
-        var buffer = [UInt8](repeating: 0, count: Int(st.st_size))
-        let bytesRead = buffer.withUnsafeMutableBufferPointer { ptr in
-            read(fd, ptr.baseAddress, Int(st.st_size))
-        }
+        // Read file using Descriptor's readExact() method
+        // This handles EINTR retries and ensures we read the complete file
+        let data = try descriptor.readExact(Int(st.st_size))
 
-        guard bytesRead == st.st_size else {
-            throw LabelError.invalidConfiguration("Failed to read complete configuration file")
-        }
-
-        let data = Data(buffer)
         let decoder = JSONDecoder()
         let config = try decoder.decode(LabelConfiguration<Label>.self, from: data)
 

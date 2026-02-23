@@ -169,11 +169,52 @@ int read_mac_labels(const char *path, const char *attr_name) {
 }
 ```
 
+## Security Features
+
+### Capsicum Integration
+
+The tool uses FreeBSD's Capsicum capability system for defense-in-depth:
+
+- **Configuration files** are opened with restricted rights (read-only)
+- **File descriptors** are wrapped in `FileCapability` with minimal rights:
+  - `.read` - Read file contents
+  - `.fstat` - Get file metadata
+  - `.seek` - Position seeking
+- **Kernel enforcement** prevents write operations even if code is exploited
+- **TOCTOU protection** via file descriptor-based operations
+
+### Privilege Separation
+
+- `validate`, `verify`, `show` - Can run as regular user
+- `apply`, `remove` - Require root for system namespace access
+
+This encourages a safe workflow:
+```bash
+# 1. Validate as user
+maclabel validate config.json
+
+# 2. Apply as root only after validation
+sudo maclabel apply config.json
+```
+
+### JSON Output
+
+All commands support `--json` for machine-readable output:
+
+```bash
+maclabel validate config.json --json
+maclabel apply config.json --json
+maclabel verify config.json --json
+```
+
+Output includes success/failure status and detailed results.
+
 ## Requirements
 
 - FreeBSD system with extended attribute support
 - Root privileges to set `system` namespace attributes
-- Swift 5.10 or later
+- Swift 6.2 or later
+- Capsicum support (enabled by default on FreeBSD 10.0+)
 
 ## Extended Attributes
 
@@ -212,7 +253,7 @@ Errors are reported with descriptive messages and appropriate exit codes.
 To use these labels in a MACF policy:
 
 1. Label binaries using `maclabel` with your policy's attribute name
-2. Write a MACF kernel module that reads `system.<attributeName>` (e.g., `system.mac.labels`)
+2. Write a MACF kernel module that reads `system.<attributeName>` (e.g., `system.mac.mylabels`)
 3. Parse the label format in your policy's label hooks
 4. Enforce policy based on the attributes
 

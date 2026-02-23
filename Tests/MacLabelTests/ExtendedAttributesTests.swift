@@ -147,7 +147,7 @@ final class ExtendedAttributesTests: XCTestCase {
         let data = Data("test".utf8)
 
         XCTAssertThrowsError(
-            try ExtendedAttributes.setFd(
+            try ExtendedAttributes.set(
                 fd: -1,
                 namespace: .system,
                 name: "test.attr",
@@ -163,7 +163,7 @@ final class ExtendedAttributesTests: XCTestCase {
 
     func testExtAttrGetFd_InvalidFd() throws {
         XCTAssertThrowsError(
-            try ExtendedAttributes.getFd(
+            try ExtendedAttributes.get(
                 fd: -1,
                 namespace: .system,
                 name: "test.attr"
@@ -178,7 +178,7 @@ final class ExtendedAttributesTests: XCTestCase {
 
     func testExtAttrDeleteFd_InvalidFd() throws {
         XCTAssertThrowsError(
-            try ExtendedAttributes.deleteFd(
+            try ExtendedAttributes.delete(
                 fd: -1,
                 namespace: .system,
                 name: "test.attr"

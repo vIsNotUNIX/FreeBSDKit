@@ -146,7 +146,7 @@ let package = Package(
         ),
         .target(
             name: "MacLabel",
-            dependencies: ["CExtendedAttributes"]
+            dependencies: ["CExtendedAttributes", "Capabilities", "Descriptors"]
         ),
         .testTarget(
             name: "MacLabelTests",
