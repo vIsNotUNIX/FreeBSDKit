@@ -6,7 +6,6 @@
 
 import Foundation
 
-// MARK: - LabelingResult
 
 /// Result of a single file labeling operation.
 public struct LabelingResult: Sendable {
@@ -23,7 +22,6 @@ public struct LabelingResult: Sendable {
     public let previousLabel: Data?
 }
 
-// MARK: - VerificationResult
 
 /// Result of verifying a single file's labels.
 public struct VerificationResult: Sendable {

@@ -5,8 +5,8 @@
  */
 
 import Foundation
+import Glibc
 
-// MARK: - LabelConfiguration
 
 /// Configuration file format for labeling resources.
 ///
@@ -54,7 +54,11 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
     /// List of labels to apply
     public let labels: [Label]
 
-    /// Loads a configuration from a JSON file.
+    /// Loads a configuration from a JSON file using a file descriptor.
+    ///
+    /// Uses file descriptors to prevent TOCTOU (Time-of-Check, Time-of-Use)
+    /// vulnerabilities. The file is opened, validated with fstat(), and read
+    /// all through the same descriptor.
     ///
     /// - Parameter path: Path to the JSON configuration file
     /// - Returns: Decoded configuration
@@ -65,19 +69,58 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
             throw LabelError.invalidConfiguration("Invalid configuration file path")
         }
 
-        // Load file with size limit (10MB should be more than enough for any reasonable config)
-        let url = URL(fileURLWithPath: path)
-        let fileAttributes = try FileManager.default.attributesOfItem(atPath: path)
-        if let fileSize = fileAttributes[.size] as? UInt64, fileSize > 10_485_760 {
+        // Open file descriptor with O_RDONLY | O_CLOEXEC
+        let fd = path.withCString { cPath in
+            open(cPath, O_RDONLY | O_CLOEXEC)
+        }
+
+        guard fd >= 0 else {
+            throw LabelError.invalidConfiguration("Cannot open configuration file: \(String(cString: strerror(errno)))")
+        }
+
+        defer { close(fd) }
+
+        // Use fstat on the descriptor to check file properties
+        var st = stat()
+        guard fstat(fd, &st) == 0 else {
+            throw LabelError.invalidConfiguration("Cannot stat configuration file: \(String(cString: strerror(errno)))")
+        }
+
+        // Validate it's a regular file
+        guard (st.st_mode & S_IFMT) == S_IFREG else {
+            throw LabelError.invalidConfiguration("Configuration path is not a regular file")
+        }
+
+        // Check size limit (10MB should be more than enough for any reasonable config)
+        guard st.st_size <= 10_485_760 else {
             throw LabelError.invalidConfiguration("Configuration file exceeds maximum size of 10MB")
         }
 
-        let data = try Data(contentsOf: url)
+        guard st.st_size > 0 else {
+            throw LabelError.invalidConfiguration("Configuration file is empty")
+        }
+
+        // Read file via descriptor
+        var buffer = [UInt8](repeating: 0, count: Int(st.st_size))
+        let bytesRead = buffer.withUnsafeMutableBufferPointer { ptr in
+            read(fd, ptr.baseAddress, Int(st.st_size))
+        }
+
+        guard bytesRead == st.st_size else {
+            throw LabelError.invalidConfiguration("Failed to read complete configuration file")
+        }
+
+        let data = Data(buffer)
         let decoder = JSONDecoder()
         let config = try decoder.decode(LabelConfiguration<Label>.self, from: data)
 
         // Validate attribute name is safe for extended attributes
         try config.validateAttributeName()
+
+        // Validate all label attributes early (fail fast)
+        for label in config.labels {
+            try label.validateAttributes()
+        }
 
         return config
     }
@@ -130,8 +173,6 @@ public struct LabelConfiguration<Label: Labelable>: Codable {
         }
     }
 }
-
-// MARK: - Type Alias for Backwards Compatibility
 
 /// Type alias for FileLabel-based configuration (most common use case).
 public typealias FileLabelConfiguration = LabelConfiguration<FileLabel>

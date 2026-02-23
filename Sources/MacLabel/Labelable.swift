@@ -58,6 +58,14 @@ public protocol Labelable: Codable {
     /// - Throws: ``LabelError/invalidConfiguration`` if path is invalid
     func validatePath() throws
 
+    /// Validates that all attributes have valid keys and values.
+    ///
+    /// This allows validating attribute format without encoding. The default
+    /// implementation uses the same validation rules as `encodeAttributes()`.
+    ///
+    /// - Throws: ``LabelError/invalidAttribute`` if keys/values contain forbidden characters
+    func validateAttributes() throws
+
     /// Encodes attributes to the wire format for storage.
     ///
     /// The default implementation uses newline-separated key=value pairs:
@@ -71,19 +79,15 @@ public protocol Labelable: Codable {
     func encodeAttributes() throws -> Data
 }
 
-// MARK: - Default Implementation
-
 public extension Labelable {
-    /// Default implementation that encodes attributes as newline-separated key=value pairs.
+    /// Default implementation that validates attribute keys and values.
     ///
-    /// This format is designed to be easily parseable by C code and is sorted
-    /// alphabetically by key for consistent output.
-    ///
-    /// Format: `key1=value1\nkey2=value2\n`
-    func encodeAttributes() throws -> Data {
-        var result = ""
-
-        for (key, value) in attributes.sorted(by: { $0.key < $1.key }) {
+    /// Checks that:
+    /// - Keys are not empty
+    /// - Keys don't contain `=`, newlines, or null bytes
+    /// - Values don't contain newlines or null bytes
+    func validateAttributes() throws {
+        for (key, value) in attributes {
             // Validate key is not empty
             guard !key.isEmpty else {
                 throw LabelError.invalidAttribute("Attribute key cannot be empty")
@@ -102,7 +106,21 @@ public extension Labelable {
                     "Value for key '\(key)' contains forbidden character (newline or null)"
                 )
             }
+        }
+    }
 
+    /// Default implementation that encodes attributes as newline-separated key=value pairs.
+    ///
+    /// This format is designed to be easily parseable by C code and is sorted
+    /// alphabetically by key for consistent output.
+    ///
+    /// Format: `key1=value1\nkey2=value2\n`
+    func encodeAttributes() throws -> Data {
+        // Validate attributes first
+        try validateAttributes()
+
+        var result = ""
+        for (key, value) in attributes.sorted(by: { $0.key < $1.key }) {
             result += "\(key)=\(value)\n"
         }
 

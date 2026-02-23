@@ -61,25 +61,25 @@ extension MacLabelCLI {
                 try labeler.validateAllPaths()
 
                 if options.json {
-                    let output = ValidateOutputJSON(
+                    let output = ValidateOutput(
                         success: true,
                         totalFiles: config.labels.count,
                         attributeName: config.attributeName
                     )
-                    try outputJSON(output)
+                    try printJSON(output)
                 } else {
                     print("✓ All \(config.labels.count) file(s) exist")
                     print("✓ Configuration is valid")
                 }
             } catch {
                 if options.json {
-                    let output = ValidateOutputJSON(
+                    let output = ValidateOutput(
                         success: false,
                         totalFiles: config.labels.count,
                         attributeName: config.attributeName,
                         error: error.localizedDescription
                     )
-                    try outputJSON(output)
+                    try printJSON(output)
                 } else if options.verbose {
                     print("✗ Validation failed: \(error.localizedDescription)")
                 }
@@ -119,12 +119,12 @@ extension MacLabelCLI {
             labeler.verbose = options.verbose && !options.json
             labeler.overwriteExisting = !noOverwrite
 
-            let results = try labeler.applyLabels()
+            let results = try labeler.apply()
             let failures = results.filter { !$0.success }
 
             if options.json {
-                let output = ApplyOutputJSON(results: results)
-                try outputJSON(output)
+                let output = ApplyOutput(results: results)
+                try printJSON(output)
                 if !failures.isEmpty {
                     throw ExitCode.failure
                 }
@@ -173,12 +173,12 @@ extension MacLabelCLI {
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
 
-            let results = try labeler.removeLabels()
+            let results = try labeler.remove()
             let failures = results.filter { !$0.success }
 
             if options.json {
-                let output = ApplyOutputJSON(results: results)  // Reuse structure
-                try outputJSON(output)
+                let output = ApplyOutput(results: results)  // Reuse structure
+                try printJSON(output)
                 if !failures.isEmpty {
                     throw ExitCode.failure
                 }
@@ -227,11 +227,11 @@ extension MacLabelCLI {
             var labeler = Labeler(configuration: config)
             labeler.verbose = false  // Don't use verbose for show
 
-            let results = try labeler.showLabels()
+            let results = try labeler.show()
 
             if options.json {
-                let output = ShowOutputJSON(results: results)
-                try outputJSON(output)
+                let output = ShowOutput(results: results)
+                try printJSON(output)
             } else {
                 for (path, labels) in results {
                     print("\(path):")
@@ -281,12 +281,12 @@ extension MacLabelCLI {
             var labeler = Labeler(configuration: config)
             labeler.verbose = options.verbose && !options.json
 
-            let results = try labeler.verifyLabels()
+            let results = try labeler.verify()
             let mismatches = results.filter { !$0.matches }
 
             if options.json {
-                let output = VerifyOutputJSON(results: results)
-                try outputJSON(output)
+                let output = VerifyOutput(results: results)
+                try printJSON(output)
                 if !mismatches.isEmpty {
                     throw ExitCode.failure
                 }

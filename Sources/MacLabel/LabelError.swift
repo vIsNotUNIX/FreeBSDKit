@@ -66,11 +66,8 @@ extension LabelError: CustomStringConvertible {
     }
 }
 
-// Make LabelError suitable for concurrent contexts
-extension LabelError: Sendable {}
-
 // Provide localized descriptions for better error reporting
-extension LabelError: LocalizedError {
+extension LabelError: Sendable, LocalizedError {
     public var errorDescription: String? {
         description
     }

@@ -6,10 +6,9 @@
 
 import Foundation
 
-// MARK: - JSON Output Support
 
-/// JSON-serializable result for labeling operations.
-public struct LabelingResultJSON: Codable, Sendable {
+/// Serializable result for labeling operations.
+public struct SerializableLabelingResult: Codable, Sendable {
     public let path: String
     public let success: Bool
     public let error: String?
@@ -25,8 +24,8 @@ public struct LabelingResultJSON: Codable, Sendable {
     }
 }
 
-/// JSON-serializable result for verification operations.
-public struct VerificationResultJSON: Codable, Sendable {
+/// Serializable result for verification operations.
+public struct SerializableVerificationResult: Codable, Sendable {
     public let path: String
     public let matches: Bool
     public let expected: [String: String]
@@ -44,16 +43,16 @@ public struct VerificationResultJSON: Codable, Sendable {
     }
 }
 
-/// JSON-serializable result for apply operation.
-public struct ApplyOutputJSON: Codable, Sendable {
+/// Serializable result for apply operation.
+public struct ApplyOutput: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let successfulFiles: Int
     public let failedFiles: Int
-    public let results: [LabelingResultJSON]
+    public let results: [SerializableLabelingResult]
 
     public init(results: [LabelingResult]) {
-        self.results = results.map { LabelingResultJSON(from: $0) }
+        self.results = results.map { SerializableLabelingResult(from: $0) }
         self.totalFiles = results.count
         self.successfulFiles = results.filter { $0.success }.count
         self.failedFiles = results.filter { !$0.success }.count
@@ -61,16 +60,16 @@ public struct ApplyOutputJSON: Codable, Sendable {
     }
 }
 
-/// JSON-serializable result for verify operation.
-public struct VerifyOutputJSON: Codable, Sendable {
+/// Serializable result for verify operation.
+public struct VerifyOutput: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let matchingFiles: Int
     public let mismatchedFiles: Int
-    public let results: [VerificationResultJSON]
+    public let results: [SerializableVerificationResult]
 
     public init(results: [VerificationResult]) {
-        self.results = results.map { VerificationResultJSON(from: $0) }
+        self.results = results.map { SerializableVerificationResult(from: $0) }
         self.totalFiles = results.count
         self.matchingFiles = results.filter { $0.matches }.count
         self.mismatchedFiles = results.filter { !$0.matches }.count
@@ -78,8 +77,8 @@ public struct VerifyOutputJSON: Codable, Sendable {
     }
 }
 
-/// JSON-serializable result for show operation.
-public struct ShowOutputJSON: Codable, Sendable {
+/// Serializable result for show operation.
+public struct ShowOutput: Codable, Sendable {
     public struct FileLabels: Codable, Sendable {
         public let path: String
         public let labels: [String: String]?
@@ -118,8 +117,8 @@ public struct ShowOutputJSON: Codable, Sendable {
     }
 }
 
-/// JSON-serializable result for validate operation.
-public struct ValidateOutputJSON: Codable, Sendable {
+/// Serializable result for validate operation.
+public struct ValidateOutput: Codable, Sendable {
     public let success: Bool
     public let totalFiles: Int
     public let attributeName: String
@@ -133,8 +132,10 @@ public struct ValidateOutputJSON: Codable, Sendable {
     }
 }
 
-/// Helper to output JSON to stdout.
-public func outputJSON<T: Encodable>(_ value: T) throws {
+/// Outputs a JSON-encoded value to stdout.
+///
+/// Uses pretty-printed, sorted output for consistent formatting.
+public func printJSON<T: Encodable>(_ value: T) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(value)

@@ -5,6 +5,7 @@
  */
 
 import Foundation
+import CExtendedAttributes
 
 // MARK: - ExtAttr Namespace
 
@@ -15,20 +16,28 @@ import Foundation
 /// by MACF (Mandatory Access Control Framework).
 ///
 /// ## ABI Note
-/// These values correspond to FreeBSD's `sys/extattr.h`:
-/// - `EXTATTR_NAMESPACE_USER` = 1
-/// - `EXTATTR_NAMESPACE_SYSTEM` = 2
-///
-/// If FreeBSD changes these values in a future release, this enum must be updated.
+/// These values are imported from FreeBSD's `sys/extattr.h` via the
+/// CExtendedAttributes module. They will automatically match the running
+/// FreeBSD version.
 ///
 /// ## Security Context
 /// - **User namespace**: Accessible by file owner, suitable for user-level metadata
 /// - **System namespace**: Restricted to privileged processes, used for MAC labels
 ///   and other security-critical attributes
-public enum ExtAttrNamespace: Int32 {
+public enum ExtAttrNamespace {
     /// User namespace - accessible by file owner
-    case user = 1  // EXTATTR_NAMESPACE_USER
+    case user
 
     /// System namespace - used for security/MAC labels (requires privileges)
-    case system = 2  // EXTATTR_NAMESPACE_SYSTEM
+    case system
+
+    /// Returns the FreeBSD system constant for this namespace.
+    public var rawValue: Int32 {
+        switch self {
+        case .user:
+            return CEXTATTR_NAMESPACE_USER
+        case .system:
+            return CEXTATTR_NAMESPACE_SYSTEM
+        }
+    }
 }

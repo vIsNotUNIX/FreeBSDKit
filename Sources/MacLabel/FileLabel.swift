@@ -6,8 +6,6 @@
 
 import Foundation
 
-// MARK: - FileLabel
-
 /// Represents a single file and its associated security labels.
 ///
 /// A `FileLabel` is the default implementation of `Labelable` for filesystem-based
@@ -65,6 +63,4 @@ public struct FileLabel: Labelable {
             throw LabelError.fileNotFound(path)
         }
     }
-
-    // Uses default encodeAttributes() implementation from Labelable protocol
 }

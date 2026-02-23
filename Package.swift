@@ -59,6 +59,10 @@ let package = Package(
             path: "Sources/CExtendedError"
         ),
         .target(
+            name: "CExtendedAttributes",
+            path: "Sources/CExtendedAttributes"
+        ),
+        .target(
             name: "Capsicum",
             dependencies: ["CCapsicum", "FreeBSDKit"]
         ),
@@ -141,7 +145,8 @@ let package = Package(
             dependencies: ["BPC", "Capabilities", "Descriptors"]
         ),
         .target(
-            name: "MacLabel"
+            name: "MacLabel",
+            dependencies: ["CExtendedAttributes"]
         ),
         .testTarget(
             name: "MacLabelTests",
@@ -157,7 +162,7 @@ let package = Package(
                 "MacLabel",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
-            path: "Sources/CLI"
+            path: "Sources/mac-policy-cli"
         )
 
     ]

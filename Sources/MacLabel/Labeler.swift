@@ -55,7 +55,7 @@ public struct Labeler<Label: Labelable> {
     ///
     /// - Returns: Array of results for each file
     /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
-    public func applyLabels() throws -> [LabelingResult] {
+    public func apply() throws -> [LabelingResult] {
         // SAFETY: Validate ALL paths before applying ANY labels
         if verbose {
             print("Validating all paths...")
@@ -70,7 +70,7 @@ public struct Labeler<Label: Labelable> {
                 print("Processing: \(label.path)")
             }
 
-            let result = applyLabel(label)
+            let result = applyTo(label)
             results.append(result)
 
             if verbose {
@@ -91,7 +91,7 @@ public struct Labeler<Label: Labelable> {
     ///
     /// - Parameter label: Label to apply
     /// - Returns: Result of the operation
-    private func applyLabel(_ label: Label) -> LabelingResult {
+    private func applyTo(_ label: Label) -> LabelingResult {
         do {
             // Check for existing label
             let previousLabel = try ExtendedAttributes.get(
@@ -147,7 +147,7 @@ public struct Labeler<Label: Labelable> {
     ///
     /// - Returns: Array of results for each file
     /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
-    public func removeLabels() throws -> [LabelingResult] {
+    public func remove() throws -> [LabelingResult] {
         // SAFETY: Validate ALL paths before removing ANY labels
         if verbose {
             print("Validating all paths...")
@@ -202,7 +202,7 @@ public struct Labeler<Label: Labelable> {
     ///
     /// - Returns: Array of results with current labels
     /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
-    public func showLabels() throws -> [(path: String, labels: String?)] {
+    public func show() throws -> [(path: String, labels: String?)] {
         // SAFETY: Validate ALL paths first
         if verbose {
             print("Validating all paths...")
@@ -240,7 +240,7 @@ public struct Labeler<Label: Labelable> {
     ///
     /// - Returns: Array of verification results for each file
     /// - Throws: ``LabelError/fileNotFound`` if any path doesn't exist
-    public func verifyLabels() throws -> [VerificationResult] {
+    public func verify() throws -> [VerificationResult] {
         // SAFETY: Validate ALL paths first
         if verbose {
             print("Validating all paths...")
@@ -278,7 +278,7 @@ public struct Labeler<Label: Labelable> {
                 }
 
                 // Parse actual labels
-                let actual = try parseLabels(from: data)
+                let actual = try parse(from: data)
 
                 // Compare expected vs actual
                 let (matches, mismatches) = compareAttributes(
@@ -333,7 +333,7 @@ public struct Labeler<Label: Labelable> {
     /// - Parameter data: Raw label data from extended attribute
     /// - Returns: Dictionary of key-value pairs
     /// - Throws: ``LabelError`` if parsing fails or data is malformed
-    private func parseLabels(from data: Data) throws -> [String: String] {
+    private func parse(from data: Data) throws -> [String: String] {
         guard let content = String(data: data, encoding: .utf8) else {
             throw LabelError.encodingFailed
         }
@@ -418,8 +418,6 @@ public struct Labeler<Label: Labelable> {
         return (mismatches.isEmpty, mismatches)
     }
 }
-
-// MARK: - Type Alias for Backwards Compatibility
 
 /// Type alias for FileLabel-based labeler (most common use case).
 public typealias FileLabeler = Labeler<FileLabel>

@@ -35,10 +35,6 @@ import Glibc
 /// // Parse as newline-separated key=value pairs
 /// ```
 ///
-/// ## Thread Safety
-///
-/// All methods are thread-safe as they directly call the underlying
-/// FreeBSD system calls without maintaining any state.
 public struct ExtendedAttributes {
 
     /// Sets an extended attribute on a file.
@@ -275,8 +271,6 @@ public struct ExtendedAttributes {
 
         return names
     }
-
-    // MARK: - File Descriptor Variants (TOCTOU Protection)
 
     /// Sets an extended attribute on an open file descriptor.
     ///

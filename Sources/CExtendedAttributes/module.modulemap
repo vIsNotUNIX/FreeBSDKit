@@ -1,0 +1,4 @@
+module CExtendedAttributes [system] {
+    header "include/cextattr.h"
+    export *
+}
