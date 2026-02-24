@@ -7,7 +7,7 @@
 // MARK: - BPCError
 
 /// Errors produced by the BPC transport layer.
-public enum BPCError: Error, Sendable {
+public enum BPCError: Error, Sendable, Equatable {
     /// The underlying socket connection was lost due to remote disconnect.
     case disconnected
     /// The endpoint was explicitly stopped by calling `stop()`.

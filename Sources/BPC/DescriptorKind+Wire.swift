@@ -9,8 +9,29 @@ import Glibc
 import Foundation
 import FreeBSDKit
 
+// MARK: - DescriptorKind Wire Format
+//
+// Wire values for descriptor kinds in BPC trailer:
+//
+// | Value | Kind              |
+// |-------|-------------------|
+// | 0     | unknown           |
+// | 1     | file              |
+// | 2     | process           |
+// | 3     | kqueue            |
+// | 4     | socket            |
+// | 5     | pipe              |
+// | 6     | jail (non-owning) |
+// | 7     | jail (owning)     |
+// | 8     | shm               |
+// | 9     | event             |
+// | 255   | OOL payload       |
+
 extension DescriptorKind {
     /// Special wire value indicating an out-of-line payload descriptor.
+    ///
+    /// When a message's payload exceeds the inline limit, it's sent via shared memory.
+    /// The shm descriptor is placed at index 0 and marked with this value (255).
     public static let oolPayloadWireValue: UInt8 = 255
 
     /// Encodes this descriptor kind to a wire format byte.

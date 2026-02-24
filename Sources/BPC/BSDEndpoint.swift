@@ -26,9 +26,9 @@ import Capsicum
 public actor BSDEndpoint: BPCEndpoint {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
-    private var nextCorrelationID: UInt32 = 1
-    private var pendingReplies: [UInt32: CheckedContinuation<Message, Error>] = [:]
-    private var pendingTimeouts: [UInt32: Task<Void, Never>] = [:]
+    private var nextCorrelationID: UInt64 = 1
+    private var pendingReplies: [UInt64: CheckedContinuation<Message, Error>] = [:]
+    private var pendingTimeouts: [UInt64: Task<Void, Never>] = [:]
     private var incomingContinuation: AsyncStream<Message>.Continuation?
     private var messageStream: AsyncStream<Message>?
     private var receiveLoopTask: Task<Void, Never>?
@@ -97,14 +97,14 @@ public actor BSDEndpoint: BPCEndpoint {
     /// - Returns: The reply message with matching correlation ID
     /// - Throws: ``BPCError/timeout`` if timeout is specified and exceeded
     public func request(_ message: Message, timeout: Duration? = nil) async throws -> Message {
-        var outgoing = message
-        outgoing.correlationID = nextCorrelationID
+        // 64-bit correlation ID - won't wrap in practice (~585 years at 1B msg/sec)
         let correlationID = nextCorrelationID
-        // Increment and skip 0 (reserved for unsolicited messages)
-        nextCorrelationID = nextCorrelationID &+ 1
-        if nextCorrelationID == 0 {
-            nextCorrelationID = 1
-        }
+        nextCorrelationID += 1
+        // Skip 0 (reserved for unsolicited messages)
+        if nextCorrelationID == 0 { nextCorrelationID = 1 }
+
+        var outgoing = message
+        outgoing.correlationID = correlationID
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -235,18 +235,18 @@ public actor BSDEndpoint: BPCEndpoint {
 
     // MARK: - Private
 
-    private func handleTimeout(_ id: UInt32) async {
-        pendingTimeouts.removeValue(forKey: id)
-        if let pending = pendingReplies.removeValue(forKey: id) {
+    private func handleTimeout(_ correlationID: UInt64) async {
+        pendingTimeouts.removeValue(forKey: correlationID)
+        if let pending = pendingReplies.removeValue(forKey: correlationID) {
             pending.resume(throwing: BPCError.timeout)
         }
     }
 
-    private func failPendingRequest(_ id: UInt32, error: Error) async {
-        if let timeoutTask = pendingTimeouts.removeValue(forKey: id) {
+    private func failPendingRequest(_ correlationID: UInt64, error: Error) async {
+        if let timeoutTask = pendingTimeouts.removeValue(forKey: correlationID) {
             timeoutTask.cancel()
         }
-        if let pending = pendingReplies.removeValue(forKey: id) {
+        if let pending = pendingReplies.removeValue(forKey: correlationID) {
             pending.resume(throwing: error)
         }
     }
@@ -262,7 +262,7 @@ public actor BSDEndpoint: BPCEndpoint {
                 }
                 continuation.resume(returning: message)
             }
-            // Else: orphaned reply (caller cancelled) - drop it
+            // Else: orphaned reply (caller cancelled or timed out) - drop it
         } else {
             // Unsolicited message
             incomingContinuation?.yield(message)
@@ -324,40 +324,10 @@ public actor BSDEndpoint: BPCEndpoint {
         incomingContinuation = nil
     }
 
-    // MARK: - Wire Format
+    // MARK: - Wire Format I/O
     //
-    // All wire format I/O runs on ioQueue, never on the actor executor.
-    //
-    // Layout: 256-byte fixed header | variable payload | 256-byte fixed trailer
-    //
-    // IMPORTANT: Version 0 uses host-endian encoding for multi-byte fields.
-    // Endpoints MUST be same-host, same-ABI. Do NOT persist frames or send
-    // across architectures. This is acceptable for local Unix-domain IPC only.
-    //
-    // Header (256 bytes):
-    //   - messageID (UInt32):        4 bytes at offset 0  (host-endian)
-    //   - correlationID (UInt32):    4 bytes at offset 4  (host-endian)
-    //   - payloadLength (UInt32):    4 bytes at offset 8  (host-endian, 0 if OOL)
-    //   - descriptorCount (UInt8):   1 byte  at offset 12 (max 254)
-    //   - version (UInt8):           1 byte  at offset 13 (currently 0)
-    //   - flags (UInt8):             1 byte  at offset 14
-    //       - bit 0: hasOOLPayload (1 if payload sent via shared memory)
-    //       - bits 1-7: reserved
-    //   - reserved:                241 bytes at offset 15-255
-    //
-    // Trailer (256 bytes):
-    //   - descriptorKinds: 254 bytes at offset 0-253 (one per descriptor)
-    //       - Each byte encodes DescriptorKind.wireValue
-    //       - Value 255 marks the out-of-line payload descriptor (index 0 only)
-    //   - reserved:          2 bytes at offset 254-255
-    //
-    // Out-of-line (OOL) payload:
-    //   When payload exceeds MAX_INLINE_PAYLOAD bytes, it's sent via shared memory:
-    //   1. A SharedMemoryCapability is created
-    //   2. Payload is written to shared memory
-    //   3. The shm descriptor is prepended to the descriptor list
-    //   4. Its kind in the trailer is marked as oolPayloadWireValue (255)
-    //   5. payloadLength is set to 0 and hasOOLPayload flag is set
+    // Wire format encoding/decoding is handled by WireFormat.swift.
+    // This section handles the actual socket I/O and OOL payload management.
 
     /// Maximum inline payload size before switching to out-of-line shared memory.
     ///
@@ -369,20 +339,22 @@ public actor BSDEndpoint: BPCEndpoint {
         let overhead = 512
         let kernelMax = SocketLimits.maxSeqpacketSize()
 
-        // Leave some headroom for the wire format overhead
-        return max(kernelMax - overhead, 1024)
+        // Payload space is kernel max minus overhead, but never negative
+        // If kernel max is very small, OOL will be used for most payloads
+        let available = kernelMax - overhead
+        return available > 0 ? available : 0
     }()
 
     nonisolated private func socketSend(_ message: Message) throws {
         var payload = message.payload
         var descriptors = message.descriptors
-        var flags: UInt8 = 0
+        var useOOL = false
 
         // Handle out-of-line payload if needed
         var shmDescriptor: Int32? = nil
         if payload.count > Self.MAX_INLINE_PAYLOAD {
             // Check descriptor limit (254 max, OOL adds one more)
-            guard descriptors.count < 254 else {
+            guard descriptors.count < WireFormat.maxDescriptors else {
                 throw BPCError.tooManyDescriptors(descriptors.count + 1)
             }
             // Create anonymous shared memory (capability-mode safe)
@@ -422,49 +394,33 @@ public actor BSDEndpoint: BPCEndpoint {
             shmDescriptor = shm.take()
             let shmRef = OpaqueDescriptorRef(shmDescriptor!, kind: .shm)
 
-            // Prepend OOL descriptor and set flag
+            // Prepend OOL descriptor
             descriptors.insert(shmRef, at: 0)
             payload = Data()
-            flags |= 0x01
+            useOOL = true
         } else {
             // Validate descriptor count (254 max)
-            guard descriptors.count <= 254 else {
+            guard descriptors.count <= WireFormat.maxDescriptors else {
                 throw BPCError.tooManyDescriptors(descriptors.count)
             }
         }
 
-        // Build header
-        var header = Data(count: 256)
+        // Build wire message using WireFormat
+        let header = WireHeader(
+            messageID: message.id.rawValue,
+            correlationID: message.correlationID,
+            payloadLength: UInt32(payload.count),
+            descriptorCount: UInt8(descriptors.count),
+            flags: useOOL ? WireFormat.flagOOLPayload : 0
+        )
 
-        var messageID = message.id.rawValue
-        header.replaceSubrange(0..<4, with: Data(bytes: &messageID, count: 4))
+        let descriptorKinds = descriptors.prefix(WireFormat.maxDescriptors).map { $0.kind.wireValue }
+        let trailer = WireTrailer(descriptorKinds: Array(descriptorKinds))
 
-        var correlationID = message.correlationID
-        header.replaceSubrange(4..<8, with: Data(bytes: &correlationID, count: 4))
-
-        var payloadLength = UInt32(payload.count)
-        header.replaceSubrange(8..<12, with: Data(bytes: &payloadLength, count: 4))
-
-        // Descriptor count already validated above (254 max)
-        header[12] = UInt8(descriptors.count)
-        header[13] = 0  // version
-        header[14] = flags
-
-        // Build trailer with descriptor kinds
-        var trailer = Data(count: 256)
-        for (index, descriptor) in descriptors.enumerated() {
-            guard index < 254 else { break }
-            if index == 0 && (flags & 0x01) != 0 {
-                trailer[index] = DescriptorKind.oolPayloadWireValue
-            } else {
-                trailer[index] = descriptor.kind.wireValue
-            }
-        }
-
-        // Assemble and send
-        var wireData = header
+        // Assemble wire data
+        var wireData = header.encode()
         wireData.append(payload)
-        wireData.append(trailer)
+        wireData.append(trailer.encode(hasOOLPayload: useOOL))
 
         do {
             try socketHolder.withSocketOrThrow { socket in
@@ -480,93 +436,52 @@ public actor BSDEndpoint: BPCEndpoint {
     }
 
     nonisolated private func socketReceive() throws -> Message {
-        // Max buffer: 256-byte header + max payload + 256-byte trailer
-        let maxBufferSize = 256 + Self.MAX_INLINE_PAYLOAD + 256
+        // Max buffer: header + max payload + trailer
+        let maxBufferSize = WireFormat.headerSize + Self.MAX_INLINE_PAYLOAD + WireFormat.trailerSize
 
         let (wireData, receivedDescriptors) = try socketHolder.withSocketOrThrow { socket in
-            try socket.recvDescriptors(maxDescriptors: 254, bufferSize: maxBufferSize)
+            try socket.recvDescriptors(maxDescriptors: WireFormat.maxDescriptors, bufferSize: maxBufferSize)
         }
 
-        guard wireData.count >= 512 else {  // At least header + trailer
+        guard wireData.count >= WireFormat.minimumMessageSize else {
             throw BPCError.invalidMessageFormat
         }
 
-        // Parse header
-        let messageIDRaw = wireData.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self)
-        }
-        let messageID = MessageID(rawValue: messageIDRaw)
+        // Parse and validate header
+        let header = try WireHeader.decode(from: wireData)
+        try header.validate()
 
-        let correlationID = wireData.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self)
-        }
-        let payloadLength = wireData.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self)
-        }
-        let descriptorCount = wireData[12]
-        let version = wireData[13]
-        let flags = wireData[14]
-
-        guard version == 0 else {
-            throw BPCError.unsupportedVersion(version)
-        }
-
-        // Validate descriptor count (max 254)
-        guard descriptorCount <= 254 else {
-            throw BPCError.invalidMessageFormat
-        }
-
-        // Validate OOL payload flag consistency
-        let hasOOLPayload = (flags & 0x01) != 0
-        if hasOOLPayload {
-            // If OOL flag is set, inline payload length must be 0
-            guard payloadLength == 0 else {
-                throw BPCError.invalidMessageFormat
-            }
-            // OOL requires at least one descriptor (the shm)
-            guard descriptorCount >= 1 else {
-                throw BPCError.invalidMessageFormat
-            }
-        }
-
-        let expectedTotal = 256 + Int(payloadLength) + 256
+        // Validate total message size
+        let expectedTotal = WireFormat.headerSize + Int(header.payloadLength) + WireFormat.trailerSize
         guard wireData.count == expectedTotal else {
             throw BPCError.invalidMessageFormat
         }
 
-        guard receivedDescriptors.count == Int(descriptorCount) else {
+        // Validate descriptor count matches
+        guard receivedDescriptors.count == Int(header.descriptorCount) else {
             throw BPCError.invalidMessageFormat
         }
 
-        // Extract trailer
-        let trailerStart = wireData.count - 256
-        let trailer = wireData[trailerStart..<wireData.count]
+        // Parse and validate trailer
+        let trailerStart = wireData.count - WireFormat.trailerSize
+        let trailerData = Data(wireData[trailerStart...])
+        let trailer = try WireTrailer.decode(from: trailerData, descriptorCount: Int(header.descriptorCount))
+        try trailer.validate(hasOOLPayload: header.hasOOLPayload)
 
-        // Decode descriptor kinds from trailer
+        // Apply descriptor kinds from trailer
         var descriptors = receivedDescriptors
-        for (index, descriptor) in descriptors.enumerated() {
-            guard index < 254 else { break }
-            let kindValue = trailer[index]
-
-            // Only index 0 may have OOL marker (255) when hasOOLPayload
-            if kindValue == DescriptorKind.oolPayloadWireValue {
-                guard hasOOLPayload && index == 0 else {
-                    throw BPCError.invalidMessageFormat
-                }
-            } else {
-                descriptor.kind = DescriptorKind.fromWireValue(kindValue)
+        for (index, kindValue) in trailer.descriptorKinds.enumerated() {
+            guard index < descriptors.count else { break }
+            if kindValue != DescriptorKind.oolPayloadWireValue {
+                descriptors[index].kind = DescriptorKind.fromWireValue(kindValue)
             }
         }
 
-        // Handle out-of-line payload
+        // Handle payload (inline or out-of-line)
         var payload: Data
 
-        if hasOOLPayload {
+        if header.hasOOLPayload {
             guard !descriptors.isEmpty else {
-                throw BPCError.invalidMessageFormat
-            }
-
-            guard trailer[0] == DescriptorKind.oolPayloadWireValue else {
                 throw BPCError.invalidMessageFormat
             }
 
@@ -602,12 +517,14 @@ public actor BSDEndpoint: BPCEndpoint {
 
             payload = Data(bytes: mappedPtr, count: shmSize)
         } else {
-            payload = Data(wireData[256..<(256 + Int(payloadLength))])
+            let payloadStart = WireFormat.headerSize
+            let payloadEnd = payloadStart + Int(header.payloadLength)
+            payload = Data(wireData[payloadStart..<payloadEnd])
         }
 
         return Message(
-            id: messageID,
-            correlationID: correlationID,
+            id: MessageID(rawValue: header.messageID),
+            correlationID: header.correlationID,
             payload: payload,
             descriptors: descriptors
         )

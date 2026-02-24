@@ -25,10 +25,10 @@ import Glibc
 /// ```
 public struct ReplyToken: Sendable, Hashable {
     /// The correlation ID to echo back in the reply.
-    public let correlationID: UInt32
+    public let correlationID: UInt64
 
     /// Creates a reply token with the specified correlation ID.
-    public init(correlationID: UInt32) {
+    public init(correlationID: UInt64) {
         self.correlationID = correlationID
     }
 }
@@ -50,7 +50,8 @@ public struct Message: Sendable {
     ///
     /// `0` means the message is unsolicited. Non-zero values are assigned automatically
     /// by ``BSDEndpoint/send(_:)`` and echoed back in the matching reply.
-    public var correlationID: UInt32
+    /// Uses 64-bit to avoid wrap-around (~585 years at 1 billion msg/sec).
+    public var correlationID: UInt64
 
     /// The message body, interpreted by the application layer.
     public var payload: Data
@@ -61,7 +62,7 @@ public struct Message: Sendable {
     /// Creates a message with explicit field values.
     public init(
         id: MessageID,
-        correlationID: UInt32 = 0,
+        correlationID: UInt64 = 0,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
     ) {

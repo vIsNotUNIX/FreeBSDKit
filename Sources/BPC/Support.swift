@@ -51,6 +51,8 @@ final class SocketHolder: @unchecked Sendable {
     func withSocket<R>(_ body: (borrowing SocketCapability) throws -> R) rethrows -> R? where R: ~Copyable {
         lock.lock()
         defer { lock.unlock() }
+        // Force unwrap is safe here: we just checked for nil, and SocketCapability
+        // is non-copyable so we can't use if-let binding
         guard socket != nil else { return nil }
         return try body(socket!)
     }
@@ -60,6 +62,8 @@ final class SocketHolder: @unchecked Sendable {
     func withSocketOrThrow<R>(_ body: (borrowing SocketCapability) throws -> R) throws -> R where R: ~Copyable {
         lock.lock()
         defer { lock.unlock() }
+        // Force unwrap is safe here: we just checked for nil, and SocketCapability
+        // is non-copyable so we can't use if-let binding
         guard socket != nil else { throw BPCError.disconnected }
         return try body(socket!)
     }
@@ -69,9 +73,7 @@ final class SocketHolder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard socket != nil else { return }
-        // Close the FD directly - the socket's deinit will attempt to close again
-        // but that's safe (just returns EBADF)
-        socket!.unsafe { fd in _ = Glibc.close(fd) }
+        // Setting to nil triggers SocketCapability's deinit which closes the fd
         self.socket = nil
     }
 }
