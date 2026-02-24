@@ -149,57 +149,6 @@ public struct Labeler<Label: Labelable> {
         return applyToCapsicum(label)
     }
 
-    /// Applies a label using path-based operations (traditional method).
-    private func applyToPath(_ label: Label) -> LabelingResult {
-        do {
-            // Check for existing label
-            let previousLabel = try ExtendedAttributes.get(
-                path: label.path,
-                namespace: .system,
-                name: configuration.attributeName
-            )
-
-            // Don't overwrite if flag is set and label exists
-            if !overwriteExisting && previousLabel != nil {
-                if verbose {
-                    print("  Skipping (label exists and overwrite=false)")
-                }
-                return LabelingResult(
-                    path: label.path,
-                    success: true,
-                    error: nil,
-                    previousLabel: previousLabel
-                )
-            }
-
-            // Encode attributes
-            let data = try label.encodeAttributes()
-
-            // Set extended attribute
-            try ExtendedAttributes.set(
-                path: label.path,
-                namespace: .system,
-                name: configuration.attributeName,
-                data: data
-            )
-
-            return LabelingResult(
-                path: label.path,
-                success: true,
-                error: nil,
-                previousLabel: previousLabel
-            )
-
-        } catch {
-            return LabelingResult(
-                path: label.path,
-                success: false,
-                error: error,
-                previousLabel: nil
-            )
-        }
-    }
-
     /// Applies a label using Capsicum-restricted file capabilities.
     ///
     /// Opens the file with minimal rights for defense-in-depth:
@@ -322,31 +271,6 @@ public struct Labeler<Label: Labelable> {
         return removeLabelCapsicum(label)
     }
 
-    /// Removes a label using path-based operations.
-    private func removeLabelPath(_ label: Label) -> LabelingResult {
-        do {
-            try ExtendedAttributes.delete(
-                path: label.path,
-                namespace: .system,
-                name: configuration.attributeName
-            )
-
-            return LabelingResult(
-                path: label.path,
-                success: true,
-                error: nil,
-                previousLabel: nil
-            )
-        } catch {
-            return LabelingResult(
-                path: label.path,
-                success: false,
-                error: error,
-                previousLabel: nil
-            )
-        }
-    }
-
     /// Removes a label using Capsicum-restricted file capabilities.
     private func removeLabelCapsicum(_ label: Label) -> LabelingResult {
         do {
@@ -422,24 +346,6 @@ public struct Labeler<Label: Labelable> {
     /// Gets labels from a single resource.
     private func getLabelsFrom(_ label: Label) -> (path: String, labels: String?) {
         return getLabelsCapsicum(label)
-    }
-
-    /// Gets labels using path-based operations.
-    private func getLabelsPath(_ label: Label) -> (path: String, labels: String?) {
-        do {
-            if let data = try ExtendedAttributes.get(
-                path: label.path,
-                namespace: .system,
-                name: configuration.attributeName
-            ) {
-                let labelString = String(data: data, encoding: .utf8)
-                return (label.path, labelString)
-            } else {
-                return (label.path, nil)
-            }
-        } catch {
-            return (label.path, "ERROR: \(error.localizedDescription)")
-        }
     }
 
     /// Gets labels using Capsicum-restricted file capabilities.
@@ -532,54 +438,6 @@ public struct Labeler<Label: Labelable> {
     /// Verifies a single label.
     private func verifyLabel(_ label: Label) -> VerificationResult {
         return verifyLabelCapsicum(label)
-    }
-
-    /// Verifies a label using path-based operations.
-    private func verifyLabelPath(_ label: Label) -> VerificationResult {
-        do {
-            // Get current labels
-            guard let data = try ExtendedAttributes.get(
-                path: label.path,
-                namespace: .system,
-                name: configuration.attributeName
-            ) else {
-                return VerificationResult(
-                    path: label.path,
-                    matches: false,
-                    expected: label.attributes,
-                    actual: nil,
-                    error: nil,
-                    mismatches: ["No labels found"]
-                )
-            }
-
-            // Parse actual labels
-            let actual = try parse(from: data)
-
-            // Compare expected vs actual
-            let (matches, mismatches) = compareAttributes(
-                expected: label.attributes,
-                actual: actual
-            )
-
-            return VerificationResult(
-                path: label.path,
-                matches: matches,
-                expected: label.attributes,
-                actual: actual,
-                error: nil,
-                mismatches: mismatches
-            )
-        } catch {
-            return VerificationResult(
-                path: label.path,
-                matches: false,
-                expected: label.attributes,
-                actual: nil,
-                error: error,
-                mismatches: ["Error reading labels: \(error.localizedDescription)"]
-            )
-        }
     }
 
     /// Verifies a label using Capsicum-restricted file capabilities.

@@ -18,10 +18,13 @@ import Glibc
 /// ## MACF Integration
 ///
 /// Different MACF policies can use different attribute names:
-/// - `"mac.labels"` - General purpose security labels
-/// - `"mac.network"` - Network policy labels
-/// - `"mac.filesystem"` - Filesystem policy labels
-/// - `"mac.custom"` - Custom policy labels
+/// - `"mac_labels"` - General purpose security labels
+/// - `"mac_network"` - Network policy labels
+/// - `"mac_filesystem"` - Filesystem policy labels
+/// - `"mac_custom"` - Custom policy labels
+///
+/// **Note**: FreeBSD extended attribute names cannot contain dots (`.`).
+/// Use underscores or hyphens instead.
 ///
 /// ## C API Compatibility
 ///
@@ -29,7 +32,7 @@ import Glibc
 /// ```c
 /// // Example C code to read labels
 /// char buf[4096];
-/// const char *attr_name = "mac.labels";  // From configuration
+/// const char *attr_name = "mac_labels";  // From configuration
 /// ssize_t len = extattr_get_file(path, EXTATTR_NAMESPACE_SYSTEM,
 ///                                 attr_name, buf, sizeof(buf));
 /// // Parse as newline-separated key=value pairs
