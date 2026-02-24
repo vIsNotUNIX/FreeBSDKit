@@ -90,7 +90,16 @@ public protocol BPCEndpoint: Actor {
         descriptors: [OpaqueDescriptorRef]
     ) async throws
 
-    /// Returns the stream of unsolicited inbound messages.
+    /// Returns the stream of unsolicited inbound messages (correlationID == 0).
+    ///
+    /// This stream only receives messages that are **not** replies to pending requests.
+    /// Reply messages (correlationID != 0) are automatically routed to the corresponding
+    /// ``request(_:timeout:)`` caller and never appear in this stream.
+    ///
+    /// Use this for:
+    /// - Server-pushed events and notifications
+    /// - Incoming requests that need handling
+    /// - Any message not part of a request/reply exchange
     ///
     /// Can only be claimed by one task. The stream finishes when the connection
     /// is lost or ``stop()`` is called.

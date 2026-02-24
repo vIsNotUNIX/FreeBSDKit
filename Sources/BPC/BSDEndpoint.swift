@@ -184,7 +184,10 @@ public actor BSDEndpoint: BPCEndpoint {
         try await send(replyMessage)
     }
 
-    /// Returns the stream of unsolicited inbound messages.
+    /// Returns the stream of unsolicited inbound messages (correlationID == 0).
+    ///
+    /// Reply messages (correlationID != 0) are automatically routed to the
+    /// corresponding ``request(_:timeout:)`` caller and never appear here.
     ///
     /// Can only be claimed by one task. Throws `.notStarted` if ``start()`` has
     /// not been called, `.stopped` if ``stop()`` has been called, or
