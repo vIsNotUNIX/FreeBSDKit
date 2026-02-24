@@ -34,6 +34,10 @@ let package = Package(
             name: "MacLabel",
             targets: ["MacLabel"]
         ),
+        .library(
+            name: "CMacLabelParser",
+            targets: ["CMacLabelParser"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -148,6 +152,11 @@ let package = Package(
         .target(
             name: "MacLabel",
             dependencies: ["FreeBSDKit", "Capabilities", "Descriptors"]
+        ),
+        .target(
+            name: "CMacLabelParser",
+            path: "Sources/CMacLabelParser",
+            publicHeadersPath: "include"
         ),
         .testTarget(
             name: "MacLabelTests",
