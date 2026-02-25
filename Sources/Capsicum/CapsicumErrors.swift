@@ -71,19 +71,19 @@ public enum CapsicumFcntlError: Error {
 
 /// Errors that can occur when querying or interpreting the list of
 /// allowed `ioctl(2)` commands on a file descriptor under Capsicum.
-public enum CapsicumIoctlError: Error {
+public enum CapsicumIoctlError: Error, Equatable {
     /// The file descriptor is invalid (EBADF).
     case invalidDescriptor
-    
+
     /// The commands buffer pointer was invalid (EFAULT).
     case badBuffer
-    
+
     /// The buffer was too small for the allowed ioctl list.
     case insufficientBuffer(expected: Int)
-    
+
     /// All ioctls are explicitly allowed (no limit applied).
     case allIoctlsAllowed
-    
+
     /// Some other underlying errno error.
     case system(errno: Int32)
 }
