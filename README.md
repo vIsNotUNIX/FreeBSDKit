@@ -30,6 +30,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Descriptors", package: "FreeBSDKit"),
         .product(name: "FPC", package: "FreeBSDKit"),
         .product(name: "Procctl", package: "FreeBSDKit"),
+        .product(name: "ACL", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -678,6 +679,115 @@ if laStatus.isLA57 {
 
 ---
 
+### ACL
+
+Swift interface to FreeBSD's POSIX.1e and NFSv4 Access Control Lists.
+
+ACLs provide fine-grained access control beyond traditional Unix permissions, allowing you to grant specific permissions to individual users and groups.
+
+```swift
+import ACL
+
+// Get ACL from a file
+let acl = try ACL.get(path: "/path/to/file")
+print("Brand: \(acl.brand)")  // .posix or .nfs4
+
+// Check if file has extended ACL
+if ACL.hasExtendedACL(path: "/path/to/file") {
+    print("File has extended ACL entries")
+}
+
+// Iterate over entries
+acl.forEachEntry { entry in
+    print("Tag: \(entry.tag), Permissions: \(entry.permissions)")
+}
+
+// Create ACL from Unix mode
+if let acl = ACL.fromMode(0o755) {
+    try acl.set(path: "/path/to/file")
+}
+
+// Parse ACL from text
+if let acl = ACL.fromText("user::rwx,group::r-x,other::r-x") {
+    print(acl.text ?? "")
+}
+```
+
+**Builder API for POSIX.1e ACLs:**
+
+```swift
+import ACL
+
+// Build a POSIX.1e ACL programmatically
+var builder = ACL.builder()
+_ = builder.ownerPermissions(.all)                    // rwx for owner
+_ = builder.userPermissions(1000, .readWrite)         // rw- for uid 1000
+_ = builder.groupPermissions(.readExecute)            // r-x for owning group
+_ = builder.groupPermissions(100, [.read])            // r-- for gid 100
+_ = builder.otherPermissions([.read])                 // r-- for others
+
+let acl = try builder.build()
+try acl.set(path: "/path/to/file")
+```
+
+**NFSv4 ACLs with Allow/Deny:**
+
+```swift
+import ACL
+
+// Build an NFSv4 ACL with allow/deny entries
+var builder = ACL.nfs4Builder()
+_ = builder.allowOwner(.fullSet)
+_ = builder.denyUser(1000, [.writeData, .delete])
+_ = builder.allowGroup(.readSet, flags: [.fileInherit, .directoryInherit])
+_ = builder.allowEveryone([.readData, .readACL])
+
+let acl = try builder.build()
+try acl.set(path: "/path/to/file", type: .nfs4)
+```
+
+**Working with Entries:**
+
+```swift
+import ACL
+
+var acl = try ACL()
+
+// Create and configure an entry
+let entry = try acl.createEntry()
+try entry.setTag(.user)
+try entry.setQualifier(1000)  // uid
+try entry.setPermissions([.read, .write])
+
+// For NFSv4 ACLs
+try entry.setEntryType(.allow)
+try entry.setNFS4Permissions([.readData, .writeData, .execute])
+try entry.setFlags([.fileInherit, .directoryInherit])
+```
+
+**Permission Types:**
+
+| POSIX.1e | NFSv4 |
+|----------|-------|
+| `.read` | `.readData`, `.readNamedAttrs`, `.readAttributes`, `.readACL` |
+| `.write` | `.writeData`, `.appendData`, `.writeNamedAttrs`, `.writeAttributes`, `.writeACL`, `.writeOwner` |
+| `.execute` | `.execute` |
+| | `.delete`, `.deleteChild`, `.synchronize` |
+
+**Tag Types:**
+
+| Tag | Description |
+|-----|-------------|
+| `.userObj` | File owner |
+| `.user` | Specific user (requires qualifier) |
+| `.groupObj` | Owning group |
+| `.group` | Specific group (requires qualifier) |
+| `.mask` | Maximum group class permissions (POSIX.1e) |
+| `.other` | All other users (POSIX.1e) |
+| `.everyone` | All users (NFSv4) |
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -760,6 +870,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CEventDescriptor` | Event notification functions |
 | `CDeviceIoctl` | Device ioctl constants (FIONREAD, DIOCGSECTORSIZE, etc.) |
 | `CProcctl` | Process control constants and structures |
+| `CACL` | ACL constants and type definitions |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
 

@@ -1,0 +1,5 @@
+module CACL {
+    header "include/cacl.h"
+    link "c"
+    export *
+}

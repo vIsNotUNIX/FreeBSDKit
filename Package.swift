@@ -46,6 +46,10 @@ let package = Package(
             name: "Procctl",
             targets: ["Procctl"]
         ),
+        .library(
+            name: "ACL",
+            targets: ["ACL"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -137,6 +141,14 @@ let package = Package(
             dependencies: ["CProcctl", "FreeBSDKit"]
         ),
         .target(
+            name: "CACL",
+            path: "Sources/CACL"
+        ),
+        .target(
+            name: "ACL",
+            dependencies: ["CACL"]
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
@@ -208,6 +220,10 @@ let package = Package(
         .testTarget(
             name: "ProcctlTests",
             dependencies: ["Procctl"]
+        ),
+        .testTarget(
+            name: "ACLTests",
+            dependencies: ["ACL"]
         ),
         .executableTarget(
             name: "TestTool",
