@@ -54,6 +54,10 @@ let package = Package(
             name: "Rctl",
             targets: ["Rctl"]
         ),
+        .library(
+            name: "Cpuset",
+            targets: ["Cpuset"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -150,7 +154,7 @@ let package = Package(
         ),
         .target(
             name: "ACL",
-            dependencies: ["CACL"]
+            dependencies: ["CACL", "Descriptors"]
         ),
         .target(
             name: "CRctl",
@@ -159,6 +163,14 @@ let package = Package(
         .target(
             name: "Rctl",
             dependencies: ["CRctl", "Descriptors"]
+        ),
+        .target(
+            name: "CCpuset",
+            path: "Sources/CCpuset"
+        ),
+        .target(
+            name: "Cpuset",
+            dependencies: ["CCpuset", "Descriptors"]
         ),
         .target(
             name: "Descriptors",
@@ -235,11 +247,15 @@ let package = Package(
         ),
         .testTarget(
             name: "ACLTests",
-            dependencies: ["ACL"]
+            dependencies: ["ACL", "Capabilities"]
         ),
         .testTarget(
             name: "RctlTests",
             dependencies: ["Rctl"]
+        ),
+        .testTarget(
+            name: "CpusetTests",
+            dependencies: ["Cpuset"]
         ),
         .executableTarget(
             name: "TestTool",

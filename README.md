@@ -32,6 +32,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Procctl", package: "FreeBSDKit"),
         .product(name: "ACL", package: "FreeBSDKit"),
         .product(name: "Rctl", package: "FreeBSDKit"),
+        .product(name: "Cpuset", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -956,6 +957,163 @@ if !result.isChild, var desc = result.descriptor as? ProcessCapability {
 
 ---
 
+### Cpuset
+
+Swift interface to FreeBSD's cpuset(2) CPU affinity and NUMA domain subsystem.
+
+```swift
+import Cpuset
+
+// Get current thread's CPU affinity
+let affinity = try Cpuset.getAffinity(for: .currentThread)
+print("Running on CPUs: \(affinity.cpus)")
+
+// Get available CPUs
+let available = try Cpuset.availableCPUs()
+print("Available: \(available)")
+
+// Check system CPU count
+let root = try Cpuset.rootCPUs()
+print("System has \(root.count) CPUs")
+```
+
+**Pinning Threads/Processes:**
+
+```swift
+import Cpuset
+
+// Pin current thread to CPU 0
+try Cpuset.pinCurrentThread(to: 0)
+
+// Pin to multiple CPUs
+try Cpuset.pinCurrentThread(to: [0, 1, 2, 3])
+
+// Pin current process
+try Cpuset.pinCurrentProcess(to: 0)
+
+// Reset to all available CPUs
+try Cpuset.resetCurrentThreadAffinity()
+```
+
+**Working with CPU Sets:**
+
+```swift
+import Cpuset
+
+// Create CPU sets
+var set = CPUSet()
+set.set(cpu: 0)
+set.set(cpu: 2)
+set.set(cpu: 4)
+
+// From array or range
+let fromArray = CPUSet(cpus: [0, 1, 2, 3])
+let fromRange = CPUSet(range: 0..<8)
+
+// Set operations
+let union = set1.union(set2)
+let intersection = set1.intersection(set2)
+let difference = set1.subtracting(set2)
+
+// Query
+print("CPUs: \(set.cpus)")      // [0, 2, 4]
+print("Count: \(set.count)")    // 3
+print("First: \(set.first!)")   // 0
+print("Empty: \(set.isEmpty)")  // false
+```
+
+**NUMA Domain Affinity:**
+
+```swift
+import Cpuset
+
+// Get domain policy
+let (domains, policy) = try Cpuset.getDomain(for: .currentThread)
+print("Policy: \(policy)")  // .roundRobin, .firstTouch, .prefer, .interleave
+
+// Set first-touch allocation (local to running CPU)
+try Cpuset.useFirstTouchAllocation()
+
+// Prefer a specific domain
+try Cpuset.preferDomain(0)
+
+// Round-robin across domains
+try Cpuset.useRoundRobinAllocation()
+
+// Interleave across specific domains
+try Cpuset.useInterleaveAllocation(domains: [0, 1])
+```
+
+**Process Descriptor Integration:**
+
+```swift
+import Cpuset
+import Descriptors
+
+// Fork with pdfork
+let result = try ProcessCapability.fork()
+
+if !result.isChild, let desc = result.descriptor as? ProcessCapability {
+    // Pin child to specific CPUs
+    try Cpuset.pin(desc, to: [0, 1])
+
+    // Get child's affinity
+    let childAffinity = try Cpuset.getAffinity(for: desc)
+}
+```
+
+**Named Cpusets:**
+
+```swift
+import Cpuset
+
+// Create a new cpuset (inherits from current)
+let setId = try Cpuset.create()
+
+// Assign thread to cpuset
+try Cpuset.assign(.currentThread, to: setId)
+
+// Get cpuset ID for a target
+let id = try Cpuset.getId(level: .cpuset, for: .currentThread)
+```
+
+**IRQ and Jail Affinity:**
+
+```swift
+import Cpuset
+
+// Get/set IRQ affinity (requires root)
+let irqAffinity = try Cpuset.getIRQAffinity(16)
+try Cpuset.setIRQAffinity(16, to: CPUSet(cpu: 0))
+
+// Get/set jail affinity (requires root)
+let jailAffinity = try Cpuset.getJailAffinity(5)
+try Cpuset.setJailAffinity(5, to: CPUSet(cpus: [0, 1]))
+```
+
+**Targets:**
+
+| Target | Description |
+|--------|-------------|
+| `.currentThread` | The calling thread |
+| `.currentProcess` | The calling process |
+| `.thread(tid)` | Specific thread ID |
+| `.process(pid)` | Specific process ID |
+| `.cpuset(id)` | Named cpuset |
+| `.irq(num)` | IRQ number |
+| `.jail(jid)` | Jail ID |
+| `.domain(id)` | NUMA domain |
+
+**Levels:**
+
+| Level | Description |
+|-------|-------------|
+| `.root` | All system CPUs |
+| `.cpuset` | Available CPUs for target's cpuset |
+| `.which` | Actual mask for specific target |
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -1040,6 +1198,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CProcctl` | Process control constants and structures |
 | `CACL` | ACL constants and type definitions |
 | `CRctl` | Resource control syscall wrappers |
+| `CCpuset` | CPU affinity macros and syscall wrappers |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
 

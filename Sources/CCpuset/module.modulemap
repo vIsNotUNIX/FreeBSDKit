@@ -1,0 +1,4 @@
+module CCpuset {
+    header "include/ccpuset.h"
+    export *
+}

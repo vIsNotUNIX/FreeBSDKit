@@ -6,6 +6,8 @@
 
 import XCTest
 import Glibc
+import Descriptors
+import Capabilities
 @testable import ACL
 
 final class ACLTests: XCTestCase {
@@ -451,5 +453,75 @@ final class ACLTests: XCTestCase {
         } catch {
             XCTFail("Wrong error type: \(error)")
         }
+    }
+
+    // MARK: - Descriptor Integration Tests
+
+    func testGetSetACLFromDescriptor() throws {
+        let tempPath = "/tmp/acl_desc_test_\(getpid())"
+        let fd = open(tempPath, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else {
+            throw ACL.Error(errno: errno)
+        }
+        defer { unlink(tempPath) }
+
+        // Wrap in a FileCapability
+        let descriptor = FileCapability(fd)
+
+        do {
+            // Get ACL using descriptor
+            let acl = try ACL.get(from: descriptor)
+            XCTAssertTrue(acl.isValid)
+            XCTAssertEqual(acl.brand, ACL.Brand.posix)
+
+            // Create new ACL and set using descriptor
+            guard let newACL = ACL.fromMode(0o755) else {
+                XCTFail("Failed to create ACL")
+                descriptor.close()
+                return
+            }
+            try newACL.set(on: descriptor)
+
+            // Verify
+            let verify = try ACL.get(from: descriptor)
+            if let mode = verify.equivalentMode {
+                XCTAssertEqual(mode & 0o777, 0o755)
+            }
+            descriptor.close()
+        } catch let error as ACL.Error where error.errno == EOPNOTSUPP || error.errno == EINVAL {
+            print("Skipping testGetSetACLFromDescriptor: ACLs not supported on /tmp")
+            descriptor.close()
+        }
+    }
+
+    func testACLValidForDescriptor() throws {
+        let tempPath = "/tmp/acl_valid_desc_test_\(getpid())"
+        let fd = open(tempPath, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else {
+            throw ACL.Error(errno: errno)
+        }
+        defer { unlink(tempPath) }
+
+        let descriptor = FileCapability(fd)
+
+        // First check if ACLs are supported by trying to get the ACL
+        do {
+            _ = try ACL.get(from: descriptor)
+        } catch let error as ACL.Error where error.errno == EOPNOTSUPP || error.errno == EINVAL {
+            print("Skipping testACLValidForDescriptor: ACLs not supported on /tmp")
+            descriptor.close()
+            return
+        }
+
+        guard let acl = ACL.fromMode(0o755) else {
+            XCTFail("Failed to create ACL")
+            descriptor.close()
+            return
+        }
+
+        // Should be valid for a regular file when ACLs are supported
+        let isValid = acl.isValid(for: descriptor)
+        descriptor.close()
+        XCTAssertTrue(isValid)
     }
 }
