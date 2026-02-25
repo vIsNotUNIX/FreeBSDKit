@@ -173,6 +173,11 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/mac-policy-cli"
+        ),
+        .executableTarget(
+            name: "bpc-test-harness",
+            dependencies: ["BPC", "Capabilities", "Descriptors"],
+            path: "Sources/bpc-test-harness"
         )
 
     ]

@@ -38,7 +38,8 @@ public actor BSDEndpoint: BPCEndpoint {
 
     public init(socket: consuming SocketCapability, ioQueue: DispatchQueue? = nil) {
         self.socketHolder = SocketHolder(socket: socket)
-        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated)
+        // IMPORTANT: Must be concurrent so send() doesn't block behind receive loop
+        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated, attributes: .concurrent)
     }
 
     // MARK: - Connection State
@@ -255,19 +256,28 @@ public actor BSDEndpoint: BPCEndpoint {
     }
 
     /// Routes an incoming message to a waiting `request()` caller or the unsolicited stream.
+    ///
+    /// Messages with `correlationID != 0` are checked against pending requests:
+    /// - If a matching pending request exists, it's a reply - route to the caller
+    /// - If no pending request exists, it's an incoming request - route to messages() stream
+    ///
+    /// Messages with `correlationID == 0` are always unsolicited and go to messages().
     private func dispatch(_ message: Message) {
         if message.correlationID != 0 {
-            // Reply message - find the pending request
+            // Check if this is a reply to a pending request we sent
             if let continuation = pendingReplies.removeValue(forKey: message.correlationID) {
-                // Cancel and remove the timeout task if it exists
+                // It's a reply - cancel timeout and deliver to caller
                 if let timeoutTask = pendingTimeouts.removeValue(forKey: message.correlationID) {
                     timeoutTask.cancel()
                 }
                 continuation.resume(returning: message)
+            } else {
+                // No pending request - this is an incoming request expecting a reply
+                // Deliver to messages() stream so the handler can process and reply
+                incomingContinuation?.yield(message)
             }
-            // Else: orphaned reply (caller cancelled or timed out) - drop it
         } else {
-            // Unsolicited message
+            // Unsolicited message (correlationID == 0)
             incomingContinuation?.yield(message)
         }
     }
@@ -439,13 +449,24 @@ public actor BSDEndpoint: BPCEndpoint {
     }
 
     nonisolated private func socketReceive() throws -> Message {
-        // Max buffer: header + max payload + trailer
+        // SEQPACKET guarantees message boundaries: each recv() returns exactly one message.
+        // No buffering needed - the kernel preserves message atomicity.
         let maxBufferSize = WireFormat.headerSize + Self.MAX_INLINE_PAYLOAD + WireFormat.trailerSize
 
         let (wireData, receivedDescriptors) = try socketHolder.withSocketOrThrow { socket in
             try socket.recvDescriptors(maxDescriptors: WireFormat.maxDescriptors, bufferSize: maxBufferSize)
         }
 
+        // Check for connection closed (0 bytes)
+        guard wireData.count > 0 else {
+            throw BPCError.disconnected
+        }
+
+        return try parseMessage(wireData: wireData, receivedDescriptors: receivedDescriptors)
+    }
+
+    /// Parses a complete BPC message from wire data.
+    nonisolated private func parseMessage(wireData: Data, receivedDescriptors: [OpaqueDescriptorRef]) throws -> Message {
         guard wireData.count >= WireFormat.minimumMessageSize else {
             throw BPCError.invalidMessageFormat
         }

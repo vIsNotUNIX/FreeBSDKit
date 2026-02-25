@@ -31,13 +31,20 @@ typealias LifecycleState = ConnectionState
 
 /// Wraps a `~Copyable` ``SocketCapability`` for use in reference-typed containers.
 ///
-/// All socket access is serialised through an `NSLock` so that the holder can be
-/// shared between an actor and its off-actor `DispatchQueue` I/O work items.
+/// Allows concurrent I/O operations on the socket. The `closed` flag is
+/// checked atomically, and close() calls shutdown() to interrupt blocking I/O.
+/// I/O operations do NOT hold a lock during execution, allowing concurrent recv/send.
 final class SocketHolder: @unchecked Sendable {
     private var socket: SocketCapability?
-    private let lock = NSLock()
+    private var fd: Int32 = -1
+    @Atomic private var closed: Bool = false
+    private let closeLock = NSLock()  // Only used for close() synchronization
 
     init(socket: consuming SocketCapability) {
+        // Extract the FD before storing the socket
+        socket.unsafe { fd in
+            self.fd = fd
+        }
         self.socket = consume socket
     }
 
@@ -48,32 +55,70 @@ final class SocketHolder: @unchecked Sendable {
     /// Calls `body` with a borrowed reference to the socket, or returns `nil` if
     /// the socket has already been closed. Use this when the caller needs to
     /// distinguish a closed socket from other errors (e.g. ``BSDListener/accept()``).
+    ///
+    /// No lock is held during `body`, allowing concurrent I/O operations.
     func withSocket<R>(_ body: (borrowing SocketCapability) throws -> R) rethrows -> R? where R: ~Copyable {
-        lock.lock()
-        defer { lock.unlock() }
-        // Force unwrap is safe here: we just checked for nil, and SocketCapability
-        // is non-copyable so we can't use if-let binding
+        guard !closed else { return nil }
         guard socket != nil else { return nil }
         return try body(socket!)
     }
 
     /// Calls `body` with a borrowed reference to the socket, or throws
     /// ``BPCError/disconnected`` if the socket has already been closed.
+    ///
+    /// No lock is held during `body`, allowing concurrent I/O operations.
     func withSocketOrThrow<R>(_ body: (borrowing SocketCapability) throws -> R) throws -> R where R: ~Copyable {
-        lock.lock()
-        defer { lock.unlock() }
-        // Force unwrap is safe here: we just checked for nil, and SocketCapability
-        // is non-copyable so we can't use if-let binding
+        guard !closed else { throw BPCError.disconnected }
         guard socket != nil else { throw BPCError.disconnected }
         return try body(socket!)
     }
 
     /// Closes the underlying socket and releases it.
+    ///
+    /// First shuts down the socket to unblock any pending I/O operations,
+    /// then closes the file descriptor.
     func close() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard socket != nil else { return }
-        // Setting to nil triggers SocketCapability's deinit which closes the fd
+        closeLock.lock()
+        defer { closeLock.unlock() }
+
+        guard !closed else { return }
+
+        // Set closed flag first to prevent new I/O
+        closed = true
+
+        // Shutdown the socket to unblock waiting recv/send
+        // This causes recv to return 0 and send to fail with EPIPE
+        if fd >= 0 {
+            _ = Glibc.shutdown(fd, Int32(SHUT_RDWR.rawValue))
+        }
+
+        // Close the socket
         self.socket = nil
+        self.fd = -1
+    }
+}
+
+// MARK: - Atomic Property Wrapper
+
+@propertyWrapper
+struct Atomic<Value> {
+    private var value: Value
+    private let lock = NSLock()
+
+    init(wrappedValue: Value) {
+        self.value = wrappedValue
+    }
+
+    var wrappedValue: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            value = newValue
+        }
     }
 }

@@ -219,7 +219,9 @@ public extension SocketDescriptor where Self: ~Copyable {
                             dataPtr[i] = fd
                         }
 
-                        let ret = Glibc.sendmsg(sockFD, &msg, MSG_NOSIGNAL)
+                        // MSG_EOR marks end-of-record for SEQPACKET sockets.
+                        // This preserves message boundaries on the receiving side.
+                        let ret = Glibc.sendmsg(sockFD, &msg, MSG_NOSIGNAL | MSG_EOR)
                         guard ret >= 0 else {
                             try BSDError.throwErrno(errno)
                         }
@@ -312,10 +314,6 @@ public extension SocketDescriptor where Self: ~Copyable {
                             bytes: bufPtr.baseAddress!,
                             count: bytesRead
                         )
-
-                        #if os(FreeBSD)
-                            print("Running on FreeBSD")
-                        #endif
 
                         return (data, receivedFDs)
                     }
