@@ -29,6 +29,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Casper", package: "FreeBSDKit"),
         .product(name: "Descriptors", package: "FreeBSDKit"),
         .product(name: "FPC", package: "FreeBSDKit"),
+        .product(name: "Procctl", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -560,6 +561,123 @@ syslog.closelog()
 
 ---
 
+### Procctl
+
+Swift interface to FreeBSD's `procctl(2)` system call for process control operations.
+
+```swift
+import Procctl
+
+// ASLR (Address Space Layout Randomization)
+let aslrStatus = try Procctl.ASLR.getStatus()
+if aslrStatus.isActive {
+    print("ASLR is active")
+}
+try Procctl.ASLR.forceEnable()  // Takes effect on next exec
+
+// Process tracing control
+if try Procctl.Trace.isEnabled() {
+    try Procctl.Trace.disable()  // Prevent debugging/tracing
+}
+
+// Parent death signal (like Linux PR_SET_PDEATHSIG)
+try Procctl.ParentDeathSignal.set(signal: SIGTERM)
+
+// No new privileges (prevent setuid escalation)
+try Procctl.NoNewPrivileges.enable()
+
+// Capability trap (SIGTRAP on Capsicum violations for debugging)
+try Procctl.CapabilityTrap.enable()
+```
+
+**Process Reaper (Container/Supervisor Support):**
+
+```swift
+import Procctl
+
+// Become a process reaper - orphaned descendants reparent here instead of init
+try Procctl.Reaper.acquire()
+
+// Check reaper status
+let status = try Procctl.Reaper.getStatus()
+print("Children: \(status.childCount), Descendants: \(status.descendantCount)")
+
+// Get PIDs of all descendants
+let pids = try Procctl.Reaper.getPids()
+for pid in pids {
+    print("PID \(pid.pid), zombie: \(pid.isZombie)")
+}
+
+// Kill all descendants
+let result = try Procctl.Reaper.killAll(signal: SIGTERM)
+print("Killed \(result.killed) processes")
+
+// Release reaper role
+try Procctl.Reaper.release()
+```
+
+**Security Controls:**
+
+```swift
+import Procctl
+
+// W^X (Write XOR Execute) enforcement
+let wxStatus = try Procctl.WXMap.getStatus()
+if !wxStatus.isEnforced {
+    try Procctl.WXMap.enforce()  // Prevent simultaneous W+X mappings
+}
+
+// PROT_MAX control (limit mprotect upgrades)
+try Procctl.ProtMax.forceEnable()
+
+// Stack gap randomization
+try Procctl.StackGap.enable()
+
+// OOM killer protection
+try Procctl.OOMProtection.protect(options: .inherit)
+
+// Signal exit logging
+try Procctl.LogSigExit.forceEnable()
+```
+
+**x86_64-Specific Controls:**
+
+```swift
+#if arch(x86_64)
+import Procctl
+
+// KPTI (Kernel Page Table Isolation) - Meltdown mitigation
+let kptiStatus = try Procctl.KPTI.getStatus()
+try Procctl.KPTI.enableOnExec()
+
+// Linear address width (LA48 vs LA57)
+let laStatus = try Procctl.LinearAddress.getStatus()
+if laStatus.isLA57 {
+    try Procctl.LinearAddress.setLA48OnExec()  // Use 48-bit addresses
+}
+#endif
+```
+
+**Available Controls:**
+
+| Control | Purpose |
+|---------|---------|
+| `ASLR` | Address space layout randomization |
+| `Trace` | Process tracing/debugging control |
+| `ProtMax` | Implicit PROT_MAX for mprotect |
+| `StackGap` | Stack gap randomization |
+| `NoNewPrivileges` | Prevent privilege escalation via setuid |
+| `CapabilityTrap` | SIGTRAP on Capsicum violations |
+| `ParentDeathSignal` | Signal on parent termination |
+| `WXMap` | W^X mapping enforcement |
+| `LogSigExit` | Signal exit logging |
+| `Reaper` | Process reaper for orphan adoption |
+| `OOMProtection` | OOM killer protection |
+| `KPTI` | Kernel page table isolation (x86_64) |
+| `LinearAddress` | Linear address width (x86_64) |
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -641,6 +759,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CProcessDescriptor` | Process descriptor (pdfork) functions |
 | `CEventDescriptor` | Event notification functions |
 | `CDeviceIoctl` | Device ioctl constants (FIONREAD, DIOCGSECTORSIZE, etc.) |
+| `CProcctl` | Process control constants and structures |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
 
