@@ -58,6 +58,10 @@ let package = Package(
             name: "Cpuset",
             targets: ["Cpuset"]
         ),
+        .library(
+            name: "Audit",
+            targets: ["Audit"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -173,6 +177,20 @@ let package = Package(
             dependencies: ["CCpuset", "Descriptors"]
         ),
         .target(
+            name: "CAudit",
+            path: "Sources/CAudit",
+            linkerSettings: [
+                .linkedLibrary("bsm")
+            ]
+        ),
+        .target(
+            name: "Audit",
+            dependencies: ["CAudit", "Descriptors"],
+            linkerSettings: [
+                .linkedLibrary("bsm")
+            ]
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
@@ -256,6 +274,14 @@ let package = Package(
         .testTarget(
             name: "CpusetTests",
             dependencies: ["Cpuset"]
+        ),
+        .testTarget(
+            name: "AuditTests",
+            dependencies: ["Audit"]
+        ),
+        .testTarget(
+            name: "CAuditTests",
+            dependencies: ["CAudit"]
         ),
         .executableTarget(
             name: "TestTool",

@@ -41,7 +41,7 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - Read/Write Tests
 
     func testReadFromDevZero() throws {
-        var device = try DeviceCapability.open(path: "/dev/zero", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/zero", flags: [.readOnly])
 
         let result = try device.read(maxBytes: 16)
         device.close()
@@ -56,7 +56,7 @@ final class DeviceCapabilityTests: XCTestCase {
     }
 
     func testReadFromDevRandom() throws {
-        var device = try DeviceCapability.open(path: "/dev/random", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/random", flags: [.readOnly])
 
         let result = try device.read(maxBytes: 32)
         device.close()
@@ -70,7 +70,7 @@ final class DeviceCapabilityTests: XCTestCase {
     }
 
     func testWriteToDevNull() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.writeOnly])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.writeOnly])
 
         let data = Data("Hello, /dev/null!".utf8)
         let written = try device.writeOnce(data)
@@ -82,7 +82,7 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - IOCTL Tests
 
     func testBytesAvailableOnDevZero() throws {
-        var device = try DeviceCapability.open(path: "/dev/zero", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/zero", flags: [.readOnly])
 
         do {
             let bytes = try device.bytesAvailable()
@@ -95,7 +95,7 @@ final class DeviceCapabilityTests: XCTestCase {
     }
 
     func testSetNonBlocking() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.readWrite])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.readWrite])
 
         do {
             try device.setNonBlocking(true)
@@ -109,7 +109,7 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - Device Type Tests
 
     func testDeviceTypeOnDevNull() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
 
         do {
             let deviceType = try device.deviceType()
@@ -121,7 +121,7 @@ final class DeviceCapabilityTests: XCTestCase {
     }
 
     func testIsDiskOnDevNull() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
 
         do {
             let isDisk = try device.isDisk()
@@ -136,7 +136,7 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - Stat Tests
 
     func testStatOnDevice() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.readOnly])
 
         let st = try device.stat()
         device.close()
@@ -147,7 +147,7 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - Sync Test
 
     func testSyncOnDevNull() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.writeOnly])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.writeOnly])
 
         try device.sync()
         device.close()
@@ -156,9 +156,9 @@ final class DeviceCapabilityTests: XCTestCase {
     // MARK: - Duplicate Test
 
     func testDuplicateDevice() throws {
-        var device = try DeviceCapability.open(path: "/dev/null", flags: [.readWrite])
+        let device = try DeviceCapability.open(path: "/dev/null", flags: [.readWrite])
 
-        var dup = try device.duplicate()
+        let dup = try device.duplicate()
 
         let data = Data("test".utf8)
         let written1 = try device.writeOnce(data)
