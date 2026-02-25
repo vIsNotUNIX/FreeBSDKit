@@ -15,7 +15,7 @@ final class BPCTests: XCTestCase {
     // MARK: - Message Struct
 
     func testMessageDefaults() {
-        let msg = Message(id: .ping)
+        let msg = FPCMessage(id: .ping)
         XCTAssertEqual(msg.id, .ping)
         XCTAssertEqual(msg.correlationID, 0)
         XCTAssertTrue(msg.payload.isEmpty)
@@ -23,29 +23,29 @@ final class BPCTests: XCTestCase {
     }
 
     func testMessageFactoryRequest() {
-        let req = Message.request(.lookup, payload: Data("hello".utf8))
+        let req = FPCMessage.request(.lookup, payload: Data("hello".utf8))
         XCTAssertEqual(req.id, .lookup)
         XCTAssertEqual(req.correlationID, 0)  // endpoint assigns this on send
         XCTAssertEqual(req.payload, Data("hello".utf8))
     }
 
     func testMessageFactoryReplyFromMessage() {
-        let request = Message(id: .ping, correlationID: 42)
-        let reply = Message.reply(to: request, id: .pong, payload: Data("response".utf8))
+        let request = FPCMessage(id: .ping, correlationID: 42)
+        let reply = FPCMessage.reply(to: request, id: .pong, payload: Data("response".utf8))
         XCTAssertEqual(reply.id, .pong)
         XCTAssertEqual(reply.correlationID, 42)
         XCTAssertEqual(reply.payload, Data("response".utf8))
     }
 
     func testMessageFactoryReplyFromToken() {
-        let token = ReplyToken(correlationID: 123)
-        let reply = Message.reply(to: token, id: .lookupReply)
+        let token = FPCReplyToken(correlationID: 123)
+        let reply = FPCMessage.reply(to: token, id: .lookupReply)
         XCTAssertEqual(reply.id, .lookupReply)
         XCTAssertEqual(reply.correlationID, 123)
     }
 
     func testReplyToken() {
-        let msg = Message(id: .ping, correlationID: 99)
+        let msg = FPCMessage(id: .ping, correlationID: 99)
         let token = msg.replyToken
         XCTAssertEqual(token.correlationID, 99)
     }
@@ -103,26 +103,26 @@ final class BPCTests: XCTestCase {
     // MARK: - Wire Format Constants
 
     func testWireFormatConstants() {
-        XCTAssertEqual(WireFormat.headerSize, 256)
-        XCTAssertEqual(WireFormat.trailerSize, 256)
-        XCTAssertEqual(WireFormat.minimumMessageSize, 512)
-        XCTAssertEqual(WireFormat.maxDescriptors, 254)
-        XCTAssertEqual(WireFormat.currentVersion, 0)
+        XCTAssertEqual(FPCFrameLayout.headerSize, 256)
+        XCTAssertEqual(FPCFrameLayout.trailerSize, 256)
+        XCTAssertEqual(FPCFrameLayout.minimumMessageSize, 512)
+        XCTAssertEqual(FPCFrameLayout.maxDescriptors, 254)
+        XCTAssertEqual(FPCFrameLayout.currentVersion, 0)
     }
 
     func testWireFormatOffsets() {
-        XCTAssertEqual(WireFormat.messageIDOffset, 0)
-        XCTAssertEqual(WireFormat.correlationIDOffset, 4)
-        XCTAssertEqual(WireFormat.payloadLengthOffset, 12)
-        XCTAssertEqual(WireFormat.descriptorCountOffset, 16)
-        XCTAssertEqual(WireFormat.versionOffset, 17)
-        XCTAssertEqual(WireFormat.flagsOffset, 18)
+        XCTAssertEqual(FPCFrameLayout.messageIDOffset, 0)
+        XCTAssertEqual(FPCFrameLayout.correlationIDOffset, 4)
+        XCTAssertEqual(FPCFrameLayout.payloadLengthOffset, 12)
+        XCTAssertEqual(FPCFrameLayout.descriptorCountOffset, 16)
+        XCTAssertEqual(FPCFrameLayout.versionOffset, 17)
+        XCTAssertEqual(FPCFrameLayout.flagsOffset, 18)
     }
 
     // MARK: - WireHeader Encoding
 
     func testWireHeaderEncodeBasic() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 42,
             payloadLength: 100,
@@ -146,22 +146,22 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireHeaderEncodeWithOOLFlag() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 7,
             correlationID: 12345678901234,
             payloadLength: 0,
             descriptorCount: 1,
-            flags: WireFormat.flagOOLPayload
+            flags: FPCFrameLayout.flagOOLPayload
         )
 
         let data = header.encode()
-        XCTAssertEqual(data[18], WireFormat.flagOOLPayload)
+        XCTAssertEqual(data[18], FPCFrameLayout.flagOOLPayload)
         XCTAssertTrue(header.hasOOLPayload)
     }
 
     func testWireHeaderEncodeLargeCorrelationID() {
         // Test 64-bit correlation ID near max value
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: UInt64.max - 1,
             payloadLength: 0,
@@ -190,7 +190,7 @@ final class BPCTests: XCTestCase {
         data[17] = 0   // version
         data[18] = 0   // flags
 
-        let header = try WireHeader.decode(from: data)
+        let header = try FPCFrameHeader.decode(from: data)
 
         XCTAssertEqual(header.messageID, 255)
         XCTAssertEqual(header.correlationID, 9876543210)
@@ -203,32 +203,32 @@ final class BPCTests: XCTestCase {
 
     func testWireHeaderDecodeWithOOLFlag() throws {
         var data = Data(count: 256)
-        data[18] = WireFormat.flagOOLPayload
+        data[18] = FPCFrameLayout.flagOOLPayload
 
-        let header = try WireHeader.decode(from: data)
+        let header = try FPCFrameHeader.decode(from: data)
         XCTAssertTrue(header.hasOOLPayload)
     }
 
     func testWireHeaderDecodeTooShort() {
         let data = Data(count: 100)  // Less than 256
 
-        XCTAssertThrowsError(try WireHeader.decode(from: data)) { error in
+        XCTAssertThrowsError(try FPCFrameHeader.decode(from: data)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
     func testWireHeaderRoundTrip() throws {
-        let original = WireHeader(
+        let original = FPCFrameHeader(
             messageID: 12345,
             correlationID: 0xDEADBEEFCAFEBABE,
             payloadLength: 65535,
             descriptorCount: 254,
             version: 0,
-            flags: WireFormat.flagOOLPayload
+            flags: FPCFrameLayout.flagOOLPayload
         )
 
         let data = original.encode()
-        let decoded = try WireHeader.decode(from: data)
+        let decoded = try FPCFrameHeader.decode(from: data)
 
         XCTAssertEqual(original, decoded)
     }
@@ -236,7 +236,7 @@ final class BPCTests: XCTestCase {
     // MARK: - WireHeader Validation
 
     func testWireHeaderValidateSuccess() throws {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 42,
             payloadLength: 100,
@@ -247,7 +247,7 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireHeaderValidateUnsupportedVersion() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 0,
@@ -265,7 +265,7 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireHeaderValidateTooManyDescriptors() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 0,
@@ -278,12 +278,12 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireHeaderValidateOOLWithNonZeroPayload() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 100,  // Should be 0 for OOL
             descriptorCount: 1,
-            flags: WireFormat.flagOOLPayload
+            flags: FPCFrameLayout.flagOOLPayload
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
@@ -292,12 +292,12 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireHeaderValidateOOLWithNoDescriptors() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 0,
             descriptorCount: 0,  // OOL requires at least 1
-            flags: WireFormat.flagOOLPayload
+            flags: FPCFrameLayout.flagOOLPayload
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
@@ -308,7 +308,7 @@ final class BPCTests: XCTestCase {
     // MARK: - WireTrailer Encoding
 
     func testWireTrailerEncodeEmpty() {
-        let trailer = WireTrailer(descriptorKinds: [])
+        let trailer = FPCFrameTrailer(descriptorKinds: [])
         let data = trailer.encode()
 
         XCTAssertEqual(data.count, 256)
@@ -317,7 +317,7 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireTrailerEncodeWithDescriptors() {
-        let trailer = WireTrailer(descriptorKinds: [1, 4, 8])  // file, socket, shm
+        let trailer = FPCFrameTrailer(descriptorKinds: [1, 4, 8])  // file, socket, shm
         let data = trailer.encode()
 
         XCTAssertEqual(data[0], 1)
@@ -327,7 +327,7 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireTrailerEncodeWithOOL() {
-        let trailer = WireTrailer(descriptorKinds: [8, 1])  // shm (will become OOL), file
+        let trailer = FPCFrameTrailer(descriptorKinds: [8, 1])  // shm (will become OOL), file
         let data = trailer.encode(hasOOLPayload: true)
 
         XCTAssertEqual(data[0], 255)  // OOL marker
@@ -338,7 +338,7 @@ final class BPCTests: XCTestCase {
 
     func testWireTrailerDecodeEmpty() throws {
         let data = Data(count: 256)
-        let trailer = try WireTrailer.decode(from: data, descriptorCount: 0)
+        let trailer = try FPCFrameTrailer.decode(from: data, descriptorCount: 0)
 
         XCTAssertTrue(trailer.descriptorKinds.isEmpty)
     }
@@ -349,7 +349,7 @@ final class BPCTests: XCTestCase {
         data[1] = 4  // socket
         data[2] = 5  // pipe
 
-        let trailer = try WireTrailer.decode(from: data, descriptorCount: 3)
+        let trailer = try FPCFrameTrailer.decode(from: data, descriptorCount: 3)
 
         XCTAssertEqual(trailer.descriptorKinds, [1, 4, 5])
     }
@@ -357,15 +357,15 @@ final class BPCTests: XCTestCase {
     func testWireTrailerDecodeTooShort() {
         let data = Data(count: 100)
 
-        XCTAssertThrowsError(try WireTrailer.decode(from: data, descriptorCount: 1)) { error in
+        XCTAssertThrowsError(try FPCFrameTrailer.decode(from: data, descriptorCount: 1)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
     func testWireTrailerRoundTrip() throws {
-        let original = WireTrailer(descriptorKinds: [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        let original = FPCFrameTrailer(descriptorKinds: [1, 2, 3, 4, 5, 6, 7, 8, 9])
         let data = original.encode()
-        let decoded = try WireTrailer.decode(from: data, descriptorCount: 9)
+        let decoded = try FPCFrameTrailer.decode(from: data, descriptorCount: 9)
 
         XCTAssertEqual(original, decoded)
     }
@@ -373,12 +373,12 @@ final class BPCTests: XCTestCase {
     // MARK: - WireTrailer Validation
 
     func testWireTrailerValidateSuccess() throws {
-        let trailer = WireTrailer(descriptorKinds: [1, 4, 8])
+        let trailer = FPCFrameTrailer(descriptorKinds: [1, 4, 8])
         XCTAssertNoThrow(try trailer.validate(hasOOLPayload: false))
     }
 
     func testWireTrailerValidateOOLMarkerNotAtIndex0() {
-        let trailer = WireTrailer(descriptorKinds: [1, 255])  // OOL marker at wrong position
+        let trailer = FPCFrameTrailer(descriptorKinds: [1, 255])  // OOL marker at wrong position
 
         XCTAssertThrowsError(try trailer.validate(hasOOLPayload: false)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
@@ -386,7 +386,7 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireTrailerValidateOOLExpectedButMissing() {
-        let trailer = WireTrailer(descriptorKinds: [1])  // Should be 255 for OOL
+        let trailer = FPCFrameTrailer(descriptorKinds: [1])  // Should be 255 for OOL
 
         XCTAssertThrowsError(try trailer.validate(hasOOLPayload: true)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
@@ -394,20 +394,20 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireTrailerValidateOOLCorrect() throws {
-        let trailer = WireTrailer(descriptorKinds: [255, 1, 4])
+        let trailer = FPCFrameTrailer(descriptorKinds: [255, 1, 4])
         XCTAssertNoThrow(try trailer.validate(hasOOLPayload: true))
     }
 
     // MARK: - WireMessage Encoding
 
     func testWireMessageEncodeMinimal() {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 0,
             descriptorCount: 0
         )
-        let msg = WireMessage(header: header, payload: Data(), trailer: WireTrailer())
+        let msg = FPCFrame(header: header, payload: Data(), trailer: FPCFrameTrailer())
         let data = msg.encode()
 
         XCTAssertEqual(data.count, 512)  // 256 + 0 + 256
@@ -415,13 +415,13 @@ final class BPCTests: XCTestCase {
 
     func testWireMessageEncodeWithPayload() {
         let payload = Data("Hello, BPC!".utf8)
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 42,
             payloadLength: UInt32(payload.count),
             descriptorCount: 0
         )
-        let msg = WireMessage(header: header, payload: payload, trailer: WireTrailer())
+        let msg = FPCFrame(header: header, payload: payload, trailer: FPCFrameTrailer())
         let data = msg.encode()
 
         XCTAssertEqual(data.count, 512 + payload.count)
@@ -432,13 +432,13 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireMessageFromBPCMessage() {
-        let bpcMessage = Message(
+        let bpcMessage = FPCMessage(
             id: .ping,
             correlationID: 12345,
             payload: Data([1, 2, 3, 4])
         )
 
-        let wireMsg = WireMessage(from: bpcMessage)
+        let wireMsg = FPCFrame(from: bpcMessage)
 
         XCTAssertEqual(wireMsg.header.messageID, MessageID.ping.rawValue)
         XCTAssertEqual(wireMsg.header.correlationID, 12345)
@@ -449,16 +449,16 @@ final class BPCTests: XCTestCase {
     // MARK: - WireMessage Decoding
 
     func testWireMessageDecodeMinimal() throws {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 2,
             correlationID: 99,
             payloadLength: 0,
             descriptorCount: 0
         )
-        let original = WireMessage(header: header, payload: Data(), trailer: WireTrailer())
+        let original = FPCFrame(header: header, payload: Data(), trailer: FPCFrameTrailer())
         let encoded = original.encode()
 
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.header.messageID, 2)
         XCTAssertEqual(decoded.header.correlationID, 99)
@@ -467,16 +467,16 @@ final class BPCTests: XCTestCase {
 
     func testWireMessageDecodeWithPayload() throws {
         let payload = Data(repeating: 0xAB, count: 1000)
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 3,
             correlationID: 0,
             payloadLength: 1000,
             descriptorCount: 0
         )
-        let original = WireMessage(header: header, payload: payload, trailer: WireTrailer())
+        let original = FPCFrame(header: header, payload: payload, trailer: FPCFrameTrailer())
         let encoded = original.encode()
 
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.payload.count, 1000)
         XCTAssertEqual(decoded.payload, payload)
@@ -485,7 +485,7 @@ final class BPCTests: XCTestCase {
     func testWireMessageDecodeTooShort() {
         let data = Data(count: 400)  // Less than minimum 512
 
-        XCTAssertThrowsError(try WireMessage.decode(from: data)) { error in
+        XCTAssertThrowsError(try FPCFrame.decode(from: data)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
@@ -500,24 +500,24 @@ final class BPCTests: XCTestCase {
         data.append(Data(count: 50))
         data.append(Data(count: 256))
 
-        XCTAssertThrowsError(try WireMessage.decode(from: data)) { error in
+        XCTAssertThrowsError(try FPCFrame.decode(from: data)) { error in
             XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
     func testWireMessageRoundTrip() throws {
         let payload = Data("Test payload with some data!".utf8)
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 42,
             correlationID: 0xCAFEBABE,
             payloadLength: UInt32(payload.count),
             descriptorCount: 3
         )
-        let trailer = WireTrailer(descriptorKinds: [1, 4, 8])
-        let original = WireMessage(header: header, payload: payload, trailer: trailer)
+        let trailer = FPCFrameTrailer(descriptorKinds: [1, 4, 8])
+        let original = FPCFrame(header: header, payload: payload, trailer: trailer)
 
         let encoded = original.encode()
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.header, original.header)
         XCTAssertEqual(decoded.payload, original.payload)
@@ -525,16 +525,16 @@ final class BPCTests: XCTestCase {
     }
 
     func testWireMessageToMessage() throws {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: MessageID.pong.rawValue,
             correlationID: 777,
             payloadLength: 5,
             descriptorCount: 0
         )
-        let wireMsg = WireMessage(
+        let wireMsg = FPCFrame(
             header: header,
             payload: Data("hello".utf8),
-            trailer: WireTrailer()
+            trailer: FPCFrameTrailer()
         )
 
         let bpcMessage = wireMsg.toMessage()
@@ -549,55 +549,55 @@ final class BPCTests: XCTestCase {
     func testWireMessageMaxPayloadLength() throws {
         // Test with a large payload (but not too large for test)
         let payload = Data(repeating: 0xFF, count: 65536)
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 65536,
             descriptorCount: 0
         )
-        let original = WireMessage(header: header, payload: payload, trailer: WireTrailer())
+        let original = FPCFrame(header: header, payload: payload, trailer: FPCFrameTrailer())
 
         let encoded = original.encode()
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.payload.count, 65536)
     }
 
     func testWireMessageMaxDescriptors() throws {
         let kinds = Array(repeating: UInt8(1), count: 254)
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: 0,
             payloadLength: 0,
             descriptorCount: 254
         )
-        let trailer = WireTrailer(descriptorKinds: kinds)
-        let original = WireMessage(header: header, payload: Data(), trailer: trailer)
+        let trailer = FPCFrameTrailer(descriptorKinds: kinds)
+        let original = FPCFrame(header: header, payload: Data(), trailer: trailer)
 
         let encoded = original.encode()
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.trailer.descriptorKinds.count, 254)
     }
 
     func testCorrelationIDZeroIsUnsolicited() {
-        let msg = Message(id: .event, correlationID: 0)
-        let wireMsg = WireMessage(from: msg)
+        let msg = FPCMessage(id: .event, correlationID: 0)
+        let wireMsg = FPCFrame(from: msg)
 
         XCTAssertEqual(wireMsg.header.correlationID, 0)
     }
 
     func testCorrelationIDMaxValue() throws {
-        let header = WireHeader(
+        let header = FPCFrameHeader(
             messageID: 1,
             correlationID: UInt64.max,
             payloadLength: 0,
             descriptorCount: 0
         )
-        let original = WireMessage(header: header, payload: Data(), trailer: WireTrailer())
+        let original = FPCFrame(header: header, payload: Data(), trailer: FPCFrameTrailer())
 
         let encoded = original.encode()
-        let decoded = try WireMessage.decode(from: encoded)
+        let decoded = try FPCFrame.decode(from: encoded)
 
         XCTAssertEqual(decoded.header.correlationID, UInt64.max)
     }
