@@ -10,6 +10,7 @@ import FreeBSDKit
 
 public enum DescriptorKind: Sendable, Equatable, Hashable {
     case file
+    case directory
     case process
     case kqueue
     case socket
