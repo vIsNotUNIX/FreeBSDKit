@@ -1,0 +1,13 @@
+module CCasper {
+    header "include/ccasper.h"
+    link "casper"
+    link "cap_dns"
+    link "cap_sysctl"
+    link "cap_pwd"
+    link "cap_grp"
+    link "cap_syslog"
+    link "cap_fileargs"
+    link "cap_net"
+    link "cap_netdb"
+    export *
+}

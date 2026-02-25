@@ -38,6 +38,10 @@ let package = Package(
             name: "CMacLabelParser",
             targets: ["CMacLabelParser"]
         ),
+        .library(
+            name: "Casper",
+            targets: ["Casper"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -100,6 +104,25 @@ let package = Package(
         .target(
             name: "CDeviceIoctl",
             path: "Sources/CDeviceIoctl"
+        ),
+        .target(
+            name: "CCasper",
+            path: "Sources/CCasper",
+            linkerSettings: [
+                .linkedLibrary("casper"),
+                .linkedLibrary("cap_dns"),
+                .linkedLibrary("cap_sysctl"),
+                .linkedLibrary("cap_pwd"),
+                .linkedLibrary("cap_grp"),
+                .linkedLibrary("cap_syslog"),
+                .linkedLibrary("cap_fileargs"),
+                .linkedLibrary("cap_net"),
+                .linkedLibrary("cap_netdb")
+            ]
+        ),
+        .target(
+            name: "Casper",
+            dependencies: ["CCasper", "FreeBSDKit"]
         ),
         .target(
             name: "Descriptors",
@@ -165,6 +188,10 @@ let package = Package(
         .testTarget(
             name: "MacLabelTests",
             dependencies: ["MacLabel"]
+        ),
+        .testTarget(
+            name: "CasperTests",
+            dependencies: ["Casper"]
         ),
         .executableTarget(
             name: "TestTool",

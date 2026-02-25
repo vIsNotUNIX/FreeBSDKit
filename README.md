@@ -7,7 +7,7 @@ FreeBSDKit provides idiomatic Swift, C and C++ interfaces to FreeBSD's unique sy
 ## Requirements
 
 - FreeBSD 13.0 or later
-- Swift 5.10 or later
+- Swift 6.2 or later
 
 ## Installation
 
@@ -26,6 +26,7 @@ Then add the specific libraries you need to your target:
     name: "MyApp",
     dependencies: [
         .product(name: "Capsicum", package: "FreeBSDKit"),
+        .product(name: "Casper", package: "FreeBSDKit"),
         .product(name: "Descriptors", package: "FreeBSDKit"),
         .product(name: "FPC", package: "FreeBSDKit"),
     ]
@@ -488,6 +489,77 @@ sudo maclabel remove -c config.json
 
 ---
 
+### Casper
+
+Swift interface to FreeBSD's Casper (libcasper) services for use in Capsicum sandboxes.
+
+Casper provides privileged services to capability-mode processes that lack direct access to global namespaces. Each service runs in a separate sandboxed process and communicates via Unix domain sockets.
+
+```swift
+import Casper
+import Capsicum
+
+// Initialize Casper BEFORE entering capability mode (single-threaded context)
+let casper = try CasperChannel.create()
+
+// Open services you need
+let dns = try CasperDNS(casper: casper)
+let sysctl = try CasperSysctl(casper: casper)
+let pwd = try CasperPwd(casper: casper)
+let grp = try CasperGrp(casper: casper)
+
+// Limit services to minimum required operations
+try dns.limitTypes([.nameToAddress])
+try dns.limitFamilies([AF_INET, AF_INET6])
+try sysctl.limitNames([
+    ("kern.hostname", .read),
+    ("hw.physmem", .read)
+])
+try pwd.limitUsers(names: ["root", "www"])
+try pwd.limitCommands([.getpwnam, .getpwuid])
+
+// Enter capability mode
+try Capsicum.enter()
+
+// Use services within the sandbox
+let addresses = try dns.getaddrinfo(hostname: "example.com", port: "443")
+let hostname = try sysctl.getString("kern.hostname")
+if let user = pwd.getpwnam("www") {
+    print("www uid: \(user.uid)")
+}
+```
+
+**Available Services:**
+
+| Service | Purpose | Key Operations |
+|---------|---------|----------------|
+| `CasperDNS` | DNS resolution | `getaddrinfo`, `getnameinfo`, `gethostbyname` |
+| `CasperSysctl` | Sysctl access | `get`, `set`, `getString`, `nameToMIB` |
+| `CasperPwd` | Password database | `getpwnam`, `getpwuid`, `getpwent` |
+| `CasperGrp` | Group database | `getgrnam`, `getgrgid`, `getgrent` |
+| `CasperSyslog` | System logging | `openlog`, `syslog`, `closelog` |
+
+**Syslog Service:**
+
+```swift
+import Casper
+
+let casper = try CasperChannel.create()
+let syslog = try CasperSyslog(casper: casper)
+
+// Open connection to syslog
+syslog.openlog(ident: "myapp", options: [.pid, .cons], facility: .daemon)
+
+// Log messages within capability mode
+syslog.syslog(priority: .info, message: "Application started")
+syslog.syslog(priority: .err, message: "Something went wrong")
+
+// Close when done
+syslog.closelog()
+```
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -564,6 +636,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | Module | Purpose |
 |--------|---------|
 | `CCapsicum` | Capsicum rights macros and helper functions |
+| `CCasper` | Casper (libcasper) service wrappers |
 | `CJails` | Jail flag constants and wrapper functions |
 | `CProcessDescriptor` | Process descriptor (pdfork) functions |
 | `CEventDescriptor` | Event notification functions |
