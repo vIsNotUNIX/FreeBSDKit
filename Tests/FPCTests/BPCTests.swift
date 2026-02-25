@@ -5,7 +5,7 @@
  */
 
 import XCTest
-@testable import BPC
+@testable import FPC
 import Descriptors
 
 // MARK: - BPC Tests
@@ -77,14 +77,14 @@ final class BPCTests: XCTestCase {
         XCTAssertEqual(MessageID(rawValue: 100).description, "reserved(100)")
     }
 
-    // MARK: - BPCError
+    // MARK: - FPCError
 
-    func testBPCErrorDescriptions() {
-        XCTAssertTrue(BPCError.disconnected.description.contains("disconnect"))
-        XCTAssertTrue(BPCError.stopped.description.contains("stopped"))
-        XCTAssertTrue(BPCError.timeout.description.contains("timed out"))
-        XCTAssertTrue(BPCError.tooManyDescriptors(300).description.contains("300"))
-        XCTAssertTrue(BPCError.unsupportedVersion(5).description.contains("5"))
+    func testFPCErrorDescriptions() {
+        XCTAssertTrue(FPCError.disconnected.description.contains("disconnect"))
+        XCTAssertTrue(FPCError.stopped.description.contains("stopped"))
+        XCTAssertTrue(FPCError.timeout.description.contains("timed out"))
+        XCTAssertTrue(FPCError.tooManyDescriptors(300).description.contains("300"))
+        XCTAssertTrue(FPCError.unsupportedVersion(5).description.contains("5"))
     }
 
     // MARK: - ConnectionState
@@ -213,7 +213,7 @@ final class BPCTests: XCTestCase {
         let data = Data(count: 100)  // Less than 256
 
         XCTAssertThrowsError(try WireHeader.decode(from: data)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -256,7 +256,7 @@ final class BPCTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
-            if case BPCError.unsupportedVersion(let v) = error {
+            if case FPCError.unsupportedVersion(let v) = error {
                 XCTAssertEqual(v, 99)
             } else {
                 XCTFail("Expected unsupportedVersion error")
@@ -273,7 +273,7 @@ final class BPCTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -287,7 +287,7 @@ final class BPCTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -301,7 +301,7 @@ final class BPCTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try header.validate()) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -358,7 +358,7 @@ final class BPCTests: XCTestCase {
         let data = Data(count: 100)
 
         XCTAssertThrowsError(try WireTrailer.decode(from: data, descriptorCount: 1)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -381,7 +381,7 @@ final class BPCTests: XCTestCase {
         let trailer = WireTrailer(descriptorKinds: [1, 255])  // OOL marker at wrong position
 
         XCTAssertThrowsError(try trailer.validate(hasOOLPayload: false)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -389,7 +389,7 @@ final class BPCTests: XCTestCase {
         let trailer = WireTrailer(descriptorKinds: [1])  // Should be 255 for OOL
 
         XCTAssertThrowsError(try trailer.validate(hasOOLPayload: true)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -486,7 +486,7 @@ final class BPCTests: XCTestCase {
         let data = Data(count: 400)  // Less than minimum 512
 
         XCTAssertThrowsError(try WireMessage.decode(from: data)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 
@@ -501,7 +501,7 @@ final class BPCTests: XCTestCase {
         data.append(Data(count: 256))
 
         XCTAssertThrowsError(try WireMessage.decode(from: data)) { error in
-            XCTAssertEqual(error as? BPCError, BPCError.invalidMessageFormat)
+            XCTAssertEqual(error as? FPCError, FPCError.invalidMessageFormat)
         }
     }
 

@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-// MARK: - BPCError
+// MARK: - FPCError
 
 /// Errors produced by the BPC transport layer.
-public enum BPCError: Error, Sendable, Equatable {
+public enum FPCError: Error, Sendable, Equatable {
     /// The underlying socket connection was lost due to remote disconnect.
     case disconnected
     /// The endpoint was explicitly stopped by calling `stop()`.
     case stopped
     /// The listener socket has been closed.
     case listenerClosed
-    /// ``BPCEndpoint/start()`` or ``BPCListener/start()`` has not been called.
+    /// ``FPCEndpoint/start()`` or ``BPCListener/start()`` has not been called.
     case notStarted
     /// The async stream has already been claimed by another task.
     case streamAlreadyClaimed
@@ -30,7 +30,7 @@ public enum BPCError: Error, Sendable, Equatable {
     case tooManyDescriptors(Int)
 }
 
-extension BPCError: CustomStringConvertible {
+extension FPCError: CustomStringConvertible {
     public var description: String {
         switch self {
         case .disconnected:

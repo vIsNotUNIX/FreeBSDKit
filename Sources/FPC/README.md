@@ -1,4 +1,4 @@
-# BPC - BSD Protocol Communication
+# FPC - BSD Protocol Communication
 
 A Swift actor-based IPC library for FreeBSD using Unix-domain SEQPACKET sockets.
 
@@ -16,7 +16,7 @@ A Swift actor-based IPC library for FreeBSD using Unix-domain SEQPACKET sockets.
 ### Client
 
 ```swift
-import BPC
+import FPC
 
 // Connect to a server
 let endpoint = try BSDClient.connect(path: "/tmp/my-service.sock")
@@ -35,7 +35,7 @@ await endpoint.stop()
 ### Server
 
 ```swift
-import BPC
+import FPC
 
 // Create listener
 let listener = try BSDListener.listen(on: "/tmp/my-service.sock")
@@ -142,7 +142,7 @@ Supported descriptor kinds:
 
 ## Wire Format
 
-BPC uses a fixed-size header/trailer format with variable payload:
+FPC uses a fixed-size header/trailer format with variable payload:
 
 ```
 [Header: 256 bytes][Payload: variable][Trailer: 256 bytes]
@@ -169,7 +169,7 @@ BPC uses a fixed-size header/trailer format with variable payload:
 
 ### Out-of-Line Payloads
 
-When payload exceeds the kernel's SEQPACKET limit (~64KB on FreeBSD), BPC automatically:
+When payload exceeds the kernel's SEQPACKET limit (~64KB on FreeBSD), FPC automatically:
 
 1. Creates anonymous shared memory
 2. Writes payload to shared memory
@@ -190,16 +190,16 @@ The 64-bit correlation ID space effectively never wraps (~585 years at 1 billion
 ```swift
 do {
     let reply = try await endpoint.request(msg, timeout: .seconds(5))
-} catch BPCError.timeout {
+} catch FPCError.timeout {
     // Request timed out
-} catch BPCError.disconnected {
+} catch FPCError.disconnected {
     // Connection lost
-} catch BPCError.stopped {
+} catch FPCError.stopped {
     // Endpoint was stopped
 }
 ```
 
-All BPCError cases:
+All FPCError cases:
 - `.disconnected` - Connection lost
 - `.stopped` - Endpoint explicitly stopped
 - `.listenerClosed` - Listener socket closed
@@ -213,10 +213,10 @@ All BPCError cases:
 
 ## Testing
 
-BPC includes comprehensive tests for the wire format:
+FPC includes comprehensive tests for the wire format:
 
 ```bash
-swift test --filter BPCTests
+swift test --filter FPCTests
 ```
 
 For socket communication tests, use `BSDEndpoint.pair()` with detached tasks to avoid actor deadlocks.
@@ -224,17 +224,17 @@ For socket communication tests, use `BSDEndpoint.pair()` with detached tasks to 
 ## Architecture
 
 ```
-BPCEndpoint (protocol)
+FPCEndpoint (protocol)
     └── BSDEndpoint (actor)
             ├── SocketHolder (thread-safe socket wrapper)
             ├── WireFormat (encoding/decoding)
             └── DispatchQueue (I/O operations)
 
-BPCListener (protocol)
+FPCListener (protocol)
     └── BSDListener (actor)
             └── SocketHolder
 
-BPCClient (protocol)
+FPCClient (protocol)
     └── BSDClient (struct)
 ```
 

@@ -11,26 +11,26 @@ import Descriptors
 import Capabilities
 import Capsicum
 
-// MARK: - BSDEndpoint
+// MARK: - FPCEndpoint
 
-/// A ``BPCEndpoint`` backed by a BSD Unix-domain SEQPACKET socket.
+/// An ``Endpoint`` backed by a BSD Unix-domain SEQPACKET socket.
 ///
 /// This endpoint is specifically designed for SOCK_SEQPACKET which provides:
 /// - Connection-oriented communication (like STREAM)
 /// - Message boundary preservation (like DATAGRAM)
 /// - Reliable, ordered delivery
 ///
-/// Obtain an instance via ``BSDClient`` or ``pair()``.
+/// Obtain an instance via ``FPCClient`` or ``pair()``.
 /// After calling ``start()``, use ``send(_:)`` and ``request(_:)`` to write
-/// to the wire, and ``messages()`` to consume inbound messages.
-public actor BSDEndpoint: BPCEndpoint {
+/// to the wire, and ``incoming()`` to consume inbound messages.
+public actor FPCEndpoint: Endpoint {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
     private var nextCorrelationID: UInt64 = 1
     private var pendingReplies: [UInt64: CheckedContinuation<Message, Error>] = [:]
     private var pendingTimeouts: [UInt64: Task<Void, Never>] = [:]
     private var incomingContinuation: AsyncStream<Message>.Continuation?
-    private var messageStream: AsyncStream<Message>?
+    private var incomingStream: AsyncStream<Message>?
     private var receiveLoopTask: Task<Void, Never>?
     private var state: LifecycleState = .idle
 
@@ -39,7 +39,7 @@ public actor BSDEndpoint: BPCEndpoint {
     public init(socket: consuming SocketCapability, ioQueue: DispatchQueue? = nil) {
         self.socketHolder = SocketHolder(socket: socket)
         // IMPORTANT: Must be concurrent so send() doesn't block behind receive loop
-        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.endpoint.io", qos: .userInitiated, attributes: .concurrent)
+        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.fpc.endpoint.io", qos: .userInitiated, attributes: .concurrent)
     }
 
     // MARK: - Connection State
@@ -54,7 +54,7 @@ public actor BSDEndpoint: BPCEndpoint {
         guard state == .idle else { return }
         state = .running
         let (stream, continuation) = AsyncStream.makeStream(of: Message.self)
-        messageStream = stream
+        incomingStream = stream
         incomingContinuation = continuation
 
         receiveLoopTask = Task {
@@ -68,7 +68,7 @@ public actor BSDEndpoint: BPCEndpoint {
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
         socketHolder.close()
-        teardown(throwing: BPCError.stopped)
+        teardown(throwing: FPCError.stopped)
     }
 
     // MARK: - Public API
@@ -94,9 +94,9 @@ public actor BSDEndpoint: BPCEndpoint {
     ///
     /// - Parameters:
     ///   - message: The request message to send
-    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``BPCError/timeout``
+    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``FPCError/timeout``
     /// - Returns: The reply message with matching correlation ID
-    /// - Throws: ``BPCError/timeout`` if timeout is specified and exceeded
+    /// - Throws: ``FPCError/timeout`` if timeout is specified and exceeded
     public func request(_ message: Message, timeout: Duration? = nil) async throws -> Message {
         // 64-bit correlation ID - won't wrap in practice (~585 years at 1B msg/sec)
         let correlationID = nextCorrelationID
@@ -193,22 +193,22 @@ public actor BSDEndpoint: BPCEndpoint {
     /// Can only be claimed by one task. Throws `.notStarted` if ``start()`` has
     /// not been called, `.stopped` if ``stop()`` has been called, or
     /// `.streamAlreadyClaimed` if already claimed.
-    public func messages() throws -> AsyncStream<Message> {
+    public func incoming() throws -> AsyncStream<Message> {
         switch state {
-        case .idle:    throw BPCError.notStarted
-        case .stopped: throw BPCError.stopped
+        case .idle:    throw FPCError.notStarted
+        case .stopped: throw FPCError.stopped
         case .running: break
         }
-        guard let stream = messageStream else {
-            throw BPCError.streamAlreadyClaimed
+        guard let stream = incomingStream else {
+            throw FPCError.streamAlreadyClaimed
         }
-        messageStream = nil
+        incomingStream = nil
         return stream
     }
 
     // MARK: - Pair
 
-    /// Creates a pair of connected ``BSDEndpoint`` instances using `socketpair(2)`.
+    /// Creates a pair of connected ``FPCEndpoint`` instances using `socketpair(2)`.
     ///
     /// The returned endpoints are bidirectionally connected SEQPACKET sockets ready
     /// for local IPC. Both are unstarted; call ``start()`` on each before exchanging
@@ -227,14 +227,14 @@ public actor BSDEndpoint: BPCEndpoint {
     public static func pair(
         firstQueue: DispatchQueue? = nil,
         secondQueue: DispatchQueue? = nil
-    ) throws -> (BSDEndpoint, BSDEndpoint) {
+    ) throws -> (FPCEndpoint, FPCEndpoint) {
         let socketPair = try SocketCapability.socketPair(
             domain: .unix,
             type: [.seqpacket, .cloexec],
             protocol: .default
         )
-        return (BSDEndpoint(socket: socketPair.first, ioQueue: firstQueue),
-                BSDEndpoint(socket: socketPair.second, ioQueue: secondQueue))
+        return (FPCEndpoint(socket: socketPair.first, ioQueue: firstQueue),
+                FPCEndpoint(socket: socketPair.second, ioQueue: secondQueue))
     }
 
     // MARK: - Private
@@ -242,7 +242,7 @@ public actor BSDEndpoint: BPCEndpoint {
     private func handleTimeout(_ correlationID: UInt64) async {
         pendingTimeouts.removeValue(forKey: correlationID)
         if let pending = pendingReplies.removeValue(forKey: correlationID) {
-            pending.resume(throwing: BPCError.timeout)
+            pending.resume(throwing: FPCError.timeout)
         }
     }
 
@@ -288,7 +288,7 @@ public actor BSDEndpoint: BPCEndpoint {
             if state == .running {
                 state = .stopped
                 socketHolder.close()
-                teardown(throwing: BPCError.disconnected)
+                teardown(throwing: FPCError.disconnected)
             }
         }
 
@@ -368,7 +368,7 @@ public actor BSDEndpoint: BPCEndpoint {
         if payload.count > Self.MAX_INLINE_PAYLOAD {
             // Check descriptor limit (254 max, OOL adds one more)
             guard descriptors.count < WireFormat.maxDescriptors else {
-                throw BPCError.tooManyDescriptors(descriptors.count + 1)
+                throw FPCError.tooManyDescriptors(descriptors.count + 1)
             }
             // Create anonymous shared memory (capability-mode safe)
             let shm = try SharedMemoryCapability.anonymous(accessMode: .readWrite)
@@ -414,7 +414,7 @@ public actor BSDEndpoint: BPCEndpoint {
         } else {
             // Validate descriptor count (254 max)
             guard descriptors.count <= WireFormat.maxDescriptors else {
-                throw BPCError.tooManyDescriptors(descriptors.count)
+                throw FPCError.tooManyDescriptors(descriptors.count)
             }
         }
 
@@ -459,7 +459,7 @@ public actor BSDEndpoint: BPCEndpoint {
 
         // Check for connection closed (0 bytes)
         guard wireData.count > 0 else {
-            throw BPCError.disconnected
+            throw FPCError.disconnected
         }
 
         return try parseMessage(wireData: wireData, receivedDescriptors: receivedDescriptors)
@@ -468,7 +468,7 @@ public actor BSDEndpoint: BPCEndpoint {
     /// Parses a complete BPC message from wire data.
     nonisolated private func parseMessage(wireData: Data, receivedDescriptors: [OpaqueDescriptorRef]) throws -> Message {
         guard wireData.count >= WireFormat.minimumMessageSize else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Parse and validate header
@@ -478,12 +478,12 @@ public actor BSDEndpoint: BPCEndpoint {
         // Validate total message size
         let expectedTotal = WireFormat.headerSize + Int(header.payloadLength) + WireFormat.trailerSize
         guard wireData.count == expectedTotal else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Validate descriptor count matches
         guard receivedDescriptors.count == Int(header.descriptorCount) else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Parse and validate trailer
@@ -506,14 +506,14 @@ public actor BSDEndpoint: BPCEndpoint {
 
         if header.hasOOLPayload {
             guard !descriptors.isEmpty else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
 
             let shmDescriptor = descriptors.removeFirst()
 
             // Take ownership of the fd to ensure explicit cleanup
             guard let shmFD = shmDescriptor.take() else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
 
             defer {
@@ -527,7 +527,7 @@ public actor BSDEndpoint: BPCEndpoint {
 
             let shmSize = Int(stat.st_size)
             guard shmSize > 0 else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
 
             let ptr = Glibc.mmap(nil, shmSize, PROT_READ, MAP_SHARED, shmFD, 0)

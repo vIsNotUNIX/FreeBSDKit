@@ -1,6 +1,6 @@
-# BPC Test Harness
+# FPC Test Harness
 
-A comprehensive test harness demonstrating BPC (BSD Process Communication) IPC capabilities over FreeBSD SOCK_SEQPACKET Unix domain sockets.
+A comprehensive test harness demonstrating FPC (Free Process Communication) IPC capabilities over FreeBSD SOCK_SEQPACKET Unix domain sockets.
 
 ## Building
 
@@ -12,26 +12,26 @@ swift build
 
 ### Quick Test (in-process socketpair)
 ```bash
-.build/debug/bpc-test-harness pair
+.build/debug/fpc-test-harness pair
 ```
 
 ### Full Test Suite (separate processes)
 
 **Terminal 1 - Start server:**
 ```bash
-.build/debug/bpc-test-harness server /tmp/bpc-test.sock
+.build/debug/fpc-test-harness server /tmp/bpc-test.sock
 ```
 
 **Terminal 2 - Run client:**
 ```bash
-.build/debug/bpc-test-harness client /tmp/bpc-test.sock
+.build/debug/fpc-test-harness client /tmp/bpc-test.sock
 ```
 
 ### Automated (single command)
 ```bash
-.build/debug/bpc-test-harness server /tmp/bpc-test.sock &
+.build/debug/fpc-test-harness server /tmp/bpc-test.sock &
 sleep 0.5
-.build/debug/bpc-test-harness client /tmp/bpc-test.sock
+.build/debug/fpc-test-harness client /tmp/bpc-test.sock
 ```
 
 ## Test Coverage
@@ -51,12 +51,12 @@ sleep 0.5
 | **1. Request/Reply** | Correlation ID routing across process boundaries |
 | **2. Large Message (100KB)** | Automatic OOL via anonymous shared memory |
 | **3. Multiple Descriptors** | SCM_RIGHTS passing 3 file descriptors |
-| **4. Unsolicited Stream** | `messages()` async iteration for fire-and-forget |
-| **5. Reply Isolation** | Replies route to `request()`, not `messages()` |
+| **4. Unsolicited Stream** | `incoming()` async iteration for fire-and-forget |
+| **5. Reply Isolation** | Replies route to `request()`, not `incoming()` |
 
 ## API Coverage
 
-| BPC API | Test Coverage |
+| FPC API | Test Coverage |
 |---------|---------------|
 | `BSDEndpoint.pair()` | Pair tests |
 | `BSDClient.connect()` | Client/server tests |
@@ -66,7 +66,7 @@ sleep 0.5
 | `send()` | Test 4 (unsolicited trigger), done signals |
 | `request(timeout:)` | Tests 1, 2, 3, 5 |
 | `reply(to: Message)` | All server handlers |
-| `messages()` | Tests 4, 5 |
+| `incoming()` | Tests 4, 5 |
 
 ## Payload Coverage
 
@@ -97,7 +97,7 @@ Example output showing cross-process verification:
 Use ktrace to observe actual system calls:
 
 ```bash
-ktrace -i -t c .build/debug/bpc-test-harness pair
+ktrace -i -t c .build/debug/fpc-test-harness pair
 kdump | grep -E "socketpair|sendmsg|recvmsg"
 ```
 
@@ -113,7 +113,7 @@ The `MSG_EOR` flag is critical - it marks record boundaries for SEQPACKET.
 ## Implementation Notes
 
 ### MSG_EOR Flag
-BPC uses `MSG_EOR` (End of Record) on every `sendmsg()` to preserve SEQPACKET message boundaries. Without this flag, FreeBSD may coalesce multiple rapid sends into a single recv.
+FPC uses `MSG_EOR` (End of Record) on every `sendmsg()` to preserve SEQPACKET message boundaries. Without this flag, FreeBSD may coalesce multiple rapid sends into a single recv.
 
 ### OOL (Out-of-Line) Payloads
 Payloads exceeding ~64KB are automatically sent via anonymous shared memory:
@@ -124,9 +124,9 @@ Payloads exceeding ~64KB are automatically sent via anonymous shared memory:
 5. Completely transparent to API users
 
 ### Correlation IDs
-- `correlationID == 0`: Unsolicited message → goes to `messages()` stream
+- `correlationID == 0`: Unsolicited message → goes to `incoming()` stream
 - `correlationID > 0` with pending request: Reply → routes to `request()` caller
-- `correlationID > 0` without pending request: Incoming request → goes to `messages()`
+- `correlationID > 0` without pending request: Incoming request → goes to `incoming()`
 
-### Single-Claim messages() Stream
-The `messages()` method returns an AsyncStream that can only be claimed once per endpoint. Design your message handling to use a single iteration loop.
+### Single-Claim incoming() Stream
+The `incoming()` method returns an AsyncStream that can only be claimed once per endpoint. Design your message handling to use a single iteration loop.

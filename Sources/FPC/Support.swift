@@ -10,7 +10,7 @@ import Capabilities
 
 // MARK: - ConnectionState
 
-/// Tracks the connection state of a BPC endpoint or listener.
+/// Tracks the connection state of a FPC endpoint or listener.
 ///
 /// - `idle`: Created but not yet started
 /// - `running`: Active and processing messages/connections
@@ -54,7 +54,7 @@ final class SocketHolder: @unchecked Sendable {
 
     /// Calls `body` with a borrowed reference to the socket, or returns `nil` if
     /// the socket has already been closed. Use this when the caller needs to
-    /// distinguish a closed socket from other errors (e.g. ``BSDListener/accept()``).
+    /// distinguish a closed socket from other errors (e.g. ``FPCListener/accept()``).
     ///
     /// No lock is held during `body`, allowing concurrent I/O operations.
     func withSocket<R>(_ body: (borrowing SocketCapability) throws -> R) rethrows -> R? where R: ~Copyable {
@@ -64,12 +64,12 @@ final class SocketHolder: @unchecked Sendable {
     }
 
     /// Calls `body` with a borrowed reference to the socket, or throws
-    /// ``BPCError/disconnected`` if the socket has already been closed.
+    /// ``FPCError/disconnected`` if the socket has already been closed.
     ///
     /// No lock is held during `body`, allowing concurrent I/O operations.
     func withSocketOrThrow<R>(_ body: (borrowing SocketCapability) throws -> R) throws -> R where R: ~Copyable {
-        guard !closed else { throw BPCError.disconnected }
-        guard socket != nil else { throw BPCError.disconnected }
+        guard !closed else { throw FPCError.disconnected }
+        guard socket != nil else { throw FPCError.disconnected }
         return try body(socket!)
     }
 

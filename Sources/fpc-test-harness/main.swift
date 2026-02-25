@@ -6,7 +6,7 @@
 
 import Foundation
 import Glibc
-import BPC
+import FPC
 import Descriptors
 import Capabilities
 
@@ -122,7 +122,7 @@ struct BPCTestHarness {
 
         do {
             log("Creating SEQPACKET socketpair...")
-            let (endpointA, endpointB) = try BSDEndpoint.pair()
+            let (endpointA, endpointB) = try FPCEndpoint.pair()
 
             log("Starting endpoint A...")
             await endpointA.start()
@@ -142,7 +142,7 @@ struct BPCTestHarness {
 
                 // B listens and replies (background task)
                 let replyTask = Task {
-                    let stream = try await endpointB.messages()
+                    let stream = try await endpointB.incoming()
                     for await msg in stream {
                         let replyUUID = UUID().uuidString
                         log("│ B ← got request, replying: \(replyUUID)")
@@ -183,7 +183,7 @@ struct BPCTestHarness {
 
                 // A listens and replies
                 let replyTask = Task {
-                    let stream = try await endpointA.messages()
+                    let stream = try await endpointA.incoming()
                     for await msg in stream {
                         let replyUUID = UUID().uuidString
                         log("│ A ← got request, replying: \(replyUUID)")
@@ -225,7 +225,7 @@ struct BPCTestHarness {
             log("")
             log("┌─ Test 3: Large Payload (64KB pattern) ─┐")
             do {
-                let (epA, epB) = try BSDEndpoint.pair()
+                let (epA, epB) = try FPCEndpoint.pair()
                 await epA.start()
                 await epB.start()
 
@@ -238,7 +238,7 @@ struct BPCTestHarness {
 
                 // B receives and verifies
                 let verifyTask = Task {
-                    let stream = try await epB.messages()
+                    let stream = try await epB.incoming()
                     for await msg in stream {
                         var valid = true
                         for (i, byte) in msg.payload.enumerated() {
@@ -304,7 +304,7 @@ struct BPCTestHarness {
 
         do {
             log("Creating listener...")
-            let listener = try BSDListener.listen(on: socketPath)
+            let listener = try FPCListener.listen(on: socketPath)
             await listener.start()
             log("Listener started")
 
@@ -325,7 +325,7 @@ struct BPCTestHarness {
             log("CLIENT CONNECTED - endpoint active")
             log("")
 
-            let stream = try await endpoint.messages()
+            let stream = try await endpoint.incoming()
             for await message in stream {
                 log("┌─ Received: id=\(message.id), correlationID=\(message.correlationID), \(message.payload.count) bytes, \(message.descriptors.count) descriptors")
 
@@ -475,7 +475,7 @@ struct BPCTestHarness {
 
         do {
             log("Connecting to \(socketPath)...")
-            let endpoint = try BSDClient.connect(path: socketPath)
+            let endpoint = try FPCClient.connect(path: socketPath)
             await endpoint.start()
             log("CONNECTED - endpoint active")
 
@@ -623,7 +623,7 @@ struct BPCTestHarness {
                 log("→ Requesting server send \(count) unsolicited messages")
                 try await endpoint.send(Message(id: .sendUnsolicited, payload: Data("\(count)".utf8)))
 
-                let stream = try await endpoint.messages()
+                let stream = try await endpoint.incoming()
                 var received: [String] = []
 
                 for await msg in stream {
@@ -676,7 +676,7 @@ struct BPCTestHarness {
                     // Get a fresh messages() stream
                     // Note: This will fail if stream already claimed, which is fine
                     do {
-                        let stream = try await endpoint.messages()
+                        let stream = try await endpoint.incoming()
                         // Check for a short time
                         for try await msg in stream {
                             if msg.id == .echoReply {

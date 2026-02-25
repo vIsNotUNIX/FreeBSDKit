@@ -40,7 +40,7 @@ public struct ReplyToken: Sendable, Hashable {
 /// Each message carries a typed identifier, an optional binary payload, and optional
 /// file descriptors. Correlation IDs tie request/reply pairs together: a value of `0`
 /// indicates an unsolicited message; a non-zero value links a reply to the request
-/// that originated it — the correlation ID is assigned by the sending ``BSDEndpoint``.
+/// that originated it — the correlation ID is assigned by the sending ``FPCEndpoint``.
 public struct Message: Sendable {
 
     /// Identifies the kind of message.
@@ -49,7 +49,7 @@ public struct Message: Sendable {
     /// Links a reply to its originating request.
     ///
     /// `0` means the message is unsolicited. Non-zero values are assigned automatically
-    /// by ``BSDEndpoint/send(_:)`` and echoed back in the matching reply.
+    /// by ``FPCEndpoint/send(_:)`` and echoed back in the matching reply.
     /// Uses 64-bit to avoid wrap-around (~585 years at 1 billion msg/sec).
     public var correlationID: UInt64
 
@@ -88,7 +88,7 @@ public struct Message: Sendable {
 
     /// Creates a message intended for a request/reply exchange.
     ///
-    /// The sending ``BPCEndpoint`` assigns the correlation ID automatically;
+    /// The sending ``FPCEndpoint`` assigns the correlation ID automatically;
     /// leave it at the default `0`.
     ///
     /// This can also be used for one-way messages that don't expect a reply.

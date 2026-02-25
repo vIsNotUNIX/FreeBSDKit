@@ -116,10 +116,10 @@ public struct WireHeader: Equatable, Sendable {
     ///
     /// - Parameter data: At least 256 bytes of header data
     /// - Returns: Parsed header
-    /// - Throws: `BPCError.invalidMessageFormat` if data is too short
+    /// - Throws: `FPCError.invalidMessageFormat` if data is too short
     public static func decode(from data: Data) throws -> WireHeader {
         guard data.count >= WireFormat.headerSize else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         let messageID = data.withUnsafeBytes {
@@ -150,27 +150,27 @@ public struct WireHeader: Equatable, Sendable {
 
     /// Validates the header for protocol compliance.
     ///
-    /// - Throws: `BPCError` describing the validation failure
+    /// - Throws: `FPCError` describing the validation failure
     public func validate() throws {
         // Check version
         guard version == WireFormat.currentVersion else {
-            throw BPCError.unsupportedVersion(version)
+            throw FPCError.unsupportedVersion(version)
         }
 
         // Check descriptor count
         guard descriptorCount <= WireFormat.maxDescriptors else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // OOL payload consistency checks
         if hasOOLPayload {
             // If OOL flag is set, inline payload length must be 0
             guard payloadLength == 0 else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
             // OOL requires at least one descriptor (the shm)
             guard descriptorCount >= 1 else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
         }
     }
@@ -211,10 +211,10 @@ public struct WireTrailer: Equatable, Sendable {
     ///   - data: At least 256 bytes of trailer data
     ///   - descriptorCount: Number of descriptors to read
     /// - Returns: Parsed trailer
-    /// - Throws: `BPCError.invalidMessageFormat` if data is too short
+    /// - Throws: `FPCError.invalidMessageFormat` if data is too short
     public static func decode(from data: Data, descriptorCount: Int) throws -> WireTrailer {
         guard data.count >= WireFormat.trailerSize else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Copy trailer data to reset indices (Data slice keeps original indices)
@@ -231,13 +231,13 @@ public struct WireTrailer: Equatable, Sendable {
     /// Validates the trailer for protocol compliance.
     ///
     /// - Parameter hasOOLPayload: Whether OOL payload flag is set in header
-    /// - Throws: `BPCError` describing the validation failure
+    /// - Throws: `FPCError` describing the validation failure
     public func validate(hasOOLPayload: Bool) throws {
         for (index, kind) in descriptorKinds.enumerated() {
             // Only index 0 may have OOL marker (255) when hasOOLPayload
             if kind == DescriptorKind.oolPayloadWireValue {
                 guard hasOOLPayload && index == 0 else {
-                    throw BPCError.invalidMessageFormat
+                    throw FPCError.invalidMessageFormat
                 }
             }
         }
@@ -245,7 +245,7 @@ public struct WireTrailer: Equatable, Sendable {
         // If OOL is expected, first descriptor must be OOL marker
         if hasOOLPayload && !descriptorKinds.isEmpty {
             guard descriptorKinds[0] == DescriptorKind.oolPayloadWireValue else {
-                throw BPCError.invalidMessageFormat
+                throw FPCError.invalidMessageFormat
             }
         }
     }
@@ -300,10 +300,10 @@ public struct WireMessage: Equatable, Sendable {
     ///
     /// - Parameter data: Complete wire message bytes
     /// - Returns: Parsed wire message
-    /// - Throws: `BPCError` if the message is malformed
+    /// - Throws: `FPCError` if the message is malformed
     public static func decode(from data: Data) throws -> WireMessage {
         guard data.count >= WireFormat.minimumMessageSize else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Decode header
@@ -313,7 +313,7 @@ public struct WireMessage: Equatable, Sendable {
         // Validate total size
         let expectedSize = WireFormat.headerSize + Int(header.payloadLength) + WireFormat.trailerSize
         guard data.count == expectedSize else {
-            throw BPCError.invalidMessageFormat
+            throw FPCError.invalidMessageFormat
         }
 
         // Extract payload

@@ -8,44 +8,9 @@ import Foundation
 import Descriptors
 import Capabilities
 
-// MARK: - BPCListener
+// MARK: - FPCListener
 
-/// The interface for a BPC connection listener.
-///
-/// A listener accepts incoming connections on a Unix-domain socket. Obtain a
-/// concrete implementation via ``BSDListener/listen(on:)``, then call ``start()``
-/// before iterating over ``connections()``.
-///
-/// ## Lifecycle
-/// 1. Call ``start()`` to begin the accept loop.
-/// 2. Iterate over ``connections()`` or call ``accept()`` directly.
-/// 3. Call ``stop()`` to close the listening socket and finish the connection stream.
-public protocol BPCListener: Actor {
-    /// Starts the accept loop. Must be called before ``connections()``.
-    func start()
-
-    /// Stops the accept loop and closes the listening socket.
-    func stop()
-
-    /// Returns the stream of incoming connections.
-    ///
-    /// Can only be claimed by one task. The stream finishes when the listener
-    /// is stopped or encounters a fatal socket error.
-    ///
-    /// - Throws: ``BPCError/notStarted`` if ``start()`` has not been called,
-    ///           ``BPCError/listenerClosed`` if ``stop()`` has been called,
-    ///           ``BPCError/streamAlreadyClaimed`` if already claimed by another task.
-    func connections() throws -> AsyncThrowingStream<BSDEndpoint, Error>
-
-    /// Accepts the next incoming connection. Suspends until a client connects.
-    ///
-    /// - Throws: ``BPCError/listenerClosed`` if the listener has been stopped.
-    func accept() async throws -> BSDEndpoint
-}
-
-// MARK: - BSDListener
-
-/// A ``BPCListener`` backed by a BSD Unix-domain SEQPACKET socket.
+/// An FPC listener backed by a BSD Unix-domain SEQPACKET socket.
 ///
 /// This listener is specifically designed for SOCK_SEQPACKET which provides:
 /// - Connection-oriented communication (listen/accept like STREAM)
@@ -53,14 +18,14 @@ public protocol BPCListener: Actor {
 /// - Reliable, ordered delivery
 ///
 /// Obtain an instance via ``listen(on:)``. After calling ``start()``,
-/// iterate over ``connections()`` to receive newly accepted ``BSDEndpoint``
+/// iterate over ``connections()`` to receive newly accepted ``FPCEndpoint``
 /// instances, or call ``accept()`` to handle one connection at a time.
-public actor BSDListener: BPCListener {
+public actor FPCListener {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
     private var state: LifecycleState = .idle
-    private var connectionStream: AsyncThrowingStream<BSDEndpoint, Error>?
-    private var connectionContinuation: AsyncThrowingStream<BSDEndpoint, Error>.Continuation?
+    private var connectionStream: AsyncThrowingStream<FPCEndpoint, Error>?
+    private var connectionContinuation: AsyncThrowingStream<FPCEndpoint, Error>.Continuation?
     private var acceptLoopTask: Task<Void, Never>?
 
     // MARK: - Listen
@@ -71,13 +36,13 @@ public actor BSDListener: BPCListener {
     ///   - path: The filesystem path at which to bind the socket.
     ///   - backlog: Maximum length of the pending connection queue (default: 128)
     ///   - ioQueue: Optional custom DispatchQueue for I/O operations. If `nil`, a default queue is created.
-    /// - Returns: A new, unstarted ``BSDListener``. Call ``start()`` before use.
+    /// - Returns: A new, unstarted ``FPCListener``. Call ``start()`` before use.
     /// - Throws: A system error if the socket cannot be created or bound.
     public static func listen(
         on path: String,
         backlog: Int32 = 128,
         ioQueue: DispatchQueue? = nil
-    ) throws -> BSDListener {
+    ) throws -> FPCListener {
         let socket = try SocketCapability.socket(
             domain: .unix,
             type: [.seqpacket, .cloexec],
@@ -86,7 +51,7 @@ public actor BSDListener: BPCListener {
         let address = try UnixSocketAddress(path: path)
         try socket.bind(address: address)
         try socket.listen(backlog: backlog)
-        return BSDListener(socket: socket, ioQueue: ioQueue)
+        return FPCListener(socket: socket, ioQueue: ioQueue)
     }
 
     /// Creates a listener from an already-listening socket.
@@ -97,10 +62,10 @@ public actor BSDListener: BPCListener {
     /// - Parameters:
     ///   - socket: An already-bound and listening socket
     ///   - ioQueue: Optional custom DispatchQueue for I/O operations
-    /// - Returns: A new, unstarted ``BSDListener``. Call ``start()`` before use.
+    /// - Returns: A new, unstarted ``FPCListener``. Call ``start()`` before use.
     public init(socket: consuming SocketCapability, ioQueue: DispatchQueue? = nil) {
         self.socketHolder = SocketHolder(socket: socket)
-        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.bpc.listener.io", qos: .userInitiated)
+        self.ioQueue = ioQueue ?? DispatchQueue(label: "com.fpc.listener.io", qos: .userInitiated)
     }
 
     // MARK: Lifecycle
@@ -108,7 +73,7 @@ public actor BSDListener: BPCListener {
     public func start() {
         guard state == .idle else { return }
         state = .running
-        let (stream, continuation) = AsyncThrowingStream.makeStream(of: BSDEndpoint.self)
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: FPCEndpoint.self)
         connectionStream = stream
         connectionContinuation = continuation
 
@@ -142,14 +107,14 @@ public actor BSDListener: BPCListener {
     /// Can only be claimed by one task. Throws `.notStarted` if ``start()`` has not been
     /// called, `.listenerClosed` if ``stop()`` has been called, or `.streamAlreadyClaimed`
     /// if already claimed.
-    public func connections() throws -> AsyncThrowingStream<BSDEndpoint, Error> {
+    public func connections() throws -> AsyncThrowingStream<FPCEndpoint, Error> {
         switch state {
-        case .idle:    throw BPCError.notStarted
-        case .stopped: throw BPCError.listenerClosed
+        case .idle:    throw FPCError.notStarted
+        case .stopped: throw FPCError.listenerClosed
         case .running: break
         }
         guard let stream = connectionStream else {
-            throw BPCError.streamAlreadyClaimed
+            throw FPCError.streamAlreadyClaimed
         }
         connectionStream = nil
         return stream
@@ -157,9 +122,9 @@ public actor BSDListener: BPCListener {
 
     /// Accepts the next incoming connection. Suspends until a client connects.
     ///
-    /// - Throws: ``BPCError/listenerClosed`` if the listener has been stopped.
-    public func accept() async throws -> BSDEndpoint {
-        guard state == .running else { throw BPCError.listenerClosed }
+    /// - Throws: ``FPCError/listenerClosed`` if the listener has been stopped.
+    public func accept() async throws -> FPCEndpoint {
+        guard state == .running else { throw FPCError.listenerClosed }
 
         return try await withCheckedThrowingContinuation { continuation in
             ioQueue.async {
@@ -167,10 +132,10 @@ public actor BSDListener: BPCListener {
                     guard let clientSocket = try self.socketHolder.withSocket({ socket in
                         try socket.accept()
                     }) else {
-                        continuation.resume(throwing: BPCError.listenerClosed)
+                        continuation.resume(throwing: FPCError.listenerClosed)
                         return
                     }
-                    continuation.resume(returning: BSDEndpoint(socket: clientSocket))
+                    continuation.resume(returning: FPCEndpoint(socket: clientSocket))
                 } catch {
                     continuation.resume(throwing: error)
                 }

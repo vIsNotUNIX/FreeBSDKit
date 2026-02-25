@@ -27,8 +27,8 @@ let package = Package(
             targets: ["SignalDispatchers"]
         ),
         .library(
-            name: "BPC",
-            targets: ["BPC"]
+            name: "FPC",
+            targets: ["FPC"]
         ),
         .library(
             name: "MacLabel",
@@ -114,7 +114,7 @@ let package = Package(
             dependencies: ["Descriptors", "FreeBSDKit", "CSignal"]
         ),
         .target(
-            name: "BPC",
+            name: "FPC",
             dependencies: ["Capabilities", "Descriptors", "Capsicum", "FreeBSDKit"]
         ),
         .testTarget(
@@ -146,8 +146,8 @@ let package = Package(
             dependencies: ["FreeBSDKit"]
         ),
         .testTarget(
-            name: "BPCTests",
-            dependencies: ["BPC", "Capabilities", "Descriptors"]
+            name: "FPCTests",
+            dependencies: ["FPC", "Capabilities", "Descriptors"]
         ),
         .target(
             name: "MacLabel",
@@ -175,9 +175,9 @@ let package = Package(
             path: "Sources/mac-policy-cli"
         ),
         .executableTarget(
-            name: "bpc-test-harness",
-            dependencies: ["BPC", "Capabilities", "Descriptors"],
-            path: "Sources/bpc-test-harness"
+            name: "fpc-test-harness",
+            dependencies: ["FPC", "Capabilities", "Descriptors"],
+            path: "Sources/fpc-test-harness"
         )
 
     ]

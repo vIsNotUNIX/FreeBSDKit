@@ -7,19 +7,19 @@
 import Foundation
 import Descriptors
 
-// MARK: - BPCEndpoint
+// MARK: - Endpoint Protocol
 
-/// The interface for a BPC connection endpoint.
+/// The interface for an FPC connection endpoint.
 ///
 /// An endpoint represents one side of an established socket connection. Obtain a
-/// concrete implementation via ``BSDEndpoint/connect(path:)``, then call ``start()``
+/// concrete implementation via ``FPCClient/connect(path:)``, then call ``start()``
 /// before exchanging messages.
 ///
 /// ## Lifecycle
 /// 1. Call ``start()`` to begin the receive loop.
-/// 2. Use ``send(_:)``, ``request(_:)``, and ``messages()`` to exchange messages.
+/// 2. Use ``send(_:)``, ``request(_:)``, and ``incoming()`` to exchange messages.
 /// 3. Call ``stop()`` to tear down the connection and fail any pending callers.
-public protocol BPCEndpoint: Actor {
+public protocol Endpoint: Actor {
     /// The current connection state.
     ///
     /// Check this to determine if the endpoint is ready to use:
@@ -44,9 +44,9 @@ public protocol BPCEndpoint: Actor {
     ///
     /// - Parameters:
     ///   - message: The request message to send
-    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``BPCError/timeout``
+    ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``FPCError/timeout``
     /// - Returns: The reply message with matching correlation ID
-    /// - Throws: ``BPCError/timeout`` if timeout is specified and exceeded
+    /// - Throws: ``FPCError/timeout`` if timeout is specified and exceeded
     func request(_ message: Message, timeout: Duration?) async throws -> Message
 
     /// Sends a reply to a previously received request.
@@ -104,8 +104,8 @@ public protocol BPCEndpoint: Actor {
     /// Can only be claimed by one task. The stream finishes when the connection
     /// is lost or ``stop()`` is called.
     ///
-    /// - Throws: ``BPCError/notStarted`` if ``start()`` has not been called,
-    ///           ``BPCError/stopped`` if ``stop()`` has been called,
-    ///           ``BPCError/streamAlreadyClaimed`` if already claimed by another task.
-    func messages() throws -> AsyncStream<Message>
+    /// - Throws: ``FPCError/notStarted`` if ``start()`` has not been called,
+    ///           ``FPCError/stopped`` if ``stop()`` has been called,
+    ///           ``FPCError/streamAlreadyClaimed`` if already claimed by another task.
+    func incoming() throws -> AsyncStream<Message>
 }
