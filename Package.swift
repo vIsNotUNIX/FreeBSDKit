@@ -98,11 +98,15 @@ let package = Package(
             path: "Sources/CSignal"
         ),
         .target(
+            name: "CDeviceIoctl",
+            path: "Sources/CDeviceIoctl"
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
                 "CEventDescriptor", "CJails", "Jails",
-                "CINotify"
+                "CINotify", "CDeviceIoctl"
             ]
         ),
         .target(

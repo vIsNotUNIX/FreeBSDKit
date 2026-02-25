@@ -11,6 +11,7 @@ import FreeBSDKit
 public enum DescriptorKind: Sendable, Equatable, Hashable {
     case file
     case directory
+    case device
     case process
     case kqueue
     case socket

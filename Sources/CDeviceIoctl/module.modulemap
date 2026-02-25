@@ -1,0 +1,4 @@
+module CDeviceIoctl [system] {
+    header "include/cdeviceioctl.h"
+    export *
+}

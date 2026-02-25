@@ -18,14 +18,15 @@ import FreeBSDKit
 // | 0     | unknown           |
 // | 1     | file              |
 // | 2     | directory         |
-// | 3     | process           |
-// | 4     | kqueue            |
-// | 5     | socket            |
-// | 6     | pipe              |
-// | 7     | jail (non-owning) |
-// | 8     | jail (owning)     |
-// | 9     | shm               |
-// | 10    | event             |
+// | 3     | device            |
+// | 4     | process           |
+// | 5     | kqueue            |
+// | 6     | socket            |
+// | 7     | pipe              |
+// | 8     | jail (non-owning) |
+// | 9     | jail (owning)     |
+// | 10    | shm               |
+// | 11    | event             |
 // | 255   | OOL payload       |
 
 extension DescriptorKind {
@@ -40,14 +41,15 @@ extension DescriptorKind {
         switch self {
         case .file: return 1
         case .directory: return 2
-        case .process: return 3
-        case .kqueue: return 4
-        case .socket: return 5
-        case .pipe: return 6
-        case .jail(owning: false): return 7
-        case .jail(owning: true): return 8
-        case .shm: return 9
-        case .event: return 10
+        case .device: return 3
+        case .process: return 4
+        case .kqueue: return 5
+        case .socket: return 6
+        case .pipe: return 7
+        case .jail(owning: false): return 8
+        case .jail(owning: true): return 9
+        case .shm: return 10
+        case .event: return 11
         case .unknown: return 0
         }
     }
@@ -57,14 +59,15 @@ extension DescriptorKind {
         switch value {
         case 1: return .file
         case 2: return .directory
-        case 3: return .process
-        case 4: return .kqueue
-        case 5: return .socket
-        case 6: return .pipe
-        case 7: return .jail(owning: false)
-        case 8: return .jail(owning: true)
-        case 9: return .shm
-        case 10: return .event
+        case 3: return .device
+        case 4: return .process
+        case 5: return .kqueue
+        case 6: return .socket
+        case 7: return .pipe
+        case 8: return .jail(owning: false)
+        case 9: return .jail(owning: true)
+        case 10: return .shm
+        case 11: return .event
         default: return .unknown
         }
     }
