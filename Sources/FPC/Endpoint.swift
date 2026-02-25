@@ -35,7 +35,7 @@ public protocol Endpoint: Actor {
     func stop()
 
     /// Sends a fire-and-forget message. Suspends until the bytes are on the wire.
-    func send(_ message: Message) async throws
+    func send(_ message: FPCMessage) async throws
 
     /// Sends a message and suspends until the matching reply arrives.
     ///
@@ -47,7 +47,7 @@ public protocol Endpoint: Actor {
     ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``FPCError/timeout``
     /// - Returns: The reply message with matching correlation ID
     /// - Throws: ``FPCError/timeout`` if timeout is specified and exceeded
-    func request(_ message: Message, timeout: Duration?) async throws -> Message
+    func request(_ message: FPCMessage, timeout: Duration?) async throws -> FPCMessage
 
     /// Sends a reply to a previously received request.
     ///
@@ -61,7 +61,7 @@ public protocol Endpoint: Actor {
     ///   - payload: Optional payload data for the reply
     ///   - descriptors: Optional file descriptors to send with the reply
     func reply(
-        to request: Message,
+        to request: FPCMessage,
         id: MessageID,
         payload: Data,
         descriptors: [OpaqueDescriptorRef]
@@ -84,7 +84,7 @@ public protocol Endpoint: Actor {
     ///   - payload: Optional payload data for the reply
     ///   - descriptors: Optional file descriptors to send with the reply
     func reply(
-        to token: ReplyToken,
+        to token: FPCReplyToken,
         id: MessageID,
         payload: Data,
         descriptors: [OpaqueDescriptorRef]
@@ -107,5 +107,5 @@ public protocol Endpoint: Actor {
     /// - Throws: ``FPCError/notStarted`` if ``start()`` has not been called,
     ///           ``FPCError/stopped`` if ``stop()`` has been called,
     ///           ``FPCError/streamAlreadyClaimed`` if already claimed by another task.
-    func incoming() throws -> AsyncStream<Message>
+    func incoming() throws -> AsyncStream<FPCMessage>
 }

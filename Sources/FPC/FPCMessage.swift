@@ -9,11 +9,11 @@ import Descriptors
 import Capabilities
 import Glibc
 
-// MARK: - ReplyToken
+// MARK: - FPCReplyToken
 
 /// A lightweight token for replying to a received message.
 ///
-/// Instead of holding onto the entire `Message`, extract a reply token and use it later:
+/// Instead of holding onto the entire `FPCMessage`, extract a reply token and use it later:
 ///
 /// ```swift
 /// let request = try await endpoint.receive()
@@ -23,7 +23,7 @@ import Glibc
 ///
 /// try await endpoint.reply(to: token, id: .pong, payload: data)
 /// ```
-public struct ReplyToken: Sendable, Hashable {
+public struct FPCReplyToken: Sendable, Hashable {
     /// The correlation ID to echo back in the reply.
     public let correlationID: UInt64
 
@@ -33,7 +33,7 @@ public struct ReplyToken: Sendable, Hashable {
     }
 }
 
-// MARK: - Message
+// MARK: - FPCMessage
 
 /// A unit of communication between a BPC client and server.
 ///
@@ -41,7 +41,7 @@ public struct ReplyToken: Sendable, Hashable {
 /// file descriptors. Correlation IDs tie request/reply pairs together: a value of `0`
 /// indicates an unsolicited message; a non-zero value links a reply to the request
 /// that originated it — the correlation ID is assigned by the sending ``FPCEndpoint``.
-public struct Message: Sendable {
+public struct FPCMessage: Sendable {
 
     /// Identifies the kind of message.
     public var id: MessageID
@@ -82,8 +82,8 @@ public struct Message: Sendable {
     /// // Can discard the original request now
     /// try await endpoint.reply(to: token, id: .pong)
     /// ```
-    public var replyToken: ReplyToken {
-        ReplyToken(correlationID: correlationID)
+    public var replyToken: FPCReplyToken {
+        FPCReplyToken(correlationID: correlationID)
     }
 
     /// Creates a message intended for a request/reply exchange.
@@ -96,8 +96,8 @@ public struct Message: Sendable {
         _ id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
-    ) -> Message {
-        Message(id: id, correlationID: 0, payload: payload, descriptors: descriptors)
+    ) -> FPCMessage {
+        FPCMessage(id: id, correlationID: 0, payload: payload, descriptors: descriptors)
     }
 
     /// Creates a reply to a previously received request.
@@ -112,12 +112,12 @@ public struct Message: Sendable {
     ///   - descriptors: Optional file descriptors to send with the reply
     /// - Returns: A message with the same correlation ID as the request
     public static func reply(
-        to request: Message,
+        to request: FPCMessage,
         id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
-    ) -> Message {
-        Message(
+    ) -> FPCMessage {
+        FPCMessage(
             id: id,
             correlationID: request.correlationID,
             payload: payload,
@@ -133,7 +133,7 @@ public struct Message: Sendable {
     /// let request = try await endpoint.receive()
     /// let token = request.replyToken
     /// // ... later ...
-    /// let reply = Message.reply(to: token, id: .pong)
+    /// let reply = FPCMessage.reply(to: token, id: .pong)
     /// try await endpoint.send(reply)
     /// ```
     ///
@@ -144,12 +144,12 @@ public struct Message: Sendable {
     ///   - descriptors: Optional file descriptors to send with the reply
     /// - Returns: A message with the correlation ID from the token
     public static func reply(
-        to token: ReplyToken,
+        to token: FPCReplyToken,
         id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
-    ) -> Message {
-        Message(
+    ) -> FPCMessage {
+        FPCMessage(
             id: id,
             correlationID: token.correlationID,
             payload: payload,
@@ -327,7 +327,7 @@ public struct Message: Sendable {
 
 /// Identifies the kind of message exchanged over a BPC connection.
 ///
-/// ## Message ID Space Allocation
+/// ## FPCMessage ID Space Allocation
 ///
 /// The 32-bit message ID space is divided into reserved and user ranges:
 ///
@@ -347,7 +347,7 @@ public struct Message: Sendable {
 ///     static let fileReadReply = MessageID(rawValue: 259)
 /// }
 ///
-/// let message = Message(id: .fileOpen, payload: data)
+/// let message = FPCMessage(id: .fileOpen, payload: data)
 /// ```
 public struct MessageID: RawRepresentable, Hashable, Sendable {
     public let rawValue: UInt32
@@ -373,7 +373,7 @@ public struct MessageID: RawRepresentable, Hashable, Sendable {
         rawValue >= Self.userSpaceStart
     }
 
-    // MARK: - Standard System Message Types
+    // MARK: - Standard System FPCMessage Types
 
     /// Liveness probe sent by the client.
     public static let ping = MessageID(rawValue: 1)

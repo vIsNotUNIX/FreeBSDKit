@@ -33,7 +33,7 @@ import Descriptors
 //   - reserved:          2 bytes at offset 254-255
 
 /// Wire format constants and utilities for BPC protocol.
-public enum WireFormat {
+public enum FPCFrameLayout {
     /// Size of the fixed header in bytes.
     public static let headerSize = 256
 
@@ -61,10 +61,10 @@ public enum WireFormat {
     public static let flagOOLPayload: UInt8 = 0x01
 }
 
-// MARK: - WireHeader
+// MARK: - FPCFrameHeader
 
 /// Parsed header from the wire format.
-public struct WireHeader: Equatable, Sendable {
+public struct FPCFrameHeader: Equatable, Sendable {
     public var messageID: UInt32
     public var correlationID: UInt64
     public var payloadLength: UInt32
@@ -73,7 +73,7 @@ public struct WireHeader: Equatable, Sendable {
     public var flags: UInt8
 
     public var hasOOLPayload: Bool {
-        (flags & WireFormat.flagOOLPayload) != 0
+        (flags & FPCFrameLayout.flagOOLPayload) != 0
     }
 
     public init(
@@ -81,7 +81,7 @@ public struct WireHeader: Equatable, Sendable {
         correlationID: UInt64,
         payloadLength: UInt32,
         descriptorCount: UInt8,
-        version: UInt8 = WireFormat.currentVersion,
+        version: UInt8 = FPCFrameLayout.currentVersion,
         flags: UInt8 = 0
     ) {
         self.messageID = messageID
@@ -94,7 +94,7 @@ public struct WireHeader: Equatable, Sendable {
 
     /// Encodes the header to wire format bytes.
     public func encode() -> Data {
-        var header = Data(count: WireFormat.headerSize)
+        var header = Data(count: FPCFrameLayout.headerSize)
 
         var msgID = messageID
         header.replaceSubrange(0..<4, with: Data(bytes: &msgID, count: 4))
@@ -117,28 +117,28 @@ public struct WireHeader: Equatable, Sendable {
     /// - Parameter data: At least 256 bytes of header data
     /// - Returns: Parsed header
     /// - Throws: `FPCError.invalidMessageFormat` if data is too short
-    public static func decode(from data: Data) throws -> WireHeader {
-        guard data.count >= WireFormat.headerSize else {
+    public static func decode(from data: Data) throws -> FPCFrameHeader {
+        guard data.count >= FPCFrameLayout.headerSize else {
             throw FPCError.invalidMessageFormat
         }
 
         let messageID = data.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: WireFormat.messageIDOffset, as: UInt32.self)
+            $0.loadUnaligned(fromByteOffset: FPCFrameLayout.messageIDOffset, as: UInt32.self)
         }
 
         let correlationID = data.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: WireFormat.correlationIDOffset, as: UInt64.self)
+            $0.loadUnaligned(fromByteOffset: FPCFrameLayout.correlationIDOffset, as: UInt64.self)
         }
 
         let payloadLength = data.withUnsafeBytes {
-            $0.loadUnaligned(fromByteOffset: WireFormat.payloadLengthOffset, as: UInt32.self)
+            $0.loadUnaligned(fromByteOffset: FPCFrameLayout.payloadLengthOffset, as: UInt32.self)
         }
 
-        let descriptorCount = data[WireFormat.descriptorCountOffset]
-        let version = data[WireFormat.versionOffset]
-        let flags = data[WireFormat.flagsOffset]
+        let descriptorCount = data[FPCFrameLayout.descriptorCountOffset]
+        let version = data[FPCFrameLayout.versionOffset]
+        let flags = data[FPCFrameLayout.flagsOffset]
 
-        return WireHeader(
+        return FPCFrameHeader(
             messageID: messageID,
             correlationID: correlationID,
             payloadLength: payloadLength,
@@ -153,12 +153,12 @@ public struct WireHeader: Equatable, Sendable {
     /// - Throws: `FPCError` describing the validation failure
     public func validate() throws {
         // Check version
-        guard version == WireFormat.currentVersion else {
+        guard version == FPCFrameLayout.currentVersion else {
             throw FPCError.unsupportedVersion(version)
         }
 
         // Check descriptor count
-        guard descriptorCount <= WireFormat.maxDescriptors else {
+        guard descriptorCount <= FPCFrameLayout.maxDescriptors else {
             throw FPCError.invalidMessageFormat
         }
 
@@ -176,10 +176,10 @@ public struct WireHeader: Equatable, Sendable {
     }
 }
 
-// MARK: - WireTrailer
+// MARK: - FPCFrameTrailer
 
 /// Parsed trailer from the wire format.
-public struct WireTrailer: Equatable, Sendable {
+public struct FPCFrameTrailer: Equatable, Sendable {
     /// Descriptor kinds, one per descriptor (max 254).
     public var descriptorKinds: [UInt8]
 
@@ -191,10 +191,10 @@ public struct WireTrailer: Equatable, Sendable {
     ///
     /// - Parameter hasOOLPayload: If true, first descriptor kind is marked as OOL (255)
     public func encode(hasOOLPayload: Bool = false) -> Data {
-        var trailer = Data(count: WireFormat.trailerSize)
+        var trailer = Data(count: FPCFrameLayout.trailerSize)
 
         for (index, kind) in descriptorKinds.enumerated() {
-            guard index < WireFormat.maxDescriptors else { break }
+            guard index < FPCFrameLayout.maxDescriptors else { break }
             if index == 0 && hasOOLPayload {
                 trailer[index] = DescriptorKind.oolPayloadWireValue
             } else {
@@ -212,20 +212,20 @@ public struct WireTrailer: Equatable, Sendable {
     ///   - descriptorCount: Number of descriptors to read
     /// - Returns: Parsed trailer
     /// - Throws: `FPCError.invalidMessageFormat` if data is too short
-    public static func decode(from data: Data, descriptorCount: Int) throws -> WireTrailer {
-        guard data.count >= WireFormat.trailerSize else {
+    public static func decode(from data: Data, descriptorCount: Int) throws -> FPCFrameTrailer {
+        guard data.count >= FPCFrameLayout.trailerSize else {
             throw FPCError.invalidMessageFormat
         }
 
         // Copy trailer data to reset indices (Data slice keeps original indices)
-        let trailer = Data(data.prefix(WireFormat.trailerSize))
+        let trailer = Data(data.prefix(FPCFrameLayout.trailerSize))
 
         var kinds: [UInt8] = []
-        for i in 0..<min(descriptorCount, WireFormat.maxDescriptors) {
+        for i in 0..<min(descriptorCount, FPCFrameLayout.maxDescriptors) {
             kinds.append(trailer[i])
         }
 
-        return WireTrailer(descriptorKinds: kinds)
+        return FPCFrameTrailer(descriptorKinds: kinds)
     }
 
     /// Validates the trailer for protocol compliance.
@@ -251,41 +251,41 @@ public struct WireTrailer: Equatable, Sendable {
     }
 }
 
-// MARK: - WireMessage
+// MARK: - FPCFrame
 
 /// A complete wire-format message (header + payload + trailer).
-public struct WireMessage: Equatable, Sendable {
-    public var header: WireHeader
+public struct FPCFrame: Equatable, Sendable {
+    public var header: FPCFrameHeader
     public var payload: Data
-    public var trailer: WireTrailer
+    public var trailer: FPCFrameTrailer
 
-    public init(header: WireHeader, payload: Data, trailer: WireTrailer) {
+    public init(header: FPCFrameHeader, payload: Data, trailer: FPCFrameTrailer) {
         self.header = header
         self.payload = payload
         self.trailer = trailer
     }
 
-    /// Creates a wire message from a BPC Message.
+    /// Creates a wire message from a BPC FPCMessage.
     ///
     /// - Parameters:
     ///   - message: The message to encode
     ///   - useOOL: If true, marks payload as out-of-line (caller handles shm)
-    public init(from message: Message, useOOL: Bool = false) {
-        let flags: UInt8 = useOOL ? WireFormat.flagOOLPayload : 0
+    public init(from message: FPCMessage, useOOL: Bool = false) {
+        let flags: UInt8 = useOOL ? FPCFrameLayout.flagOOLPayload : 0
         let payloadLength: UInt32 = useOOL ? 0 : UInt32(message.payload.count)
 
-        self.header = WireHeader(
+        self.header = FPCFrameHeader(
             messageID: message.id.rawValue,
             correlationID: message.correlationID,
             payloadLength: payloadLength,
-            descriptorCount: UInt8(min(message.descriptors.count, WireFormat.maxDescriptors)),
+            descriptorCount: UInt8(min(message.descriptors.count, FPCFrameLayout.maxDescriptors)),
             flags: flags
         )
 
         self.payload = useOOL ? Data() : message.payload
 
-        let kinds = message.descriptors.prefix(WireFormat.maxDescriptors).map { $0.kind.wireValue }
-        self.trailer = WireTrailer(descriptorKinds: Array(kinds))
+        let kinds = message.descriptors.prefix(FPCFrameLayout.maxDescriptors).map { $0.kind.wireValue }
+        self.trailer = FPCFrameTrailer(descriptorKinds: Array(kinds))
     }
 
     /// Encodes the complete message to wire format bytes.
@@ -301,38 +301,38 @@ public struct WireMessage: Equatable, Sendable {
     /// - Parameter data: Complete wire message bytes
     /// - Returns: Parsed wire message
     /// - Throws: `FPCError` if the message is malformed
-    public static func decode(from data: Data) throws -> WireMessage {
-        guard data.count >= WireFormat.minimumMessageSize else {
+    public static func decode(from data: Data) throws -> FPCFrame {
+        guard data.count >= FPCFrameLayout.minimumMessageSize else {
             throw FPCError.invalidMessageFormat
         }
 
         // Decode header
-        let header = try WireHeader.decode(from: data)
+        let header = try FPCFrameHeader.decode(from: data)
         try header.validate()
 
         // Validate total size
-        let expectedSize = WireFormat.headerSize + Int(header.payloadLength) + WireFormat.trailerSize
+        let expectedSize = FPCFrameLayout.headerSize + Int(header.payloadLength) + FPCFrameLayout.trailerSize
         guard data.count == expectedSize else {
             throw FPCError.invalidMessageFormat
         }
 
         // Extract payload
-        let payloadStart = WireFormat.headerSize
+        let payloadStart = FPCFrameLayout.headerSize
         let payloadEnd = payloadStart + Int(header.payloadLength)
         let payload = Data(data[payloadStart..<payloadEnd])
 
         // Decode trailer
         let trailerStart = payloadEnd
         let trailerData = Data(data[trailerStart...])
-        let trailer = try WireTrailer.decode(from: trailerData, descriptorCount: Int(header.descriptorCount))
+        let trailer = try FPCFrameTrailer.decode(from: trailerData, descriptorCount: Int(header.descriptorCount))
         try trailer.validate(hasOOLPayload: header.hasOOLPayload)
 
-        return WireMessage(header: header, payload: payload, trailer: trailer)
+        return FPCFrame(header: header, payload: payload, trailer: trailer)
     }
 
-    /// Converts to a BPC Message (without descriptors - caller must attach).
-    public func toMessage() -> Message {
-        Message(
+    /// Converts to a BPC FPCMessage (without descriptors - caller must attach).
+    public func toMessage() -> FPCMessage {
+        FPCMessage(
             id: MessageID(rawValue: header.messageID),
             correlationID: header.correlationID,
             payload: payload,

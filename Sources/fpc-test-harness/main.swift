@@ -10,7 +10,7 @@ import FPC
 import Descriptors
 import Capabilities
 
-// MARK: - Test Message IDs
+// MARK: - Test FPCMessage IDs
 
 extension MessageID {
     static let echo = MessageID(rawValue: 100)
@@ -103,7 +103,7 @@ struct BPCTestHarness {
 
             Tests:
               1. Request/Reply     - Correlation ID routing
-              2. Large Message     - Auto OOL via shared memory (>64KB)
+              2. Large FPCMessage     - Auto OOL via shared memory (>64KB)
               3. Multi-Descriptor  - Pass multiple file descriptors
               4. Unsolicited Msgs  - Fire-and-forget messages via messages() stream
               5. Reply Isolation   - Replies don't leak into messages() stream
@@ -154,7 +154,7 @@ struct BPCTestHarness {
                 }
 
                 let reply = try await endpointA.request(
-                    Message(id: .echo, payload: Data("a-request:\(requestUUID)".utf8)),
+                    FPCMessage(id: .echo, payload: Data("a-request:\(requestUUID)".utf8)),
                     timeout: .seconds(5)
                 )
 
@@ -195,7 +195,7 @@ struct BPCTestHarness {
                 }
 
                 let reply = try await endpointB.request(
-                    Message(id: .echo, payload: Data("b-request:\(requestUUID)".utf8)),
+                    FPCMessage(id: .echo, payload: Data("b-request:\(requestUUID)".utf8)),
                     timeout: .seconds(5)
                 )
 
@@ -253,7 +253,7 @@ struct BPCTestHarness {
                     return false
                 }
 
-                try await epA.send(Message(id: .largeData, payload: payload))
+                try await epA.send(FPCMessage(id: .largeData, payload: payload))
                 let valid = try await verifyTask.value
 
                 log("│ Closing test endpoints...")
@@ -391,7 +391,7 @@ struct BPCTestHarness {
 
                     // Server sends request TO client, waits for reply
                     let clientReply = try await endpoint.request(
-                        Message(id: .serverRequest, payload: Data("server-asks:\(serverUUID)".utf8)),
+                        FPCMessage(id: .serverRequest, payload: Data("server-asks:\(serverUUID)".utf8)),
                         timeout: .seconds(5)
                     )
 
@@ -411,11 +411,11 @@ struct BPCTestHarness {
                     for i in 0..<count {
                         let msgUUID = UUID().uuidString
                         log("│  → Sending unsolicited[\(i)]: \(msgUUID)")
-                        try await endpoint.send(Message(id: .unsolicited,
+                        try await endpoint.send(FPCMessage(id: .unsolicited,
                             payload: Data("unsolicited:\(i):\(msgUUID)".utf8)))
                     }
                     log("└→ Sending done marker")
-                    try await endpoint.send(Message(id: .done, payload: Data("unsolicited-complete".utf8)))
+                    try await endpoint.send(FPCMessage(id: .done, payload: Data("unsolicited-complete".utf8)))
 
                 // --- Done signal ---
                 case .done:
@@ -495,7 +495,7 @@ struct BPCTestHarness {
                 log("→ Sending request with UUID: \(clientUUID)")
 
                 let reply = try await endpoint.request(
-                    Message(id: .echo, payload: Data("client-echo:\(clientUUID)".utf8)),
+                    FPCMessage(id: .echo, payload: Data("client-echo:\(clientUUID)".utf8)),
                     timeout: .seconds(5)
                 )
 
@@ -519,7 +519,7 @@ struct BPCTestHarness {
             // ══════════════════════════════════════════════════════════════
             log("")
             log("┌──────────────────────────────────────────────────────────────┐")
-            log("│ TEST 2: Large Message (100KB)                                │")
+            log("│ TEST 2: Large FPCMessage (100KB)                                │")
             log("│ Verifies: Auto OOL via anonymous shared memory (>64KB limit) │")
             log("│ Wire: Only header+trailer sent; payload via shm descriptor   │")
             log("└──────────────────────────────────────────────────────────────┘")
@@ -533,7 +533,7 @@ struct BPCTestHarness {
                 log("  Note: BPC automatically uses shared memory for payloads >64KB")
 
                 let reply = try await endpoint.request(
-                    Message(id: .largeData, payload: largePayload),
+                    FPCMessage(id: .largeData, payload: largePayload),
                     timeout: .seconds(10)
                 )
 
@@ -582,7 +582,7 @@ struct BPCTestHarness {
                 log("→ Sending message with \(fdRefs.count) file descriptors")
 
                 let reply = try await endpoint.request(
-                    Message(id: .withDescriptors, payload: Data("check-fds".utf8), descriptors: fdRefs),
+                    FPCMessage(id: .withDescriptors, payload: Data("check-fds".utf8), descriptors: fdRefs),
                     timeout: .seconds(5)
                 )
 
@@ -621,7 +621,7 @@ struct BPCTestHarness {
             do {
                 let count = 5
                 log("→ Requesting server send \(count) unsolicited messages")
-                try await endpoint.send(Message(id: .sendUnsolicited, payload: Data("\(count)".utf8)))
+                try await endpoint.send(FPCMessage(id: .sendUnsolicited, payload: Data("\(count)".utf8)))
 
                 let stream = try await endpoint.incoming()
                 var received: [String] = []
@@ -693,7 +693,7 @@ struct BPCTestHarness {
 
                 // Send request - reply should go to THIS call, not messages()
                 let reply = try await endpoint.request(
-                    Message(id: .echo, payload: Data("isolation-test:\(requestUUID)".utf8)),
+                    FPCMessage(id: .echo, payload: Data("isolation-test:\(requestUUID)".utf8)),
                     timeout: .seconds(5)
                 )
 
@@ -722,7 +722,7 @@ struct BPCTestHarness {
             // ══════════════════════════════════════════════════════════════
             log("")
             log("Sending shutdown signal to server...")
-            try await endpoint.send(Message(id: .done))
+            try await endpoint.send(FPCMessage(id: .done))
 
             log("Closing connection...")
             await endpoint.stop()

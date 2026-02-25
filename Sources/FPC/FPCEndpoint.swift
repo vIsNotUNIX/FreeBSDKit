@@ -17,7 +17,7 @@ import Capsicum
 ///
 /// This endpoint is specifically designed for SOCK_SEQPACKET which provides:
 /// - Connection-oriented communication (like STREAM)
-/// - Message boundary preservation (like DATAGRAM)
+/// - FPCMessage boundary preservation (like DATAGRAM)
 /// - Reliable, ordered delivery
 ///
 /// Obtain an instance via ``FPCClient`` or ``pair()``.
@@ -27,10 +27,10 @@ public actor FPCEndpoint: Endpoint {
     private let socketHolder: SocketHolder
     private let ioQueue: DispatchQueue
     private var nextCorrelationID: UInt64 = 1
-    private var pendingReplies: [UInt64: CheckedContinuation<Message, Error>] = [:]
+    private var pendingReplies: [UInt64: CheckedContinuation<FPCMessage, Error>] = [:]
     private var pendingTimeouts: [UInt64: Task<Void, Never>] = [:]
-    private var incomingContinuation: AsyncStream<Message>.Continuation?
-    private var incomingStream: AsyncStream<Message>?
+    private var incomingContinuation: AsyncStream<FPCMessage>.Continuation?
+    private var incomingStream: AsyncStream<FPCMessage>?
     private var receiveLoopTask: Task<Void, Never>?
     private var state: LifecycleState = .idle
 
@@ -53,7 +53,7 @@ public actor FPCEndpoint: Endpoint {
     public func start() {
         guard state == .idle else { return }
         state = .running
-        let (stream, continuation) = AsyncStream.makeStream(of: Message.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: FPCMessage.self)
         incomingStream = stream
         incomingContinuation = continuation
 
@@ -74,7 +74,7 @@ public actor FPCEndpoint: Endpoint {
     // MARK: - Public API
 
     /// Sends a fire-and-forget message. Suspends until the bytes are on the wire.
-    public func send(_ message: Message) async throws {
+    public func send(_ message: FPCMessage) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             ioQueue.async {
                 do {
@@ -97,7 +97,7 @@ public actor FPCEndpoint: Endpoint {
     ///   - timeout: Optional timeout duration. If `nil`, waits indefinitely. If provided and exceeded, throws ``FPCError/timeout``
     /// - Returns: The reply message with matching correlation ID
     /// - Throws: ``FPCError/timeout`` if timeout is specified and exceeded
-    public func request(_ message: Message, timeout: Duration? = nil) async throws -> Message {
+    public func request(_ message: FPCMessage, timeout: Duration? = nil) async throws -> FPCMessage {
         // 64-bit correlation ID - won't wrap in practice (~585 years at 1B msg/sec)
         let correlationID = nextCorrelationID
         nextCorrelationID += 1
@@ -146,12 +146,12 @@ public actor FPCEndpoint: Endpoint {
     /// Automatically copies the correlation ID from the original request message.
     /// This ensures the reply is routed back to the caller waiting in `request()`.
     public func reply(
-        to request: Message,
+        to request: FPCMessage,
         id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
     ) async throws {
-        let replyMessage = Message(
+        let replyMessage = FPCMessage(
             id: id,
             correlationID: request.correlationID,
             payload: payload,
@@ -171,12 +171,12 @@ public actor FPCEndpoint: Endpoint {
     /// try await endpoint.reply(to: token, id: .pong, payload: data)
     /// ```
     public func reply(
-        to token: ReplyToken,
+        to token: FPCReplyToken,
         id: MessageID,
         payload: Data = Data(),
         descriptors: [OpaqueDescriptorRef] = []
     ) async throws {
-        let replyMessage = Message(
+        let replyMessage = FPCMessage(
             id: id,
             correlationID: token.correlationID,
             payload: payload,
@@ -193,7 +193,7 @@ public actor FPCEndpoint: Endpoint {
     /// Can only be claimed by one task. Throws `.notStarted` if ``start()`` has
     /// not been called, `.stopped` if ``stop()`` has been called, or
     /// `.streamAlreadyClaimed` if already claimed.
-    public func incoming() throws -> AsyncStream<Message> {
+    public func incoming() throws -> AsyncStream<FPCMessage> {
         switch state {
         case .idle:    throw FPCError.notStarted
         case .stopped: throw FPCError.stopped
@@ -262,7 +262,7 @@ public actor FPCEndpoint: Endpoint {
     /// - If no pending request exists, it's an incoming request - route to messages() stream
     ///
     /// Messages with `correlationID == 0` are always unsolicited and go to messages().
-    private func dispatch(_ message: Message) {
+    private func dispatch(_ message: FPCMessage) {
         if message.correlationID != 0 {
             // Check if this is a reply to a pending request we sent
             if let continuation = pendingReplies.removeValue(forKey: message.correlationID) {
@@ -307,7 +307,7 @@ public actor FPCEndpoint: Endpoint {
 
     /// Suspends until one complete message arrives on the socket.
     /// Blocking I/O is pushed off the cooperative thread pool onto `ioQueue`.
-    private func receiveFromSocket() async throws -> Message {
+    private func receiveFromSocket() async throws -> FPCMessage {
         try await withCheckedThrowingContinuation { continuation in
             ioQueue.async {
                 do {
@@ -339,7 +339,7 @@ public actor FPCEndpoint: Endpoint {
 
     // MARK: - Wire Format I/O
     //
-    // Wire format encoding/decoding is handled by WireFormat.swift.
+    // Wire format encoding/decoding is handled by FPCFrameLayout.swift.
     // This section handles the actual socket I/O and OOL payload management.
 
     /// Maximum inline payload size before switching to out-of-line shared memory.
@@ -358,7 +358,7 @@ public actor FPCEndpoint: Endpoint {
         return available > 0 ? available : 0
     }()
 
-    nonisolated private func socketSend(_ message: Message) throws {
+    nonisolated private func socketSend(_ message: FPCMessage) throws {
         var payload = message.payload
         var descriptors = message.descriptors
         var useOOL = false
@@ -367,7 +367,7 @@ public actor FPCEndpoint: Endpoint {
         var shmDescriptor: Int32? = nil
         if payload.count > Self.MAX_INLINE_PAYLOAD {
             // Check descriptor limit (254 max, OOL adds one more)
-            guard descriptors.count < WireFormat.maxDescriptors else {
+            guard descriptors.count < FPCFrameLayout.maxDescriptors else {
                 throw FPCError.tooManyDescriptors(descriptors.count + 1)
             }
             // Create anonymous shared memory (capability-mode safe)
@@ -413,22 +413,22 @@ public actor FPCEndpoint: Endpoint {
             useOOL = true
         } else {
             // Validate descriptor count (254 max)
-            guard descriptors.count <= WireFormat.maxDescriptors else {
+            guard descriptors.count <= FPCFrameLayout.maxDescriptors else {
                 throw FPCError.tooManyDescriptors(descriptors.count)
             }
         }
 
-        // Build wire message using WireFormat
-        let header = WireHeader(
+        // Build wire message using FPCFrameLayout
+        let header = FPCFrameHeader(
             messageID: message.id.rawValue,
             correlationID: message.correlationID,
             payloadLength: UInt32(payload.count),
             descriptorCount: UInt8(descriptors.count),
-            flags: useOOL ? WireFormat.flagOOLPayload : 0
+            flags: useOOL ? FPCFrameLayout.flagOOLPayload : 0
         )
 
-        let descriptorKinds = descriptors.prefix(WireFormat.maxDescriptors).map { $0.kind.wireValue }
-        let trailer = WireTrailer(descriptorKinds: Array(descriptorKinds))
+        let descriptorKinds = descriptors.prefix(FPCFrameLayout.maxDescriptors).map { $0.kind.wireValue }
+        let trailer = FPCFrameTrailer(descriptorKinds: Array(descriptorKinds))
 
         // Assemble wire data
         var wireData = header.encode()
@@ -448,13 +448,13 @@ public actor FPCEndpoint: Endpoint {
         }
     }
 
-    nonisolated private func socketReceive() throws -> Message {
+    nonisolated private func socketReceive() throws -> FPCMessage {
         // SEQPACKET guarantees message boundaries: each recv() returns exactly one message.
         // No buffering needed - the kernel preserves message atomicity.
-        let maxBufferSize = WireFormat.headerSize + Self.MAX_INLINE_PAYLOAD + WireFormat.trailerSize
+        let maxBufferSize = FPCFrameLayout.headerSize + Self.MAX_INLINE_PAYLOAD + FPCFrameLayout.trailerSize
 
         let (wireData, receivedDescriptors) = try socketHolder.withSocketOrThrow { socket in
-            try socket.recvDescriptors(maxDescriptors: WireFormat.maxDescriptors, bufferSize: maxBufferSize)
+            try socket.recvDescriptors(maxDescriptors: FPCFrameLayout.maxDescriptors, bufferSize: maxBufferSize)
         }
 
         // Check for connection closed (0 bytes)
@@ -466,17 +466,17 @@ public actor FPCEndpoint: Endpoint {
     }
 
     /// Parses a complete BPC message from wire data.
-    nonisolated private func parseMessage(wireData: Data, receivedDescriptors: [OpaqueDescriptorRef]) throws -> Message {
-        guard wireData.count >= WireFormat.minimumMessageSize else {
+    nonisolated private func parseMessage(wireData: Data, receivedDescriptors: [OpaqueDescriptorRef]) throws -> FPCMessage {
+        guard wireData.count >= FPCFrameLayout.minimumMessageSize else {
             throw FPCError.invalidMessageFormat
         }
 
         // Parse and validate header
-        let header = try WireHeader.decode(from: wireData)
+        let header = try FPCFrameHeader.decode(from: wireData)
         try header.validate()
 
         // Validate total message size
-        let expectedTotal = WireFormat.headerSize + Int(header.payloadLength) + WireFormat.trailerSize
+        let expectedTotal = FPCFrameLayout.headerSize + Int(header.payloadLength) + FPCFrameLayout.trailerSize
         guard wireData.count == expectedTotal else {
             throw FPCError.invalidMessageFormat
         }
@@ -487,9 +487,9 @@ public actor FPCEndpoint: Endpoint {
         }
 
         // Parse and validate trailer
-        let trailerStart = wireData.count - WireFormat.trailerSize
+        let trailerStart = wireData.count - FPCFrameLayout.trailerSize
         let trailerData = Data(wireData[trailerStart...])
-        let trailer = try WireTrailer.decode(from: trailerData, descriptorCount: Int(header.descriptorCount))
+        let trailer = try FPCFrameTrailer.decode(from: trailerData, descriptorCount: Int(header.descriptorCount))
         try trailer.validate(hasOOLPayload: header.hasOOLPayload)
 
         // Apply descriptor kinds from trailer
@@ -541,12 +541,12 @@ public actor FPCEndpoint: Endpoint {
 
             payload = Data(bytes: mappedPtr, count: shmSize)
         } else {
-            let payloadStart = WireFormat.headerSize
+            let payloadStart = FPCFrameLayout.headerSize
             let payloadEnd = payloadStart + Int(header.payloadLength)
             payload = Data(wireData[payloadStart..<payloadEnd])
         }
 
-        return Message(
+        return FPCMessage(
             id: MessageID(rawValue: header.messageID),
             correlationID: header.correlationID,
             payload: payload,

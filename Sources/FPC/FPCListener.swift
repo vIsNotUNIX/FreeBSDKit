@@ -14,7 +14,7 @@ import Capabilities
 ///
 /// This listener is specifically designed for SOCK_SEQPACKET which provides:
 /// - Connection-oriented communication (listen/accept like STREAM)
-/// - Message boundary preservation (like DATAGRAM)
+/// - FPCMessage boundary preservation (like DATAGRAM)
 /// - Reliable, ordered delivery
 ///
 /// Obtain an instance via ``listen(on:)``. After calling ``start()``,
