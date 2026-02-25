@@ -31,6 +31,7 @@ Then add the specific libraries you need to your target:
         .product(name: "FPC", package: "FreeBSDKit"),
         .product(name: "Procctl", package: "FreeBSDKit"),
         .product(name: "ACL", package: "FreeBSDKit"),
+        .product(name: "Rctl", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -788,6 +789,173 @@ try entry.setFlags([.fileInherit, .directoryInherit])
 
 ---
 
+### Rctl
+
+Swift interface to FreeBSD's rctl(4) resource control subsystem for limiting CPU, memory, and I/O resources per-process, per-user, per-jail, or per-login class.
+
+```swift
+import Rctl
+
+// Check if rctl is enabled in the kernel
+if Rctl.isEnabled {
+    print("rctl is available")
+}
+
+// Get resource usage for current process
+let usage = try Rctl.getCurrentProcessUsage()
+print("CPU time: \(usage["cputime"] ?? "0")")
+print("Memory: \(usage["memoryuse"] ?? "0")")
+
+// Get usage for a specific subject
+let jailUsage = try Rctl.getUsage(for: .jailName("myjail"))
+```
+
+**Adding Resource Limits:**
+
+```swift
+import Rctl
+
+// Limit memory for a user to 1GB
+try Rctl.limitMemory(Rctl.Size.gb(1), for: .user(1000))
+
+// Limit CPU to 50% for a jail
+try Rctl.limitCPU(50, for: .jailName("myjail"))
+
+// Limit open files for a process
+try Rctl.limitOpenFiles(256, for: .process(getpid()))
+
+// Limit max processes per user
+try Rctl.limitProcesses(100, for: .userName("www"))
+```
+
+**Custom Rules:**
+
+```swift
+import Rctl
+
+// Create a custom rule with signal action
+let rule = Rctl.Rule(
+    subject: .loginClass("daemon"),
+    resource: .cpuTime,
+    action: .signal(SIGXCPU),
+    amount: 3600  // 1 hour
+)
+try Rctl.addRule(rule)
+
+// Rule with per-process limit
+let memRule = Rctl.Rule(
+    subject: .jail(5),
+    resource: .memoryUse,
+    action: .deny,
+    amount: Rctl.Size.mb(512),
+    per: .process
+)
+try Rctl.addRule(memRule)
+
+// Remove a rule
+try Rctl.removeRule(rule)
+
+// Remove all rules for a subject
+try Rctl.removeRules(for: .user(1000))
+```
+
+**Rule Builder:**
+
+```swift
+import Rctl
+
+var builder = Rctl.ruleBuilder()
+_ = builder.forSubject(.jailName("webserver"))
+_ = builder.limiting(.vmemoryUse)
+_ = builder.withAction(.deny)
+_ = builder.toAmount(Rctl.Size.gb(4))
+_ = builder.per(.process)
+
+if let rule = builder.build() {
+    try Rctl.addRule(rule)
+}
+```
+
+**Query Existing Rules:**
+
+```swift
+import Rctl
+
+// Get all rules
+let allRules = try Rctl.getRules()
+
+// Get rules for a specific subject
+let userRules = try Rctl.getRules(for: .user(1000))
+
+// Parse a rule string
+if let rule = Rctl.Rule(parsing: "user:1000:memoryuse:deny=536870912/process") {
+    print("Subject: \(rule.subject)")
+    print("Resource: \(rule.resource)")
+    print("Amount: \(rule.amount)")
+}
+```
+
+**Process Descriptor Integration:**
+
+```swift
+import Rctl
+import Descriptors
+
+// Fork a child process with pdfork
+let result = try ProcessCapability.fork()
+
+if !result.isChild, var desc = result.descriptor as? ProcessCapability {
+    // Get resource usage via process descriptor
+    let usage = try Rctl.getUsage(for: desc)
+    print("Child CPU: \(usage["cputime"] ?? "0")")
+
+    // Or create a subject from descriptor
+    let subject = try Rctl.Subject.process(from: desc)
+
+    // Apply limits to the child process
+    try Rctl.limitMemory(Rctl.Size.mb(256), for: desc)
+    try Rctl.limitCPU(50, for: desc)
+}
+```
+
+**Subjects:**
+
+| Subject | Description | Example |
+|---------|-------------|---------|
+| `.process(pid)` | Specific process | `.process(1234)` |
+| `.user(uid)` | User by UID | `.user(1000)` |
+| `.userName(name)` | User by name | `.userName("www")` |
+| `.loginClass(name)` | Login class | `.loginClass("daemon")` |
+| `.jail(jid)` | Jail by JID | `.jail(5)` |
+| `.jailName(name)` | Jail by name | `.jailName("myjail")` |
+
+**Resources:**
+
+| Resource | Description |
+|----------|-------------|
+| `.cpuTime` | CPU time in seconds |
+| `.memoryUse` | Resident memory (RSS) |
+| `.vmemoryUse` | Virtual memory |
+| `.maxProc` | Number of processes |
+| `.openFiles` | Open file descriptors |
+| `.threads` | Number of threads |
+| `.swapUse` | Swap space usage |
+| `.pcpu` | CPU percentage (0-100 per CPU) |
+| `.readBps` / `.writeBps` | I/O bandwidth |
+| `.readIops` / `.writeIops` | I/O operations per second |
+
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `.deny` | Deny the resource allocation |
+| `.log` | Log via syslog |
+| `.devctl` | Send notification via devctl |
+| `.throttle` | Throttle I/O (for bandwidth limits) |
+| `.signal(sig)` | Send signal (SIGTERM, SIGKILL, etc.) |
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -871,6 +1039,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CDeviceIoctl` | Device ioctl constants (FIONREAD, DIOCGSECTORSIZE, etc.) |
 | `CProcctl` | Process control constants and structures |
 | `CACL` | ACL constants and type definitions |
+| `CRctl` | Resource control syscall wrappers |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
 

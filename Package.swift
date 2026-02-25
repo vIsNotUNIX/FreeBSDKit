@@ -50,6 +50,10 @@ let package = Package(
             name: "ACL",
             targets: ["ACL"]
         ),
+        .library(
+            name: "Rctl",
+            targets: ["Rctl"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -149,6 +153,14 @@ let package = Package(
             dependencies: ["CACL"]
         ),
         .target(
+            name: "CRctl",
+            path: "Sources/CRctl"
+        ),
+        .target(
+            name: "Rctl",
+            dependencies: ["CRctl", "Descriptors"]
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
@@ -224,6 +236,10 @@ let package = Package(
         .testTarget(
             name: "ACLTests",
             dependencies: ["ACL"]
+        ),
+        .testTarget(
+            name: "RctlTests",
+            dependencies: ["Rctl"]
         ),
         .executableTarget(
             name: "TestTool",

@@ -1,0 +1,5 @@
+module CRctl {
+    header "include/crctl.h"
+    link "c"
+    export *
+}
