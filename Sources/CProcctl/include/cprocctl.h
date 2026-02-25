@@ -1,0 +1,139 @@
+/*
+ * Copyright (c) 2026 Kory Heard
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+#ifndef CPROCCTL_H
+#define CPROCCTL_H
+
+#include <sys/types.h>
+#include <sys/procctl.h>
+#include <sys/signal.h>
+#include <errno.h>
+
+/*
+ * Re-export procctl constants for Swift access
+ */
+
+/* Commands */
+static const int CPROCCTL_SPROTECT = PROC_SPROTECT;
+static const int CPROCCTL_REAP_ACQUIRE = PROC_REAP_ACQUIRE;
+static const int CPROCCTL_REAP_RELEASE = PROC_REAP_RELEASE;
+static const int CPROCCTL_REAP_STATUS = PROC_REAP_STATUS;
+static const int CPROCCTL_REAP_GETPIDS = PROC_REAP_GETPIDS;
+static const int CPROCCTL_REAP_KILL = PROC_REAP_KILL;
+static const int CPROCCTL_TRACE_CTL = PROC_TRACE_CTL;
+static const int CPROCCTL_TRACE_STATUS = PROC_TRACE_STATUS;
+static const int CPROCCTL_TRAPCAP_CTL = PROC_TRAPCAP_CTL;
+static const int CPROCCTL_TRAPCAP_STATUS = PROC_TRAPCAP_STATUS;
+static const int CPROCCTL_PDEATHSIG_CTL = PROC_PDEATHSIG_CTL;
+static const int CPROCCTL_PDEATHSIG_STATUS = PROC_PDEATHSIG_STATUS;
+static const int CPROCCTL_ASLR_CTL = PROC_ASLR_CTL;
+static const int CPROCCTL_ASLR_STATUS = PROC_ASLR_STATUS;
+static const int CPROCCTL_PROTMAX_CTL = PROC_PROTMAX_CTL;
+static const int CPROCCTL_PROTMAX_STATUS = PROC_PROTMAX_STATUS;
+static const int CPROCCTL_STACKGAP_CTL = PROC_STACKGAP_CTL;
+static const int CPROCCTL_STACKGAP_STATUS = PROC_STACKGAP_STATUS;
+static const int CPROCCTL_NO_NEW_PRIVS_CTL = PROC_NO_NEW_PRIVS_CTL;
+static const int CPROCCTL_NO_NEW_PRIVS_STATUS = PROC_NO_NEW_PRIVS_STATUS;
+static const int CPROCCTL_WXMAP_CTL = PROC_WXMAP_CTL;
+static const int CPROCCTL_WXMAP_STATUS = PROC_WXMAP_STATUS;
+static const int CPROCCTL_LOGSIGEXIT_CTL = PROC_LOGSIGEXIT_CTL;
+static const int CPROCCTL_LOGSIGEXIT_STATUS = PROC_LOGSIGEXIT_STATUS;
+
+/* SPROTECT operations */
+static const int CPROCCTL_PPROT_SET = PPROT_SET;
+static const int CPROCCTL_PPROT_CLEAR = PPROT_CLEAR;
+
+/* SPROTECT flags */
+static const int CPROCCTL_PPROT_DESCEND = PPROT_DESCEND;
+static const int CPROCCTL_PPROT_INHERIT = PPROT_INHERIT;
+
+/* Reaper status flags */
+static const unsigned int CPROCCTL_REAPER_STATUS_OWNED = REAPER_STATUS_OWNED;
+static const unsigned int CPROCCTL_REAPER_STATUS_REALINIT = REAPER_STATUS_REALINIT;
+
+/* Reaper pidinfo flags */
+static const unsigned int CPROCCTL_REAPER_PIDINFO_VALID = REAPER_PIDINFO_VALID;
+static const unsigned int CPROCCTL_REAPER_PIDINFO_CHILD = REAPER_PIDINFO_CHILD;
+static const unsigned int CPROCCTL_REAPER_PIDINFO_REAPER = REAPER_PIDINFO_REAPER;
+static const unsigned int CPROCCTL_REAPER_PIDINFO_ZOMBIE = REAPER_PIDINFO_ZOMBIE;
+static const unsigned int CPROCCTL_REAPER_PIDINFO_STOPPED = REAPER_PIDINFO_STOPPED;
+static const unsigned int CPROCCTL_REAPER_PIDINFO_EXITING = REAPER_PIDINFO_EXITING;
+
+/* Reaper kill flags */
+static const unsigned int CPROCCTL_REAPER_KILL_CHILDREN = REAPER_KILL_CHILDREN;
+static const unsigned int CPROCCTL_REAPER_KILL_SUBTREE = REAPER_KILL_SUBTREE;
+
+/* Trace control values */
+static const int CPROCCTL_TRACE_CTL_ENABLE = PROC_TRACE_CTL_ENABLE;
+static const int CPROCCTL_TRACE_CTL_DISABLE = PROC_TRACE_CTL_DISABLE;
+static const int CPROCCTL_TRACE_CTL_DISABLE_EXEC = PROC_TRACE_CTL_DISABLE_EXEC;
+
+/* Trapcap control values */
+static const int CPROCCTL_TRAPCAP_CTL_ENABLE = PROC_TRAPCAP_CTL_ENABLE;
+static const int CPROCCTL_TRAPCAP_CTL_DISABLE = PROC_TRAPCAP_CTL_DISABLE;
+
+/* ASLR values */
+static const int CPROCCTL_ASLR_FORCE_ENABLE = PROC_ASLR_FORCE_ENABLE;
+static const int CPROCCTL_ASLR_FORCE_DISABLE = PROC_ASLR_FORCE_DISABLE;
+static const int CPROCCTL_ASLR_NOFORCE = PROC_ASLR_NOFORCE;
+static const int CPROCCTL_ASLR_ACTIVE = PROC_ASLR_ACTIVE;
+
+/* PROTMAX values */
+static const int CPROCCTL_PROTMAX_FORCE_ENABLE = PROC_PROTMAX_FORCE_ENABLE;
+static const int CPROCCTL_PROTMAX_FORCE_DISABLE = PROC_PROTMAX_FORCE_DISABLE;
+static const int CPROCCTL_PROTMAX_NOFORCE = PROC_PROTMAX_NOFORCE;
+static const int CPROCCTL_PROTMAX_ACTIVE = PROC_PROTMAX_ACTIVE;
+
+/* Stack gap values */
+static const int CPROCCTL_STACKGAP_ENABLE = PROC_STACKGAP_ENABLE;
+static const int CPROCCTL_STACKGAP_DISABLE = PROC_STACKGAP_DISABLE;
+static const int CPROCCTL_STACKGAP_ENABLE_EXEC = PROC_STACKGAP_ENABLE_EXEC;
+static const int CPROCCTL_STACKGAP_DISABLE_EXEC = PROC_STACKGAP_DISABLE_EXEC;
+
+/* No new privs values */
+static const int CPROCCTL_NO_NEW_PRIVS_ENABLE = PROC_NO_NEW_PRIVS_ENABLE;
+static const int CPROCCTL_NO_NEW_PRIVS_DISABLE = PROC_NO_NEW_PRIVS_DISABLE;
+
+/* WX map values */
+static const int CPROCCTL_WX_MAPPINGS_PERMIT = PROC_WX_MAPPINGS_PERMIT;
+static const int CPROCCTL_WX_MAPPINGS_DISALLOW_EXEC = PROC_WX_MAPPINGS_DISALLOW_EXEC;
+static const int CPROCCTL_WXORX_ENFORCE = PROC_WXORX_ENFORCE;
+
+/* Log sigexit values */
+static const int CPROCCTL_LOGSIGEXIT_CTL_NOFORCE = PROC_LOGSIGEXIT_CTL_NOFORCE;
+static const int CPROCCTL_LOGSIGEXIT_CTL_FORCE_ENABLE = PROC_LOGSIGEXIT_CTL_FORCE_ENABLE;
+static const int CPROCCTL_LOGSIGEXIT_CTL_FORCE_DISABLE = PROC_LOGSIGEXIT_CTL_FORCE_DISABLE;
+
+/* x86-specific commands */
+#if defined(__amd64__) || defined(__x86_64__)
+static const int CPROCCTL_KPTI_CTL = PROC_KPTI_CTL;
+static const int CPROCCTL_KPTI_STATUS = PROC_KPTI_STATUS;
+static const int CPROCCTL_LA_CTL = PROC_LA_CTL;
+static const int CPROCCTL_LA_STATUS = PROC_LA_STATUS;
+
+static const int CPROCCTL_KPTI_CTL_ENABLE_ON_EXEC = PROC_KPTI_CTL_ENABLE_ON_EXEC;
+static const int CPROCCTL_KPTI_CTL_DISABLE_ON_EXEC = PROC_KPTI_CTL_DISABLE_ON_EXEC;
+static const int CPROCCTL_KPTI_STATUS_ACTIVE = PROC_KPTI_STATUS_ACTIVE;
+
+static const int CPROCCTL_LA_CTL_LA48_ON_EXEC = PROC_LA_CTL_LA48_ON_EXEC;
+static const int CPROCCTL_LA_CTL_LA57_ON_EXEC = PROC_LA_CTL_LA57_ON_EXEC;
+static const int CPROCCTL_LA_CTL_DEFAULT_ON_EXEC = PROC_LA_CTL_DEFAULT_ON_EXEC;
+static const int CPROCCTL_LA_STATUS_LA48 = PROC_LA_STATUS_LA48;
+static const int CPROCCTL_LA_STATUS_LA57 = PROC_LA_STATUS_LA57;
+#endif
+
+/* idtype_t values */
+static const idtype_t CPROCCTL_P_PID = P_PID;
+static const idtype_t CPROCCTL_P_PGID = P_PGID;
+
+/*
+ * Wrapper function for procctl
+ */
+static inline int cprocctl_call(idtype_t idtype, id_t id, int cmd, void *data) {
+    return procctl(idtype, id, cmd, data);
+}
+
+#endif /* CPROCCTL_H */

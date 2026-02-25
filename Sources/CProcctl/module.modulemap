@@ -1,0 +1,4 @@
+module CProcctl {
+    header "include/cprocctl.h"
+    export *
+}

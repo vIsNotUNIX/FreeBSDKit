@@ -42,6 +42,10 @@ let package = Package(
             name: "Casper",
             targets: ["Casper"]
         ),
+        .library(
+            name: "Procctl",
+            targets: ["Procctl"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -125,6 +129,14 @@ let package = Package(
             dependencies: ["CCasper", "FreeBSDKit"]
         ),
         .target(
+            name: "CProcctl",
+            path: "Sources/CProcctl"
+        ),
+        .target(
+            name: "Procctl",
+            dependencies: ["CProcctl", "FreeBSDKit"]
+        ),
+        .target(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
@@ -192,6 +204,10 @@ let package = Package(
         .testTarget(
             name: "CasperTests",
             dependencies: ["Casper"]
+        ),
+        .testTarget(
+            name: "ProcctlTests",
+            dependencies: ["Procctl"]
         ),
         .executableTarget(
             name: "TestTool",
