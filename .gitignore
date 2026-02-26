@@ -36,6 +36,10 @@ playground.xcworkspace
 
 .build/
 
+.claude/
+
+*.core
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However
