@@ -118,7 +118,11 @@ public enum BSDSysctl {
             try BSDError.throwErrno(errno)
         }
 
-        return String(cString: buffer)
+        return buffer.withUnsafeBytes { ptr in
+            let utf8 = ptr.bindMemory(to: UInt8.self)
+            let length = utf8.firstIndex(of: 0) ?? utf8.count
+            return String(decoding: utf8.prefix(length), as: UTF8.self)
+        }
     }
 
     /// Writes a string sysctl value.

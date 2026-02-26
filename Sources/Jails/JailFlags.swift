@@ -17,7 +17,7 @@ import CJails
 /// - Note: The underlying raw values are part of the FreeBSD jail ABI and
 ///   must not be changed.
 /// - SeeAlso: `jail_set(2)`
-public struct JailSetFlags: OptionSet {
+public struct JailSetFlags: OptionSet, Sendable {
 
     /// The raw C bitmask value passed to `jail_set(2)`.
     public let rawValue: Int32
@@ -60,7 +60,7 @@ public struct JailSetFlags: OptionSet {
 /// - Note: The underlying raw values are part of the FreeBSD jail ABI and
 ///   must not be changed.
 /// - SeeAlso: `jail_get(2)`
-public struct JailGetFlags: OptionSet {
+public struct JailGetFlags: OptionSet, Sendable {
 
     /// The raw C bitmask value passed to `jail_get(2)`.
     public let rawValue: Int32

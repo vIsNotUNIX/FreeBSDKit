@@ -36,8 +36,18 @@ enum Role: String {
     case none = ""
 }
 
-private var currentRole: Role = .none
+nonisolated(unsafe) private var currentRole: Role = .none
 private let startTime = Date()
+
+/// A thread-safe box for sharing mutable state across task boundaries.
+final class MutableBox<T: Sendable>: @unchecked Sendable {
+    private var _value: T
+    init(_ value: T) { _value = value }
+    var value: T {
+        get { _value }
+        set { _value = newValue }
+    }
+}
 
 func setRole(_ role: Role) {
     currentRole = role
@@ -669,7 +679,7 @@ struct BPCTestHarness {
                 log("→ Sending request with UUID: \(requestUUID)")
                 log("  Simultaneously checking messages() stream...")
 
-                var sawReplyInStream = false
+                let sawReplyInStream = MutableBox(false)
 
                 // Start a task to drain messages() and check for leaks
                 let checkTask = Task {
@@ -680,7 +690,7 @@ struct BPCTestHarness {
                         // Check for a short time
                         for try await msg in stream {
                             if msg.id == .echoReply {
-                                sawReplyInStream = true
+                                sawReplyInStream.value = true
                                 log("  ✗ LEAK: Reply appeared in messages() stream!")
                             }
                             // Don't block forever
@@ -702,10 +712,10 @@ struct BPCTestHarness {
                 let replyStr = String(data: reply.payload, encoding: .utf8) ?? "<invalid>"
                 log("← request() received reply: \(replyStr)")
 
-                if !sawReplyInStream && replyStr.hasPrefix("server-echo:") {
+                if !sawReplyInStream.value && replyStr.hasPrefix("server-echo:") {
                     log("✓ TEST 5 PASSED: Reply routed to request(), not messages()")
                     passed += 1
-                } else if sawReplyInStream {
+                } else if sawReplyInStream.value {
                     log("✗ TEST 5 FAILED: Reply leaked to messages() stream")
                     failed += 1
                 } else {

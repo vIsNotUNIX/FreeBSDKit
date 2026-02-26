@@ -9,7 +9,7 @@ import Foundation
 import FreeBSDKit
 
 /// An OptionSet for socket flags that can be used in `recv`/`send` operations
-public struct SocketFlags: OptionSet {
+public struct SocketFlags: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 

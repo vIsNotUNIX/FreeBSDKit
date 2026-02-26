@@ -399,7 +399,18 @@ public struct CasperNet: ~Copyable, Sendable {
             throw CasperError.operationFailed(errno: err)
         }
 
-        return (String(cString: host), String(cString: serv))
+        return (
+            host.withUnsafeBytes { ptr in
+                let utf8 = ptr.bindMemory(to: UInt8.self)
+                let length = utf8.firstIndex(of: 0) ?? utf8.count
+                return String(decoding: utf8.prefix(length), as: UTF8.self)
+            },
+            serv.withUnsafeBytes { ptr in
+                let utf8 = ptr.bindMemory(to: UInt8.self)
+                let length = utf8.firstIndex(of: 0) ?? utf8.count
+                return String(decoding: utf8.prefix(length), as: UTF8.self)
+            }
+        )
     }
 
     /// Resolves a hostname using the legacy `gethostbyname` interface.

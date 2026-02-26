@@ -14,7 +14,7 @@ import FreeBSDKit
 /// When passed as the name to shm_open(), creates an unnamed shared memory object
 /// that can be passed via descriptor passing but doesn't require namespace access.
 /// This is safe to use in capability mode.
-public let SHM_ANON = UnsafeMutablePointer<CChar>(bitPattern: 1)!
+nonisolated(unsafe) public let SHM_ANON = UnsafeMutablePointer<CChar>(bitPattern: 1)!
 
 // MARK: - Access Mode
 
@@ -43,7 +43,7 @@ public enum ShmAccessMode: Sendable {
 ///
 /// These are the creation and truncation flags that can be combined.
 /// Access mode (read/write permissions) is specified separately via `ShmAccessMode`.
-public struct ShmOpenFlags: OptionSet {
+public struct ShmOpenFlags: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
@@ -58,7 +58,7 @@ public struct ShmOpenFlags: OptionSet {
 // MARK: - Protection Flags
 
 /// Memory protection options for POSIX shared memory mappings.
-public struct ShmProtection: OptionSet {
+public struct ShmProtection: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 
@@ -71,7 +71,7 @@ public struct ShmProtection: OptionSet {
 // MARK: - Mapping Flags
 
 /// Flags controlling how shared memory is mapped.
-public struct ShmMapFlags: OptionSet {
+public struct ShmMapFlags: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 

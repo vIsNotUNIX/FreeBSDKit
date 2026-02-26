@@ -10,7 +10,7 @@ import FreeBSDKit
 import CEventDescriptor
 
 /// Flags passed to eventfd().
-public struct EventFDFlags: OptionSet {
+public struct EventFDFlags: OptionSet, Sendable {
     public let rawValue: Int32
 
     public init(rawValue: Int32) { self.rawValue = rawValue }

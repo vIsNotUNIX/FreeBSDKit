@@ -203,7 +203,11 @@ public extension DeviceDescriptor where Self: ~Copyable {
             arg.buf = UnsafeMutableRawPointer(ptr.baseAddress)
             try ioctl(CDEV_FIODGNAME, &arg)
         }
-        return String(cString: buffer)
+        return buffer.withUnsafeBytes { ptr in
+            let utf8 = ptr.bindMemory(to: UInt8.self)
+            let length = utf8.firstIndex(of: 0) ?? utf8.count
+            return String(decoding: utf8.prefix(length), as: UTF8.self)
+        }
     }
 
     func setNonBlocking(_ enabled: Bool) throws {
@@ -245,6 +249,10 @@ public extension DeviceDescriptor where Self: ~Copyable {
                 }
             }
         }
-        return String(cString: buffer)
+        return buffer.withUnsafeBytes { ptr in
+            let utf8 = ptr.bindMemory(to: UInt8.self)
+            let length = utf8.firstIndex(of: 0) ?? utf8.count
+            return String(decoding: utf8.prefix(length), as: UTF8.self)
+        }
     }
 }

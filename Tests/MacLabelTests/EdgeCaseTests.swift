@@ -100,7 +100,7 @@ final class EdgeCaseTests: XCTestCase {
     // MARK: - JSON Round-Trip Tests
 
     func testConfiguration_LoadEdgeCasesExample() throws {
-        let testFile = URL(fileURLWithPath: #file)
+        let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/edge-cases.json").path
 
@@ -128,7 +128,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_LoadSingleFileExample() throws {
-        let testFile = URL(fileURLWithPath: #file)
+        let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/single-file.json").path
 
@@ -142,7 +142,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testConfiguration_LoadComprehensiveExample() throws {
-        let testFile = URL(fileURLWithPath: #file)
+        let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let examplePath = packageRoot.appendingPathComponent("Examples/maclabel/comprehensive.json").path
 

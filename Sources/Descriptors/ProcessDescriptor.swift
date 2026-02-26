@@ -12,7 +12,7 @@ import FreeBSDKit
 // MARK: - Flags
 
 /// Flags accepted by `pdfork(2)`
-public struct ProcessDescriptorFlags: OptionSet {
+public struct ProcessDescriptorFlags: OptionSet, Sendable {
     public let rawValue: Int32
     public init(rawValue: Int32) { self.rawValue = rawValue }
 

@@ -118,9 +118,9 @@ final class KqueueSignalHandlerTests: XCTestCase {
 }
 
 // Helper for async tests with timeout
-func withTimeout<T>(
+func withTimeout<T: Sendable>(
     seconds: TimeInterval,
-    operation: @escaping () async throws -> T
+    operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask {

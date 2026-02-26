@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.3
 // The FreeBSD ports tree still uses 5.10. You can build with 6.2
 
 import PackageDescription
@@ -83,10 +83,6 @@ let package = Package(
         .target(
             name: "CCapsicum",
             path: "Sources/CCapsicum"
-        ),
-        .target(
-            name: "CExtendedError",
-            path: "Sources/CExtendedError"
         ),
         .target(
             name: "CExtendedAttributes",

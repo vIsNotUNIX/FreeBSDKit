@@ -40,7 +40,7 @@ public enum Audit {
     // MARK: - Audit Policy
 
     /// Audit policy flags controlling what additional information is recorded.
-    public struct Policy: OptionSet {
+    public struct Policy: OptionSet, Sendable {
         public let rawValue: Int32
 
         public init(rawValue: Int32) {
@@ -101,7 +101,7 @@ public enum Audit {
     // MARK: - Audit Mask
 
     /// Audit preselection mask for success and failure events.
-    public struct Mask {
+    public struct Mask: Sendable {
         /// Classes to audit on success.
         public var success: EventClass
         /// Classes to audit on failure.
