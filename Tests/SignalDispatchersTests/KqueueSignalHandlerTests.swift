@@ -11,7 +11,7 @@ import Foundation
 @testable import Descriptors
 @testable import FreeBSDKit
 
-final class KqueueSignalDispatcherTests: XCTestCase {
+final class KqueueSignalHandlerTests: XCTestCase {
 
     func testBlockSignals() throws {
         // Test that blockSignals doesn't throw
@@ -69,27 +69,27 @@ final class KqueueSignalDispatcherTests: XCTestCase {
         XCTAssertEqual(receivedSignal, .usr1)
     }
 
-    func testKqueueSignalDispatcherInit() throws {
+    func testKqueueSignalHandlerInit() throws {
         let kq = SystemKqueueDescriptor(kqueue())
 
-        _ = try KqueueSignalDispatcher(
+        _ = try KqueueSignalHandler(
             kqueue: kq,
             signals: [.usr1, .usr2]
         )
 
-        // Init should not throw - dispatcher is now valid
+        // Init should not throw - handler is now valid
     }
 
-    func testKqueueSignalDispatcherHandlerRegistration() async throws {
+    func testKqueueSignalHandlerRegistration() async throws {
         let kq = SystemKqueueDescriptor(kqueue())
 
-        let dispatcher = try KqueueSignalDispatcher(
+        let signalHandler = try KqueueSignalHandler(
             kqueue: kq,
             signals: [.usr1]
         )
 
         nonisolated(unsafe) var handlerCalled = false
-        await dispatcher.on(.usr1) {
+        await signalHandler.on(.usr1) {
             handlerCalled = true
         }
 

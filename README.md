@@ -282,23 +282,23 @@ import Descriptors
 // Create a kqueue for signal delivery
 var kq = try KqueueCapability.create()
 
-// Create dispatcher for specific signals
-let dispatcher = try KqueueSignalDispatcher(
+// Create handler for specific signals
+let handler = try KqueueSignalHandler(
     kqueue: kq,
     signals: [.int, .term, .hup]
 )
 
 // Register handlers
-await dispatcher.on(.int) {
+await handler.on(.int) {
     print("Received SIGINT")
 }
 
-await dispatcher.on(.term) {
+await handler.on(.term) {
     print("Received SIGTERM, shutting down...")
 }
 
-// Run the dispatch loop (never returns normally)
-try await dispatcher.run()
+// Run the signal handling loop (never returns normally)
+try await handler.run()
 ```
 
 **Using libdispatch:**
@@ -306,14 +306,14 @@ try await dispatcher.run()
 ```swift
 import SignalDispatchers
 
-// Dispatch-based signal handling
-let dispatcher = try DispatchSignalDispatcher(signals: [.int, .term])
+// GCD-based signal handling
+let handler = try GCDSignalHandler(signals: [.int, .term])
 
-dispatcher.on(.int) {
+handler.on(.int) {
     print("SIGINT received")
 }
 
-dispatcher.on(.term) {
+handler.on(.term) {
     print("SIGTERM received")
 }
 

@@ -11,38 +11,38 @@ import Dispatch
 @testable import SignalDispatchers
 @testable import FreeBSDKit
 
-final class DispatchSignalDispatcherTests: XCTestCase {
+final class GCDSignalHandlerTests: XCTestCase {
 
     func testInitWithCatchableSignals() throws {
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1, .usr2]
         )
-        XCTAssertNotNil(dispatcher)
-        dispatcher.cancel()
+        XCTAssertNotNil(handler)
+        handler.cancel()
     }
 
     func testInitWithUncatchableSignalThrows() {
         XCTAssertThrowsError(
-            try DispatchSignalDispatcher(signals: [.kill])
+            try GCDSignalHandler(signals: [.kill])
         ) { error in
             XCTAssertTrue(error is POSIXError)
         }
 
         XCTAssertThrowsError(
-            try DispatchSignalDispatcher(signals: [.stop])
+            try GCDSignalHandler(signals: [.stop])
         ) { error in
             XCTAssertTrue(error is POSIXError)
         }
     }
 
     func testHandlerRegistration() throws {
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1]
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
         nonisolated(unsafe) var handlerCalled = false
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             handlerCalled = true
         }
 
@@ -53,13 +53,13 @@ final class DispatchSignalDispatcherTests: XCTestCase {
     func testSignalDeliveryViaLibdispatch() throws {
         let expectation = XCTestExpectation(description: "Signal handler called")
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1],
             queue: .main
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             expectation.fulfill()
         }
 
@@ -75,17 +75,17 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         let expectation1 = XCTestExpectation(description: "SIGUSR1 handler called")
         let expectation2 = XCTestExpectation(description: "SIGUSR2 handler called")
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1, .usr2],
             queue: .main
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             expectation1.fulfill()
         }
 
-        dispatcher.on(.usr2) {
+        handler.on(.usr2) {
             expectation2.fulfill()
         }
 
@@ -101,19 +101,19 @@ final class DispatchSignalDispatcherTests: XCTestCase {
     func testHandlerReplacement() throws {
         let expectation = XCTestExpectation(description: "Second handler called")
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1],
             queue: .main
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
         nonisolated(unsafe) var firstHandlerCalled = false
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             firstHandlerCalled = true
         }
 
         // Replace with second handler
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             XCTAssertFalse(firstHandlerCalled)
             expectation.fulfill()
         }
@@ -126,15 +126,15 @@ final class DispatchSignalDispatcherTests: XCTestCase {
     }
 
     func testCancelReleasesResources() throws {
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1, .usr2]
         )
 
-        dispatcher.cancel()
+        handler.cancel()
 
         // After cancel, handlers should not be called
         nonisolated(unsafe) var handlerCalled = false
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             handlerCalled = true
         }
 
@@ -151,15 +151,15 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         let traditionHandlerCalled = false
         signal(SIGUSR1, SIG_DFL)
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1],
             queue: .main
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
         let expectation = XCTestExpectation(description: "Libdispatch handler called")
 
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             expectation.fulfill()
         }
 
@@ -179,24 +179,24 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Final handler called")
         expectation.expectedFulfillmentCount = 1
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1],
             queue: .main
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
         nonisolated(unsafe) var firstCalled = false
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             firstCalled = true
         }
 
         nonisolated(unsafe) var secondCalled = false
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             secondCalled = true
         }
 
         // Final handler
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             XCTAssertFalse(firstCalled)
             XCTAssertFalse(secondCalled)
             expectation.fulfill()
@@ -213,13 +213,13 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         let customQueue = DispatchQueue(label: "test.signal.queue")
         let expectation = XCTestExpectation(description: "Handler on custom queue")
 
-        let dispatcher = try DispatchSignalDispatcher(
+        let handler = try GCDSignalHandler(
             signals: [.usr1],
             queue: customQueue
         )
-        defer { dispatcher.cancel() }
+        defer { handler.cancel() }
 
-        dispatcher.on(.usr1) {
+        handler.on(.usr1) {
             // Verify we're on the custom queue (best effort)
             expectation.fulfill()
         }

@@ -10,7 +10,7 @@ import Foundation
 import FreeBSDKit
 import Glibc
 
-/// A kqueue-based signal dispatcher.
+/// A kqueue-based signal handler.
 ///
 /// - Signals are delivered via kqueue EVFILT_SIGNAL
 /// - Signal counts are preserved (via ev.data)
@@ -19,17 +19,17 @@ import Glibc
 /// ## Threading Requirements
 /// **IMPORTANT**: `pthread_sigmask` is thread-local. For signals to be handled
 /// exclusively through this API, you must either:
-/// 1. Create this dispatcher before spawning any threads (so they inherit the mask), or
+/// 1. Create this handler before spawning any threads (so they inherit the mask), or
 /// 2. Ensure all threads block the same signals via `blockSignals()`, or
 /// 3. Dedicate a single thread to signal handling
 ///
 /// If other threads have unblocked signals, they will receive signals normally,
-/// bypassing this dispatcher.
+/// bypassing this handler.
 ///
 /// ## Concurrency
 /// This is an actor, so all methods are automatically isolated. You can safely
 /// call `on()` from any task/thread, including while `run()` is executing.
-public actor KqueueSignalDispatcher {
+public actor KqueueSignalHandler {
 
     private let ownedFD: Int32
     private var pending: [BSDSignal] = []

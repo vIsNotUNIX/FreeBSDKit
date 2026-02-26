@@ -102,7 +102,7 @@ public extension KqueueDescriptor where Self: ~Copyable {
     /// - Important: **Single waiter recommended**. If multiple tasks call this method
     ///   concurrently on the same kqueue, they will compete for events. Whichever task
     ///   wakes first consumes the event; others remain blocked. For multi-handler
-    ///   dispatch, use `KqueueSignalDispatcher` instead.
+    ///   dispatch, use `KqueueSignalHandler` instead.
     ///
     /// - Note: If the kqueue has other (non-signal) events registered, they will
     ///   be silently ignored and the method will continue waiting for signals.

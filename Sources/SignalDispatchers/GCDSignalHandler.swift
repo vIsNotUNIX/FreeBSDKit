@@ -10,7 +10,7 @@ import Foundation
 import FreeBSDKit
 import Glibc
 
-/// A libdispatch-backed signal dispatcher.
+/// A libdispatch-backed signal handler.
 ///
 /// - Signals are delivered via DispatchSourceSignal
 /// - Signals are coalesced by libdispatch
@@ -20,24 +20,24 @@ import Glibc
 /// ## Threading Requirements
 /// **IMPORTANT**: `pthread_sigmask` is thread-local. For signals to be handled
 /// exclusively through this API, you must either:
-/// 1. Create this dispatcher before spawning any threads (so they inherit the mask), or
+/// 1. Create this handler before spawning any threads (so they inherit the mask), or
 /// 2. Ensure all threads block the same signals explicitly, or
-/// 3. Accept that only the thread that created the dispatcher has its signals blocked
+/// 3. Accept that only the thread that created the handler has its signals blocked
 ///
 /// If other threads have unblocked signals, they will receive signals normally,
-/// bypassing this dispatcher.
+/// bypassing this handler.
 ///
 /// ## Process-Global Side Effects
 /// **IMPORTANT**: Signal dispositions set via `sigaction()` are process-global.
-/// This dispatcher assumes exclusive management of dispositions for its signals.
+/// This handler assumes exclusive management of dispositions for its signals.
 /// Do not mix with other signal handler/disposition management for the same signals,
 /// as this could cause the saved dispositions to become stale and restoration to
 /// break other code's signal handling.
 ///
 /// ## Usage
-/// Unlike `KqueueSignalDispatcher`, this dispatcher does not require an explicit `run()` loop.
+/// Unlike `KqueueSignalHandler`, this handler does not require an explicit `run()` loop.
 /// Handlers are automatically invoked by libdispatch when signals arrive.
-public final class DispatchSignalDispatcher {
+public final class GCDSignalHandler {
 
     private var sources: [BSDSignal: DispatchSourceSignal] = [:]
     private var savedActions: [BSDSignal: sigaction] = [:]
