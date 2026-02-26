@@ -29,9 +29,11 @@ public struct SocketPair<Socket: ~Copyable>: ~Copyable {
 public protocol SocketDescriptor: StreamDescriptor, ~Copyable {
     static func socket(domain: SocketDomain, type: SocketType, protocol: SocketProtocol) throws -> Self
     func bind(address: SocketAddress) throws
+    func bind<D: DirectoryDescriptor>(at directory: borrowing D, address: SocketAddress) throws where D: ~Copyable
     func listen(backlog: Int32) throws
     func accept() throws -> Self
     func connect(address: SocketAddress) throws
+    func connect<D: DirectoryDescriptor>(at directory: borrowing D, address: SocketAddress) throws where D: ~Copyable
     func shutdown(how: SocketShutdown) throws
     func sendDescriptors(_ descriptors: [OpaqueDescriptorRef], payload: Data) throws
     func recvDescriptors(maxDescriptors: Int, bufferSize: Int) throws -> (Data, [OpaqueDescriptorRef])
@@ -95,6 +97,30 @@ public extension SocketDescriptor where Self: ~Copyable {
         }
     }
 
+    /// Binds the socket to an address relative to a directory descriptor.
+    ///
+    /// This is the `bindat(2)` syscall, which allows binding to a Unix domain
+    /// socket path relative to a directory file descriptor. This is useful in
+    /// Capsicum sandboxes where you have a capability for the directory but
+    /// cannot use absolute paths.
+    ///
+    /// - Parameters:
+    ///   - directory: A directory descriptor to use as the base for the path.
+    ///   - address: The socket address (should be a Unix domain socket address
+    ///     with a relative path).
+    /// - Throws: A BSD error if the bind fails.
+    func bind<D: DirectoryDescriptor>(at directory: borrowing D, address: SocketAddress) throws where D: ~Copyable {
+        try self.unsafe { sockFD in
+            try directory.unsafe { dirFD in
+                try address.withSockAddr { addr, len in
+                    guard Glibc.bindat(dirFD, sockFD, addr, len) == 0 else {
+                        try BSDError.throwErrno(errno)
+                    }
+                }
+            }
+        }
+    }
+
     func accept() throws -> Self {
         return try self.unsafe { fd in
             let newFD = Glibc.accept(fd, nil, nil)
@@ -110,6 +136,30 @@ public extension SocketDescriptor where Self: ~Copyable {
             try address.withSockAddr { addr, len in
                 guard Glibc.connect(fd, addr, len) == 0 else {
                     try BSDError.throwErrno(errno)
+                }
+            }
+        }
+    }
+
+    /// Connects the socket to an address relative to a directory descriptor.
+    ///
+    /// This is the `connectat(2)` syscall, which allows connecting to a Unix
+    /// domain socket path relative to a directory file descriptor. This is useful
+    /// in Capsicum sandboxes where you have a capability for the directory but
+    /// cannot use absolute paths.
+    ///
+    /// - Parameters:
+    ///   - directory: A directory descriptor to use as the base for the path.
+    ///   - address: The socket address (should be a Unix domain socket address
+    ///     with a relative path).
+    /// - Throws: A BSD error if the connect fails.
+    func connect<D: DirectoryDescriptor>(at directory: borrowing D, address: SocketAddress) throws where D: ~Copyable {
+        try self.unsafe { sockFD in
+            try directory.unsafe { dirFD in
+                try address.withSockAddr { addr, len in
+                    guard Glibc.connectat(dirFD, sockFD, addr, len) == 0 else {
+                        try BSDError.throwErrno(errno)
+                    }
                 }
             }
         }

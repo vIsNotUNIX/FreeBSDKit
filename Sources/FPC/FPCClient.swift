@@ -43,4 +43,31 @@ public struct FPCClient {
         try socket.connect(address: address)
         return FPCEndpoint(socket: socket, ioQueue: ioQueue)
     }
+
+    /// Connects to a SEQPACKET FPC server using a path relative to a directory.
+    ///
+    /// This uses `connectat(2)` to connect to a Unix-domain socket relative to
+    /// a directory descriptor. This is useful in Capsicum sandboxes where you
+    /// have a capability for the directory but cannot use absolute paths.
+    ///
+    /// - Parameters:
+    ///   - directory: A directory descriptor to use as the base for the path.
+    ///   - path: The relative path to the server's socket within the directory.
+    ///   - ioQueue: Optional custom DispatchQueue for I/O operations. If `nil`, a default queue is created.
+    /// - Returns: A new, unstarted ``FPCEndpoint``. Call ``start()`` before use.
+    /// - Throws: A system error if the socket cannot be created or the connection is refused.
+    public static func connect<D: DirectoryDescriptor>(
+        at directory: borrowing D,
+        path: String,
+        ioQueue: DispatchQueue? = nil
+    ) throws -> FPCEndpoint where D: ~Copyable {
+        let socket = try SocketCapability.socket(
+            domain: .unix,
+            type: [.seqpacket, .cloexec],
+            protocol: .default
+        )
+        let address = try UnixSocketAddress(path: path)
+        try socket.connect(at: directory, address: address)
+        return FPCEndpoint(socket: socket, ioQueue: ioQueue)
+    }
 }
