@@ -92,10 +92,10 @@ public struct CasperNet: ~Copyable, Sendable {
 
         /// Limits reverse DNS lookups to specific address families.
         ///
-        /// - Parameter families: The allowed address families (e.g., AF_INET, AF_INET6).
+        /// - Parameter addressToNameFamilies: The allowed address families (e.g., AF_INET, AF_INET6).
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitAddressToNameFamilies(_ families: [Int32]) -> LimitBuilder {
+        public func limit(addressToNameFamilies families: [Int32]) -> LimitBuilder {
             guard let lim = limit else { return self }
             var fams = families
             limit = fams.withUnsafeMutableBufferPointer { buffer in
@@ -106,10 +106,10 @@ public struct CasperNet: ~Copyable, Sendable {
 
         /// Limits reverse DNS lookups to a specific address.
         ///
-        /// - Parameter address: The allowed socket address.
+        /// - Parameter addressToName: The allowed socket address.
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitAddressToName(_ address: Data) -> LimitBuilder {
+        public func limit(addressToName address: Data) -> LimitBuilder {
             guard var lim = limit else { return self }
             address.withUnsafeBytes { buffer in
                 guard let addr = buffer.baseAddress?.assumingMemoryBound(to: sockaddr.self) else {
@@ -123,10 +123,10 @@ public struct CasperNet: ~Copyable, Sendable {
 
         /// Limits forward DNS lookups to specific address families.
         ///
-        /// - Parameter families: The allowed address families.
+        /// - Parameter nameToAddressFamilies: The allowed address families.
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitNameToAddressFamilies(_ families: [Int32]) -> LimitBuilder {
+        public func limit(nameToAddressFamilies families: [Int32]) -> LimitBuilder {
             guard let lim = limit else { return self }
             var fams = families
             limit = fams.withUnsafeMutableBufferPointer { buffer in
@@ -138,11 +138,11 @@ public struct CasperNet: ~Copyable, Sendable {
         /// Limits forward DNS lookups to specific hostnames.
         ///
         /// - Parameters:
-        ///   - name: The allowed hostname.
+        ///   - nameToAddress: The allowed hostname.
         ///   - service: The allowed service name (optional).
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitNameToAddress(name: String, service: String? = nil) -> LimitBuilder {
+        public func limit(nameToAddress name: String, service: String? = nil) -> LimitBuilder {
             guard var lim = limit else { return self }
             name.withCString { namePtr in
                 if let service = service {
@@ -159,10 +159,10 @@ public struct CasperNet: ~Copyable, Sendable {
 
         /// Limits connect operations to a specific address.
         ///
-        /// - Parameter address: The allowed socket address.
+        /// - Parameter connect: The allowed socket address.
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitConnect(_ address: Data) -> LimitBuilder {
+        public func limit(connect address: Data) -> LimitBuilder {
             guard var lim = limit else { return self }
             address.withUnsafeBytes { buffer in
                 guard let addr = buffer.baseAddress?.assumingMemoryBound(to: sockaddr.self) else {
@@ -176,10 +176,10 @@ public struct CasperNet: ~Copyable, Sendable {
 
         /// Limits bind operations to a specific address.
         ///
-        /// - Parameter address: The allowed socket address.
+        /// - Parameter bind: The allowed socket address.
         /// - Returns: Self for chaining.
         @discardableResult
-        public func limitBind(_ address: Data) -> LimitBuilder {
+        public func limit(bind address: Data) -> LimitBuilder {
             guard var lim = limit else { return self }
             address.withUnsafeBytes { buffer in
                 guard let addr = buffer.baseAddress?.assumingMemoryBound(to: sockaddr.self) else {

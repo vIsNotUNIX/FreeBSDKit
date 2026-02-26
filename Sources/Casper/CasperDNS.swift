@@ -22,7 +22,7 @@ import Glibc
 /// let dns = try CasperDNS(casper: casper)
 ///
 /// // Limit to only forward lookups
-/// try dns.limitTypes([.nameToAddress])
+/// try dns.limit(types: [.nameToAddress])
 ///
 /// // Enter capability mode
 /// try Capsicum.enter()
@@ -60,7 +60,7 @@ public struct CasperDNS: ~Copyable, Sendable {
     ///
     /// - Parameter types: The allowed lookup types.
     /// - Throws: `CasperError.limitSetFailed` if the limit cannot be set.
-    public func limitTypes(_ types: [LookupType]) throws {
+    public func limit(types: [LookupType]) throws {
         let typeStrings = types.map { $0.rawValue }
         try typeStrings.withUnsafeBufferPointer { buffer in
             var pointers = buffer.map { UnsafePointer(strdup($0)) }
@@ -81,7 +81,7 @@ public struct CasperDNS: ~Copyable, Sendable {
     ///
     /// - Parameter families: The allowed address families (e.g., AF_INET, AF_INET6).
     /// - Throws: `CasperError.limitSetFailed` if the limit cannot be set.
-    public func limitFamilies(_ families: [Int32]) throws {
+    public func limit(families: [Int32]) throws {
         var fams = families
         let result = fams.withUnsafeMutableBufferPointer { buffer in
             channel.withUnsafeChannel { chan in

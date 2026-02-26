@@ -18,7 +18,7 @@ extension Audit {
     /// Example:
     /// ```swift
     /// let pipe = try Audit.Pipe()
-    /// pipe.setPreselectionMask(Audit.Mask.all)
+    /// try pipe.set(preselectionMask: Audit.Mask.all)
     ///
     /// while let record = try pipe.readRecord() {
     ///     // Process the audit record
@@ -78,10 +78,10 @@ extension Audit {
 
         /// Sets the queue limit.
         ///
-        /// - Parameter limit: The new queue limit.
+        /// - Parameter queueLimit: The new queue limit.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func setQueueLimit(_ limit: UInt32) throws {
-            var qlimit = limit
+        public func set(queueLimit: UInt32) throws {
+            var qlimit = queueLimit
             if ioctl(fd, caudit_pipe_set_qlimit_cmd(), &qlimit) != 0 {
                 throw Error(errno: errno)
             }
@@ -135,10 +135,10 @@ extension Audit {
 
         /// Sets the preselection mode.
         ///
-        /// - Parameter mode: The new preselection mode.
+        /// - Parameter preselectionMode: The new preselection mode.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func setPreselectionMode(_ mode: PreselectionMode) throws {
-            var m = mode.rawValue
+        public func set(preselectionMode: PreselectionMode) throws {
+            var m = preselectionMode.rawValue
             if ioctl(fd, caudit_pipe_set_preselect_mode_cmd(), &m) != 0 {
                 throw Error(errno: errno)
             }
@@ -158,10 +158,10 @@ extension Audit {
 
         /// Sets the preselection mask for attributable events.
         ///
-        /// - Parameter mask: The new preselection mask.
+        /// - Parameter preselectionMask: The new preselection mask.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func setPreselectionMask(_ mask: Mask) throws {
-            var m = mask.toC()
+        public func set(preselectionMask: Mask) throws {
+            var m = preselectionMask.toC()
             if ioctl(fd, caudit_pipe_set_preselect_flags_cmd(), &m) != 0 {
                 throw Error(errno: errno)
             }

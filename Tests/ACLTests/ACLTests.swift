@@ -20,16 +20,16 @@ final class ACLTests: XCTestCase {
 
         // Add required entries to make it valid
         let userObj = try acl.createEntry()
-        try userObj.setTag(.userObj)
-        try userObj.setPermissions(.all)
+        try userObj.set(tag:.userObj)
+        try userObj.set(permissions:.all)
 
         let groupObj = try acl.createEntry()
-        try groupObj.setTag(.groupObj)
-        try groupObj.setPermissions(.readExecute)
+        try groupObj.set(tag:.groupObj)
+        try groupObj.set(permissions:.readExecute)
 
         let other = try acl.createEntry()
-        try other.setTag(.other)
-        try other.setPermissions([.read])
+        try other.set(tag:.other)
+        try other.set(permissions:[.read])
 
         XCTAssertTrue(acl.isValid)
     }
@@ -169,8 +169,8 @@ final class ACLTests: XCTestCase {
     func testCreateEntry() throws {
         var acl = try ACL()
         let entry = try acl.createEntry()
-        try entry.setTag(.userObj)
-        try entry.setPermissions(.all)
+        try entry.set(tag:.userObj)
+        try entry.set(permissions:.all)
         XCTAssertEqual(entry.tag, .userObj)
         XCTAssertEqual(entry.permissions, .all)
     }
@@ -178,17 +178,17 @@ final class ACLTests: XCTestCase {
     func testEntryPermissions() throws {
         var acl = try ACL()
         let entry = try acl.createEntry()
-        try entry.setTag(.userObj)
+        try entry.set(tag:.userObj)
 
-        try entry.setPermissions([.read, .execute])
+        try entry.set(permissions:[.read, .execute])
         XCTAssertTrue(entry.permissions.contains(.read))
         XCTAssertFalse(entry.permissions.contains(.write))
         XCTAssertTrue(entry.permissions.contains(.execute))
 
-        try entry.setPermissions(.all)
+        try entry.set(permissions:.all)
         XCTAssertEqual(entry.permissions, .all)
 
-        try entry.setPermissions([])
+        try entry.set(permissions:[])
         XCTAssertEqual(entry.permissions, [])
     }
 
@@ -221,15 +221,15 @@ final class ACLTests: XCTestCase {
         var acl = try ACL()
 
         let userObj = try acl.createEntry()
-        try userObj.setTag(.userObj)
+        try userObj.set(tag:.userObj)
         XCTAssertEqual(userObj.tag, .userObj)
 
         let groupObj = try acl.createEntry()
-        try groupObj.setTag(.groupObj)
+        try groupObj.set(tag:.groupObj)
         XCTAssertEqual(groupObj.tag, .groupObj)
 
         let other = try acl.createEntry()
-        try other.setTag(.other)
+        try other.set(tag:.other)
         XCTAssertEqual(other.tag, .other)
     }
 
@@ -238,8 +238,8 @@ final class ACLTests: XCTestCase {
     func testEntryQualifier() throws {
         var acl = try ACL()
         let entry = try acl.createEntry()
-        try entry.setTag(.user)
-        try entry.setQualifier(1000)
+        try entry.set(tag:.user)
+        try entry.set(qualifier:1000)
 
         XCTAssertEqual(entry.qualifier, 1000)
     }
@@ -247,7 +247,7 @@ final class ACLTests: XCTestCase {
     func testQualifierOnlyForUserGroup() throws {
         var acl = try ACL()
         let entry = try acl.createEntry()
-        try entry.setTag(.userObj)
+        try entry.set(tag:.userObj)
         XCTAssertNil(entry.qualifier)
     }
 

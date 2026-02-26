@@ -247,7 +247,7 @@ final class CasperTests: XCTestCase {
             let netdb = try CasperNetdb(casper: casper)
 
             // Try to look up TCP protocol
-            if let tcp = netdb.getprotobyname("tcp") {
+            if let tcp = netdb.protocol(named: "tcp") {
                 XCTAssertEqual(tcp.name, "tcp")
                 XCTAssertEqual(tcp.proto, 6) // TCP protocol number
             } else {

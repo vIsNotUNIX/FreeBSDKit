@@ -24,7 +24,7 @@ import Glibc
 /// try Capsicum.enter()
 ///
 /// // Look up protocol information
-/// if let tcp = netdb.getprotobyname("tcp") {
+/// if let tcp = netdb.protocol(named: "tcp") {
 ///     print("TCP protocol number: \(tcp.proto)")
 /// }
 /// ```
@@ -48,9 +48,9 @@ public struct CasperNetdb: ~Copyable, Sendable {
 
     /// Looks up a protocol by name.
     ///
-    /// - Parameter name: The protocol name (e.g., "tcp", "udp", "icmp").
+    /// - Parameter named: The protocol name (e.g., "tcp", "udp", "icmp").
     /// - Returns: Protocol entry, or `nil` if not found.
-    public func getprotobyname(_ name: String) -> ProtocolEntry? {
+    public func `protocol`(named name: String) -> ProtocolEntry? {
         let result = name.withCString { namePtr in
             channel.withUnsafeChannel { chan in
                 ccasper_netdb_getprotobyname(chan, namePtr)

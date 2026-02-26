@@ -109,11 +109,11 @@ extension ACL {
 
             for (tag, qualifier, permissions) in entries {
                 let entry = try acl.createEntry()
-                try entry.setTag(tag)
+                try entry.set(tag: tag)
                 if let q = qualifier {
-                    try entry.setQualifier(q)
+                    try entry.set(qualifier: q)
                 }
-                try entry.setPermissions(permissions)
+                try entry.set(permissions: permissions)
             }
 
             // Calculate mask if we have extended entries
@@ -212,13 +212,13 @@ extension ACL {
 
             for (tag, qualifier, type, permissions, flags) in entries {
                 let entry = try acl.createEntry()
-                try entry.setTag(tag)
+                try entry.set(tag: tag)
                 if let q = qualifier {
-                    try entry.setQualifier(q)
+                    try entry.set(qualifier: q)
                 }
-                try entry.setEntryType(type)
-                try entry.setNFS4Permissions(permissions)
-                try entry.setFlags(flags)
+                try entry.set(entryType: type)
+                try entry.set(nfs4Permissions: permissions)
+                try entry.set(flags: flags)
             }
 
             return acl

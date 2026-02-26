@@ -42,7 +42,7 @@ public struct ACLEntry {
     ///
     /// - Parameter tag: The new tag type.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setTag(_ tag: Tag) throws {
+    public func set(tag: Tag) throws {
         if acl_set_tag_type(entry, tag.rawValue) != 0 {
             throw ACL.Error(errno: Glibc.errno)
         }
@@ -67,10 +67,10 @@ public struct ACLEntry {
 
     /// Sets the qualifier (user or group ID).
     ///
-    /// - Parameter id: The user or group ID.
+    /// - Parameter qualifier: The user or group ID.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setQualifier(_ id: uid_t) throws {
-        var uid = id
+    public func set(qualifier: uid_t) throws {
+        var uid = qualifier
         if acl_set_qualifier(entry, &uid) != 0 {
             throw ACL.Error(errno: Glibc.errno)
         }
@@ -105,7 +105,7 @@ public struct ACLEntry {
     ///
     /// - Parameter permissions: The permissions to set.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setPermissions(_ permissions: Permissions) throws {
+    public func set(permissions: Permissions) throws {
         var permset: acl_permset_t?
         if acl_get_permset(entry, &permset) != 0 {
             throw ACL.Error(errno: Glibc.errno)
@@ -191,9 +191,9 @@ public struct ACLEntry {
 
     /// Sets the NFSv4 permissions.
     ///
-    /// - Parameter permissions: The NFSv4 permissions to set.
+    /// - Parameter nfs4Permissions: The NFSv4 permissions to set.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setNFS4Permissions(_ permissions: NFS4Permissions) throws {
+    public func set(nfs4Permissions: NFS4Permissions) throws {
         var permset: acl_permset_t?
         if acl_get_permset(entry, &permset) != 0 {
             throw ACL.Error(errno: Glibc.errno)
@@ -204,20 +204,20 @@ public struct ACLEntry {
 
         acl_clear_perms(ps)
 
-        if permissions.contains(.readData) { acl_add_perm(ps, CACL_READ_DATA) }
-        if permissions.contains(.writeData) { acl_add_perm(ps, CACL_WRITE_DATA) }
-        if permissions.contains(.appendData) { acl_add_perm(ps, CACL_APPEND_DATA) }
-        if permissions.contains(.readNamedAttrs) { acl_add_perm(ps, CACL_READ_NAMED_ATTRS) }
-        if permissions.contains(.writeNamedAttrs) { acl_add_perm(ps, CACL_WRITE_NAMED_ATTRS) }
-        if permissions.contains(.execute) { acl_add_perm(ps, CACL_EXECUTE) }
-        if permissions.contains(.deleteChild) { acl_add_perm(ps, CACL_DELETE_CHILD) }
-        if permissions.contains(.readAttributes) { acl_add_perm(ps, CACL_READ_ATTRIBUTES) }
-        if permissions.contains(.writeAttributes) { acl_add_perm(ps, CACL_WRITE_ATTRIBUTES) }
-        if permissions.contains(.delete) { acl_add_perm(ps, CACL_DELETE) }
-        if permissions.contains(.readACL) { acl_add_perm(ps, CACL_READ_ACL) }
-        if permissions.contains(.writeACL) { acl_add_perm(ps, CACL_WRITE_ACL) }
-        if permissions.contains(.writeOwner) { acl_add_perm(ps, CACL_WRITE_OWNER) }
-        if permissions.contains(.synchronize) { acl_add_perm(ps, CACL_SYNCHRONIZE) }
+        if nfs4Permissions.contains(.readData) { acl_add_perm(ps, CACL_READ_DATA) }
+        if nfs4Permissions.contains(.writeData) { acl_add_perm(ps, CACL_WRITE_DATA) }
+        if nfs4Permissions.contains(.appendData) { acl_add_perm(ps, CACL_APPEND_DATA) }
+        if nfs4Permissions.contains(.readNamedAttrs) { acl_add_perm(ps, CACL_READ_NAMED_ATTRS) }
+        if nfs4Permissions.contains(.writeNamedAttrs) { acl_add_perm(ps, CACL_WRITE_NAMED_ATTRS) }
+        if nfs4Permissions.contains(.execute) { acl_add_perm(ps, CACL_EXECUTE) }
+        if nfs4Permissions.contains(.deleteChild) { acl_add_perm(ps, CACL_DELETE_CHILD) }
+        if nfs4Permissions.contains(.readAttributes) { acl_add_perm(ps, CACL_READ_ATTRIBUTES) }
+        if nfs4Permissions.contains(.writeAttributes) { acl_add_perm(ps, CACL_WRITE_ATTRIBUTES) }
+        if nfs4Permissions.contains(.delete) { acl_add_perm(ps, CACL_DELETE) }
+        if nfs4Permissions.contains(.readACL) { acl_add_perm(ps, CACL_READ_ACL) }
+        if nfs4Permissions.contains(.writeACL) { acl_add_perm(ps, CACL_WRITE_ACL) }
+        if nfs4Permissions.contains(.writeOwner) { acl_add_perm(ps, CACL_WRITE_OWNER) }
+        if nfs4Permissions.contains(.synchronize) { acl_add_perm(ps, CACL_SYNCHRONIZE) }
 
         if acl_set_permset(entry, ps) != 0 {
             throw ACL.Error(errno: Glibc.errno)
@@ -239,10 +239,10 @@ public struct ACLEntry {
 
     /// Sets the NFSv4 entry type.
     ///
-    /// - Parameter type: The entry type.
+    /// - Parameter entryType: The entry type.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setEntryType(_ type: EntryType) throws {
-        if acl_set_entry_type_np(entry, type.rawValue) != 0 {
+    public func set(entryType: EntryType) throws {
+        if acl_set_entry_type_np(entry, entryType.rawValue) != 0 {
             throw ACL.Error(errno: Glibc.errno)
         }
     }
@@ -282,7 +282,7 @@ public struct ACLEntry {
     ///
     /// - Parameter flags: The flags to set.
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setFlags(_ flags: Flags) throws {
+    public func set(flags: Flags) throws {
         var flagset: acl_flagset_t?
         if acl_get_flagset_np(entry, &flagset) != 0 {
             throw ACL.Error(errno: Glibc.errno)
