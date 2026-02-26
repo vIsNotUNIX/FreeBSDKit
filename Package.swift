@@ -208,7 +208,8 @@ let package = Package(
         ),
         .target(
             name: "FPC",
-            dependencies: ["Capabilities", "Descriptors", "Capsicum", "FreeBSDKit"]
+            dependencies: ["Capabilities", "Descriptors", "Capsicum", "FreeBSDKit"],
+            exclude: ["README.md"]
         ),
         .testTarget(
             name: "CapsicumTests",
@@ -244,7 +245,8 @@ let package = Package(
         ),
         .target(
             name: "MacLabel",
-            dependencies: ["FreeBSDKit", "Capabilities", "Descriptors"]
+            dependencies: ["FreeBSDKit", "Capabilities", "Descriptors"],
+            exclude: ["README.md"]
         ),
         .target(
             name: "CMacLabelParser",
@@ -293,12 +295,14 @@ let package = Package(
                 "MacLabel",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
-            path: "Sources/mac-policy-cli"
+            path: "Sources/mac-policy-cli",
+            exclude: ["README.md"]
         ),
         .executableTarget(
             name: "fpc-test-harness",
             dependencies: ["FPC", "Capabilities", "Descriptors"],
-            path: "Sources/fpc-test-harness"
+            path: "Sources/fpc-test-harness",
+            exclude: ["README.md"]
         )
 
     ]
