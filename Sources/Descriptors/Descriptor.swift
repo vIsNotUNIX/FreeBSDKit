@@ -225,4 +225,67 @@ public extension Descriptor where Self: ~Copyable {
     consuming func toOpaqueRef() -> OpaqueDescriptorRef {
         OpaqueDescriptorRef(self.take())
     }
+
+    // MARK: - Ownership and Permissions
+
+    /// Changes the owner and group of the file.
+    ///
+    /// - Parameters:
+    ///   - owner: New owner UID, or -1 to leave unchanged
+    ///   - group: New group GID, or -1 to leave unchanged
+    func chown(owner: uid_t, group: gid_t) throws {
+        try self.unsafe { fd in
+            guard Glibc.fchown(fd, owner, group) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    /// Changes the file mode (permissions).
+    ///
+    /// - Parameter mode: New file mode
+    func chmod(mode: mode_t) throws {
+        try self.unsafe { fd in
+            guard Glibc.fchmod(fd, mode) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    /// Changes the file flags (FreeBSD-specific).
+    ///
+    /// File flags include UF_IMMUTABLE, UF_APPEND, SF_ARCHIVED, etc.
+    ///
+    /// - Parameter flags: New file flags
+    func chflags(flags: UInt) throws {
+        try self.unsafe { fd in
+            guard Glibc.fchflags(fd, flags) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    // MARK: - Timestamps
+
+    /// Sets the access and modification times.
+    ///
+    /// - Parameters:
+    ///   - accessTime: New access time, or nil to set to current time
+    ///   - modificationTime: New modification time, or nil to set to current time
+    func setTimes(access accessTime: timespec?, modification modificationTime: timespec?) throws {
+        try self.unsafe { fd in
+            var times: [timespec] = [
+                accessTime ?? timespec(tv_sec: 0, tv_nsec: Int(UTIME_NOW)),
+                modificationTime ?? timespec(tv_sec: 0, tv_nsec: Int(UTIME_NOW))
+            ]
+            guard Glibc.futimens(fd, &times) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    /// Sets the access and modification times to the current time.
+    func touchTimes() throws {
+        try setTimes(access: nil, modification: nil)
+    }
 }

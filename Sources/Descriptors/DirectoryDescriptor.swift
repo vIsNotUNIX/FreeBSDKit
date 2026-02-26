@@ -47,6 +47,46 @@ public struct OpenAtFlags: OptionSet, Sendable {
     public static let emptyPath = OpenAtFlags(rawValue: O_EMPTY_PATH)
 }
 
+// MARK: - DirectoryEntryType
+
+/// File type from directory entry.
+public enum DirectoryEntryType: UInt8, Sendable {
+    case unknown = 0
+    case fifo = 1
+    case characterDevice = 2
+    case directory = 4
+    case blockDevice = 6
+    case regular = 8
+    case symbolicLink = 10
+    case socket = 12
+    case whiteout = 14
+
+    /// Initialize from dirent d_type field.
+    public init(dtype: UInt8) {
+        self = DirectoryEntryType(rawValue: dtype) ?? .unknown
+    }
+}
+
+// MARK: - DirectoryEntry
+
+/// A parsed directory entry.
+public struct DirectoryEntry: Sendable {
+    /// The file's inode number.
+    public let inode: ino_t
+
+    /// The type of file (regular, directory, symlink, etc.).
+    public let type: DirectoryEntryType
+
+    /// The entry's name.
+    public let name: String
+
+    public init(inode: ino_t, type: DirectoryEntryType, name: String) {
+        self.inode = inode
+        self.type = type
+        self.name = name
+    }
+}
+
 // MARK: - AtFlags
 
 /// Flags for `*at()` system calls like fstatat, unlinkat, etc.
@@ -185,6 +225,78 @@ public protocol DirectoryDescriptor: Descriptor, ~Copyable {
     ///   - flags: Flags controlling symlink behavior
     /// - Returns: true if access is permitted
     func access(path: String, mode: Int32, flags: AtFlags) throws -> Bool
+
+    // MARK: - Ownership
+
+    /// Changes owner and group of a file relative to this directory.
+    ///
+    /// - Parameters:
+    ///   - path: Path relative to this directory
+    ///   - owner: New owner UID, or -1 to leave unchanged
+    ///   - group: New group GID, or -1 to leave unchanged
+    ///   - flags: Flags controlling symlink behavior
+    func chown(path: String, owner: uid_t, group: gid_t, flags: AtFlags) throws
+
+    // MARK: - File Flags
+
+    /// Changes file flags relative to this directory (FreeBSD-specific).
+    ///
+    /// File flags include UF_IMMUTABLE, UF_APPEND, SF_ARCHIVED, etc.
+    ///
+    /// - Parameters:
+    ///   - path: Path relative to this directory
+    ///   - flags: New file flags
+    ///   - atFlags: Flags controlling symlink behavior
+    func chflags(path: String, flags: UInt, atFlags: AtFlags) throws
+
+    // MARK: - Timestamps
+
+    /// Sets access and modification times relative to this directory.
+    ///
+    /// - Parameters:
+    ///   - path: Path relative to this directory
+    ///   - accessTime: New access time, or nil for current time
+    ///   - modificationTime: New modification time, or nil for current time
+    ///   - flags: Flags controlling symlink behavior
+    func setTimes(path: String, access accessTime: timespec?, modification modificationTime: timespec?, flags: AtFlags) throws
+
+    // MARK: - Special Files
+
+    /// Creates a FIFO (named pipe) relative to this directory.
+    ///
+    /// - Parameters:
+    ///   - path: Path relative to this directory
+    ///   - mode: File permissions (default: 0o644)
+    func mkfifo(path: String, mode: mode_t) throws
+
+    /// Creates a device node relative to this directory.
+    ///
+    /// - Parameters:
+    ///   - path: Path relative to this directory
+    ///   - mode: File type and permissions (S_IFCHR, S_IFBLK, etc.)
+    ///   - dev: Device number
+    func mknod(path: String, mode: mode_t, dev: dev_t) throws
+
+    // MARK: - Directory Reading
+
+    /// Reads raw directory entries into a buffer.
+    ///
+    /// This is the low-level interface to `getdirentries()`. For most uses,
+    /// prefer `readEntries()` which returns parsed `DirectoryEntry` values.
+    ///
+    /// - Parameters:
+    ///   - buffer: Buffer to read into
+    ///   - basep: On return, contains the position for the next read
+    /// - Returns: Number of bytes read, or 0 at end of directory
+    func readEntriesRaw(into buffer: UnsafeMutableRawBufferPointer, basep: inout off_t) throws -> Int
+
+    /// Reads all directory entries.
+    ///
+    /// Returns parsed directory entries. The directory position is reset
+    /// to the beginning before reading.
+    ///
+    /// - Returns: Array of directory entries
+    func readEntries() throws -> [DirectoryEntry]
 }
 
 // MARK: - Default Implementations
@@ -319,6 +431,141 @@ public extension DirectoryDescriptor where Self: ~Copyable {
                 return false
             }
             try BSDError.throwErrno(errno)
+        }
+    }
+
+    func chown(path: String, owner: uid_t, group: gid_t, flags: AtFlags = []) throws {
+        try self.unsafe { dirfd in
+            let result = path.withCString { cpath in
+                Glibc.fchownat(dirfd, cpath, owner, group, flags.rawValue)
+            }
+            guard result == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    func chflags(path: String, flags: UInt, atFlags: AtFlags = []) throws {
+        try self.unsafe { dirfd in
+            let result = path.withCString { cpath in
+                Glibc.chflagsat(dirfd, cpath, flags, atFlags.rawValue)
+            }
+            guard result == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    func setTimes(
+        path: String,
+        access accessTime: timespec? = nil,
+        modification modificationTime: timespec? = nil,
+        flags: AtFlags = []
+    ) throws {
+        try self.unsafe { dirfd in
+            var times: [timespec] = [
+                accessTime ?? timespec(tv_sec: 0, tv_nsec: Int(UTIME_NOW)),
+                modificationTime ?? timespec(tv_sec: 0, tv_nsec: Int(UTIME_NOW))
+            ]
+            let result = path.withCString { cpath in
+                Glibc.utimensat(dirfd, cpath, &times, flags.rawValue)
+            }
+            guard result == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    func mkfifo(path: String, mode: mode_t = 0o644) throws {
+        try self.unsafe { dirfd in
+            let result = path.withCString { cpath in
+                Glibc.mkfifoat(dirfd, cpath, mode)
+            }
+            guard result == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    func mknod(path: String, mode: mode_t, dev: dev_t) throws {
+        try self.unsafe { dirfd in
+            let result = path.withCString { cpath in
+                Glibc.mknodat(dirfd, cpath, mode, dev)
+            }
+            guard result == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+        }
+    }
+
+    func readEntriesRaw(into buffer: UnsafeMutableRawBufferPointer, basep: inout off_t) throws -> Int {
+        try self.unsafe { dirfd in
+            let bytesRead = Glibc.getdirentries(
+                dirfd,
+                buffer.baseAddress!.assumingMemoryBound(to: CChar.self),
+                buffer.count,
+                &basep
+            )
+            guard bytesRead >= 0 else {
+                try BSDError.throwErrno(errno)
+            }
+            return Int(bytesRead)
+        }
+    }
+
+    func readEntries() throws -> [DirectoryEntry] {
+        try self.unsafe { dirfd in
+            // Seek to beginning of directory
+            guard Glibc.lseek(dirfd, 0, SEEK_SET) == 0 else {
+                try BSDError.throwErrno(errno)
+            }
+
+            var entries: [DirectoryEntry] = []
+            let bufferSize = 8192
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 8)
+            defer { buffer.deallocate() }
+
+            var basep: off_t = 0
+
+            while true {
+                let bytesRead = Glibc.getdirentries(
+                    dirfd,
+                    buffer.assumingMemoryBound(to: CChar.self),
+                    bufferSize,
+                    &basep
+                )
+
+                if bytesRead < 0 {
+                    try BSDError.throwErrno(errno)
+                }
+
+                if bytesRead == 0 {
+                    break
+                }
+
+                // Parse dirent structures from buffer
+                var offset = 0
+                while offset < bytesRead {
+                    let direntPtr = buffer.advanced(by: offset).assumingMemoryBound(to: dirent.self)
+                    let entry = direntPtr.pointee
+
+                    let name = withUnsafePointer(to: entry.d_name) { namePtr in
+                        namePtr.withMemoryRebound(to: CChar.self, capacity: Int(entry.d_namlen) + 1) { cstr in
+                            String(cString: cstr)
+                        }
+                    }
+
+                    entries.append(DirectoryEntry(
+                        inode: entry.d_fileno,
+                        type: DirectoryEntryType(dtype: entry.d_type),
+                        name: name
+                    ))
+
+                    offset += Int(entry.d_reclen)
+                }
+            }
+
+            return entries
         }
     }
 }
