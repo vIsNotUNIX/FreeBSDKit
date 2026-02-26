@@ -536,7 +536,7 @@ final class DirectoryDescriptorTests: XCTestCase {
         defer { buffer.deallocate() }
 
         // Seek to beginning
-        _ = try dirDesc.unsafe { fd in
+        _ = dirDesc.unsafe { fd in
             lseek(fd, 0, SEEK_SET)
         }
 

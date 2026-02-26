@@ -41,7 +41,7 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         )
         defer { dispatcher.cancel() }
 
-        var handlerCalled = false
+        nonisolated(unsafe) var handlerCalled = false
         dispatcher.on(.usr1) {
             handlerCalled = true
         }
@@ -107,7 +107,7 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         )
         defer { dispatcher.cancel() }
 
-        var firstHandlerCalled = false
+        nonisolated(unsafe) var firstHandlerCalled = false
         dispatcher.on(.usr1) {
             firstHandlerCalled = true
         }
@@ -133,7 +133,7 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         dispatcher.cancel()
 
         // After cancel, handlers should not be called
-        var handlerCalled = false
+        nonisolated(unsafe) var handlerCalled = false
         dispatcher.on(.usr1) {
             handlerCalled = true
         }
@@ -148,7 +148,7 @@ final class DispatchSignalDispatcherTests: XCTestCase {
 
     func testSignalsAreBlocked() throws {
         // Install a traditional signal handler first
-        var traditionHandlerCalled = false
+        let traditionHandlerCalled = false
         signal(SIGUSR1, SIG_DFL)
 
         let dispatcher = try DispatchSignalDispatcher(
@@ -185,12 +185,12 @@ final class DispatchSignalDispatcherTests: XCTestCase {
         )
         defer { dispatcher.cancel() }
 
-        var firstCalled = false
+        nonisolated(unsafe) var firstCalled = false
         dispatcher.on(.usr1) {
             firstCalled = true
         }
 
-        var secondCalled = false
+        nonisolated(unsafe) var secondCalled = false
         dispatcher.on(.usr1) {
             secondCalled = true
         }

@@ -72,7 +72,7 @@ final class KqueueSignalDispatcherTests: XCTestCase {
     func testKqueueSignalDispatcherInit() throws {
         let kq = SystemKqueueDescriptor(kqueue())
 
-        let dispatcher = try KqueueSignalDispatcher(
+        _ = try KqueueSignalDispatcher(
             kqueue: kq,
             signals: [.usr1, .usr2]
         )
@@ -88,7 +88,7 @@ final class KqueueSignalDispatcherTests: XCTestCase {
             signals: [.usr1]
         )
 
-        var handlerCalled = false
+        nonisolated(unsafe) var handlerCalled = false
         await dispatcher.on(.usr1) {
             handlerCalled = true
         }

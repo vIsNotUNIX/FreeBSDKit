@@ -177,7 +177,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "initial"])
         ])
 
-        var initialLabeler = Labeler(configuration: initialConfig)
+        let initialLabeler = Labeler(configuration: initialConfig)
         _ = try initialLabeler.apply()
 
         // Now apply new labels with overwrite
@@ -216,7 +216,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "initial"])
         ])
 
-        var initialLabeler = Labeler(configuration: initialConfig)
+        let initialLabeler = Labeler(configuration: initialConfig)
         _ = try initialLabeler.apply()
 
         // Try to apply new labels without overwrite
@@ -256,7 +256,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "test"])
         ])
 
-        var labeler = Labeler(configuration: config)
+        let labeler = Labeler(configuration: config)
         _ = try labeler.apply()
 
         // Verify labels exist
@@ -296,7 +296,7 @@ final class LabelerTests: XCTestCase {
             ])
         ])
 
-        var labeler = Labeler(configuration: config)
+        let labeler = Labeler(configuration: config)
 
         // Apply labels
         _ = try labeler.apply()
@@ -340,7 +340,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "test"])
         ])
 
-        var applyLabeler = Labeler(configuration: applyConfig)
+        let applyLabeler = Labeler(configuration: applyConfig)
         _ = try applyLabeler.apply()
 
         // Verify with more attributes expected
@@ -372,7 +372,7 @@ final class LabelerTests: XCTestCase {
             ])
         ])
 
-        var applyLabeler = Labeler(configuration: applyConfig)
+        let applyLabeler = Labeler(configuration: applyConfig)
         _ = try applyLabeler.apply()
 
         // Verify with fewer attributes expected
@@ -398,7 +398,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "test"])
         ])
 
-        var applyLabeler = Labeler(configuration: applyConfig)
+        let applyLabeler = Labeler(configuration: applyConfig)
         _ = try applyLabeler.apply()
 
         // Verify expecting different value
@@ -425,7 +425,7 @@ final class LabelerTests: XCTestCase {
             FileLabel(path: file, attributes: ["type": "test"])
         ])
 
-        var labeler = Labeler(configuration: config)
+        let labeler = Labeler(configuration: config)
         _ = try labeler.apply()
 
         let results = try labeler.show()
