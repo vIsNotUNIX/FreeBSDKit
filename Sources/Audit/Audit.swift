@@ -22,7 +22,7 @@ extension Audit {
     ///
     /// - Returns: The current audit condition.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getCondition() throws -> Condition {
+    public static func condition() throws -> Condition {
         var cond: Int32 = 0
         if caudit_get_cond(&cond) != 0 {
             throw Error(errno: Glibc.errno)
@@ -35,7 +35,7 @@ extension Audit {
     /// - Parameter condition: The new audit condition.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges (typically root).
-    public static func setCondition(_ condition: Condition) throws {
+    public static func set(condition: Condition) throws {
         var cond = condition.rawValue
         if caudit_set_cond(&cond) != 0 {
             throw Error(errno: Glibc.errno)
@@ -46,7 +46,7 @@ extension Audit {
     ///
     /// - Returns: The current policy flags.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getPolicy() throws -> Policy {
+    public static func policy() throws -> Policy {
         var policy: Int32 = 0
         if caudit_get_policy(&policy) != 0 {
             throw Error(errno: Glibc.errno)
@@ -59,7 +59,7 @@ extension Audit {
     /// - Parameter policy: The new policy flags.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges.
-    public static func setPolicy(_ policy: Policy) throws {
+    public static func set(policy: Policy) throws {
         var pol = policy.rawValue
         if caudit_set_policy(&pol) != 0 {
             throw Error(errno: Glibc.errno)
@@ -70,7 +70,7 @@ extension Audit {
     ///
     /// - Returns: The current queue control settings.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getQueueControl() throws -> QueueControl {
+    public static func queueControl() throws -> QueueControl {
         var qctrl = au_qctrl_t()
         if caudit_get_qctrl(&qctrl, MemoryLayout<au_qctrl_t>.size) != 0 {
             throw Error(errno: Glibc.errno)
@@ -83,7 +83,7 @@ extension Audit {
     /// - Parameter queueControl: The new queue control settings.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges.
-    public static func setQueueControl(_ queueControl: QueueControl) throws {
+    public static func set(queueControl: QueueControl) throws {
         var qctrl = queueControl.toC()
         if caudit_set_qctrl(&qctrl, MemoryLayout<au_qctrl_t>.size) != 0 {
             throw Error(errno: Glibc.errno)
@@ -94,7 +94,7 @@ extension Audit {
     ///
     /// - Returns: Current audit statistics.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getStatistics() throws -> Statistics {
+    public static func statistics() throws -> Statistics {
         var stats = au_stat_t()
         if caudit_get_stat(&stats, MemoryLayout<au_stat_t>.size) != 0 {
             throw Error(errno: Glibc.errno)
@@ -110,7 +110,7 @@ extension Audit {
     ///
     /// - Returns: The audit user ID.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getAuditID() throws -> AuditID {
+    public static func auditID() throws -> AuditID {
         var auid: au_id_t = 0
         if caudit_getauid(&auid) != 0 {
             throw Error(errno: Glibc.errno)
@@ -123,7 +123,7 @@ extension Audit {
     /// - Parameter auditID: The new audit user ID.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Can only be set once per session, requires privileges.
-    public static func setAuditID(_ auditID: AuditID) throws {
+    public static func set(auditID: AuditID) throws {
         var auid = auditID
         if caudit_setauid(&auid) != 0 {
             throw Error(errno: Glibc.errno)
@@ -134,7 +134,7 @@ extension Audit {
     ///
     /// - Returns: The audit information.
     /// - Throws: `Audit.Error` if the operation fails.
-    public static func getAuditInfo() throws -> AuditInfo {
+    public static func auditInfo() throws -> AuditInfo {
         var info = auditinfo_t()
         if caudit_getaudit(&info) != 0 {
             throw Error(errno: Glibc.errno)
@@ -147,7 +147,7 @@ extension Audit {
     /// - Parameter info: The new audit information.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges.
-    public static func setAuditInfo(_ info: AuditInfo) throws {
+    public static func set(auditInfo info: AuditInfo) throws {
         var cInfo = info.toC()
         if caudit_setaudit(&cInfo) != 0 {
             throw Error(errno: Glibc.errno)

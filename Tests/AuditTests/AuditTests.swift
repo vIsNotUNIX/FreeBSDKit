@@ -123,7 +123,7 @@ final class AuditTests: XCTestCase {
 
     func testGetEventByNumber() {
         // Event 0 is AUE_NULL
-        if let event = Audit.getEvent(number: 0) {
+        if let event = Audit.event(number: 0) {
             XCTAssertEqual(event.number, 0)
             XCTAssertFalse(event.name.isEmpty)
         }
@@ -132,7 +132,7 @@ final class AuditTests: XCTestCase {
 
     func testGetClassByName() {
         // "all" is a standard class name meaning all events
-        if let cls = Audit.getClass(name: "all") {
+        if let cls = Audit.eventClass(named: "all") {
             XCTAssertFalse(cls.name.isEmpty)
             XCTAssertNotEqual(cls.classMask, 0)
         }
@@ -169,7 +169,7 @@ final class AuditTests: XCTestCase {
 
     func testGetCondition() {
         do {
-            let condition = try Audit.getCondition()
+            let condition = try Audit.condition()
             // Verify we got a valid condition
             XCTAssertTrue(
                 condition == .unset ||
@@ -186,7 +186,7 @@ final class AuditTests: XCTestCase {
 
     func testGetPolicy() {
         do {
-            _ = try Audit.getPolicy()
+            _ = try Audit.policy()
             // Just verify we can call it without error
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == ENOSYS {
             print("Skipping testGetPolicy: requires elevated privileges or audit not supported")
@@ -197,7 +197,7 @@ final class AuditTests: XCTestCase {
 
     func testGetQueueControl() {
         do {
-            let qctrl = try Audit.getQueueControl()
+            let qctrl = try Audit.queueControl()
             // Verify reasonable values
             XCTAssertGreaterThan(qctrl.highWater, 0)
             XCTAssertGreaterThan(qctrl.bufferSize, 0)
@@ -210,7 +210,7 @@ final class AuditTests: XCTestCase {
 
     func testGetStatistics() {
         do {
-            let stats = try Audit.getStatistics()
+            let stats = try Audit.statistics()
             // Verify we got some stats
             XCTAssertGreaterThanOrEqual(stats.version, 0)
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == ENOSYS {
@@ -224,7 +224,7 @@ final class AuditTests: XCTestCase {
 
     func testGetAuditID() {
         do {
-            _ = try Audit.getAuditID()
+            _ = try Audit.auditID()
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == ENOSYS {
             print("Skipping testGetAuditID: requires elevated privileges or audit not supported")
         } catch {
@@ -234,7 +234,7 @@ final class AuditTests: XCTestCase {
 
     func testGetAuditInfo() {
         do {
-            let info = try Audit.getAuditInfo()
+            let info = try Audit.auditInfo()
             // Session ID should be valid
             _ = info.sessionID
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == ENOSYS {
@@ -261,9 +261,9 @@ final class AuditTests: XCTestCase {
     func testRecordBuilderWithTokens() {
         do {
             var record = try Audit.Record(event: 0)
-            try record.addSubjectToken()
-            try record.addText("Test audit message")
-            try record.addReturn(success: true)
+            try record.addSubject()
+            try record.add(text: "Test audit message")
+            try record.add(returnToken: true)
             // Abandon - don't actually commit
             record.abandon()
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == ENOSYS {
@@ -298,14 +298,14 @@ final class AuditTests: XCTestCase {
             let pipe = try Audit.Pipe()
 
             // Get queue info
-            let qlen = try pipe.getQueueLength()
+            let qlen = try pipe.queueLength()
             XCTAssertGreaterThanOrEqual(qlen, 0)
 
-            let qlimit = try pipe.getQueueLimit()
+            let qlimit = try pipe.queueLimit()
             XCTAssertGreaterThan(qlimit, 0)
 
-            let minLimit = try pipe.getMinQueueLimit()
-            let maxLimit = try pipe.getMaxQueueLimit()
+            let minLimit = try pipe.minQueueLimit()
+            let maxLimit = try pipe.maxQueueLimit()
             XCTAssertLessThanOrEqual(minLimit, maxLimit)
 
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == EACCES || error.errno == ENOENT {
@@ -319,10 +319,10 @@ final class AuditTests: XCTestCase {
         do {
             let pipe = try Audit.Pipe()
 
-            _ = try pipe.getInsertCount()
-            _ = try pipe.getReadCount()
-            _ = try pipe.getDropCount()
-            _ = try pipe.getTruncateCount()
+            _ = try pipe.insertCount()
+            _ = try pipe.readCount()
+            _ = try pipe.dropCount()
+            _ = try pipe.truncateCount()
 
         } catch let error as Audit.Error where error.errno == EPERM || error.errno == EACCES || error.errno == ENOENT {
             print("Skipping testAuditPipeStatistics: requires elevated privileges")

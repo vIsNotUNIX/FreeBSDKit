@@ -56,7 +56,7 @@ extension Audit {
         ///
         /// - Returns: The number of records in the queue.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getQueueLength() throws -> UInt32 {
+        public func queueLength() throws -> UInt32 {
             var qlen: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlen_cmd(), &qlen) != 0 {
                 throw Error(errno: errno)
@@ -68,7 +68,7 @@ extension Audit {
         ///
         /// - Returns: The maximum number of records that can be queued.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getQueueLimit() throws -> UInt32 {
+        public func queueLimit() throws -> UInt32 {
             var qlimit: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlimit_cmd(), &qlimit) != 0 {
                 throw Error(errno: errno)
@@ -91,7 +91,7 @@ extension Audit {
         ///
         /// - Returns: The minimum queue limit.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getMinQueueLimit() throws -> UInt32 {
+        public func minQueueLimit() throws -> UInt32 {
             var qlimit: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlimit_min_cmd(), &qlimit) != 0 {
                 throw Error(errno: errno)
@@ -103,7 +103,7 @@ extension Audit {
         ///
         /// - Returns: The maximum queue limit.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getMaxQueueLimit() throws -> UInt32 {
+        public func maxQueueLimit() throws -> UInt32 {
             var qlimit: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlimit_max_cmd(), &qlimit) != 0 {
                 throw Error(errno: errno)
@@ -125,7 +125,7 @@ extension Audit {
         ///
         /// - Returns: The preselection mode.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getPreselectionMode() throws -> PreselectionMode {
+        public func preselectionMode() throws -> PreselectionMode {
             var mode: Int32 = 0
             if ioctl(fd, caudit_pipe_get_preselect_mode_cmd(), &mode) != 0 {
                 throw Error(errno: errno)
@@ -148,7 +148,7 @@ extension Audit {
         ///
         /// - Returns: The current preselection mask.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getPreselectionMask() throws -> Mask {
+        public func preselectionMask() throws -> Mask {
             var mask = au_mask_t()
             if ioctl(fd, caudit_pipe_get_preselect_flags_cmd(), &mask) != 0 {
                 throw Error(errno: errno)
@@ -182,7 +182,7 @@ extension Audit {
         ///
         /// - Returns: The insert count.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getInsertCount() throws -> UInt64 {
+        public func insertCount() throws -> UInt64 {
             var count: UInt64 = 0
             if ioctl(fd, caudit_pipe_get_inserts_cmd(), &count) != 0 {
                 throw Error(errno: errno)
@@ -194,7 +194,7 @@ extension Audit {
         ///
         /// - Returns: The read count.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getReadCount() throws -> UInt64 {
+        public func readCount() throws -> UInt64 {
             var count: UInt64 = 0
             if ioctl(fd, caudit_pipe_get_reads_cmd(), &count) != 0 {
                 throw Error(errno: errno)
@@ -206,7 +206,7 @@ extension Audit {
         ///
         /// - Returns: The drop count.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getDropCount() throws -> UInt64 {
+        public func dropCount() throws -> UInt64 {
             var count: UInt64 = 0
             if ioctl(fd, caudit_pipe_get_drops_cmd(), &count) != 0 {
                 throw Error(errno: errno)
@@ -218,7 +218,7 @@ extension Audit {
         ///
         /// - Returns: The truncate count.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getTruncateCount() throws -> UInt64 {
+        public func truncateCount() throws -> UInt64 {
             var count: UInt64 = 0
             if ioctl(fd, caudit_pipe_get_truncates_cmd(), &count) != 0 {
                 throw Error(errno: errno)
@@ -232,7 +232,7 @@ extension Audit {
         ///
         /// - Returns: The maximum size in bytes.
         /// - Throws: `Audit.Error` if the operation fails.
-        public func getMaxAuditDataSize() throws -> UInt32 {
+        public func maxAuditDataSize() throws -> UInt32 {
             var size: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_maxauditdata_cmd(), &size) != 0 {
                 throw Error(errno: errno)
@@ -247,7 +247,7 @@ extension Audit {
         /// - Returns: The raw record data, or `nil` on EOF.
         /// - Throws: `Audit.Error` if reading fails.
         public func readRawRecord() throws -> [UInt8]? {
-            let maxSize = try getMaxAuditDataSize()
+            let maxSize = try maxAuditDataSize()
             var buffer = [UInt8](repeating: 0, count: Int(maxSize))
 
             let bytesRead = read(fd, &buffer, buffer.count)

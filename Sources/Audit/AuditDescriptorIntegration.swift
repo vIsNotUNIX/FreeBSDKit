@@ -44,7 +44,7 @@ extension Audit.Pipe {
         // MARK: - Queue Management
 
         /// Gets the current queue length.
-        public func getQueueLength() throws -> UInt32 {
+        public func queueLength() throws -> UInt32 {
             var qlen: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlen_cmd(), &qlen) != 0 {
                 throw Audit.Error(errno: errno)
@@ -53,7 +53,7 @@ extension Audit.Pipe {
         }
 
         /// Gets the current queue limit.
-        public func getQueueLimit() throws -> UInt32 {
+        public func queueLimit() throws -> UInt32 {
             var qlimit: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_qlimit_cmd(), &qlimit) != 0 {
                 throw Audit.Error(errno: errno)
@@ -62,7 +62,7 @@ extension Audit.Pipe {
         }
 
         /// Sets the queue limit.
-        public func setQueueLimit(_ limit: UInt32) throws {
+        public func set(queueLimit limit: UInt32) throws {
             var qlimit = limit
             if ioctl(fd, caudit_pipe_set_qlimit_cmd(), &qlimit) != 0 {
                 throw Audit.Error(errno: errno)
@@ -72,7 +72,7 @@ extension Audit.Pipe {
         // MARK: - Preselection
 
         /// Gets the preselection mask.
-        public func getPreselectionMask() throws -> Audit.Mask {
+        public func preselectionMask() throws -> Audit.Mask {
             var mask = au_mask_t()
             if ioctl(fd, caudit_pipe_get_preselect_flags_cmd(), &mask) != 0 {
                 throw Audit.Error(errno: errno)
@@ -81,7 +81,7 @@ extension Audit.Pipe {
         }
 
         /// Sets the preselection mask.
-        public func setPreselectionMask(_ mask: Audit.Mask) throws {
+        public func set(preselectionMask mask: Audit.Mask) throws {
             var m = mask.toC()
             if ioctl(fd, caudit_pipe_set_preselect_flags_cmd(), &m) != 0 {
                 throw Audit.Error(errno: errno)
@@ -98,7 +98,7 @@ extension Audit.Pipe {
         // MARK: - Statistics
 
         /// Gets the drop count.
-        public func getDropCount() throws -> UInt64 {
+        public func dropCount() throws -> UInt64 {
             var count: UInt64 = 0
             if ioctl(fd, caudit_pipe_get_drops_cmd(), &count) != 0 {
                 throw Audit.Error(errno: errno)
@@ -109,7 +109,7 @@ extension Audit.Pipe {
         // MARK: - Reading
 
         /// Gets the maximum audit data size.
-        public func getMaxAuditDataSize() throws -> UInt32 {
+        public func maxAuditDataSize() throws -> UInt32 {
             var size: UInt32 = 0
             if ioctl(fd, caudit_pipe_get_maxauditdata_cmd(), &size) != 0 {
                 throw Audit.Error(errno: errno)
@@ -119,7 +119,7 @@ extension Audit.Pipe {
 
         /// Reads a raw audit record.
         public func readRawRecord() throws -> [UInt8]? {
-            let maxSize = try getMaxAuditDataSize()
+            let maxSize = try maxAuditDataSize()
             var buffer = [UInt8](repeating: 0, count: Int(maxSize))
 
             let bytesRead = read(fd, &buffer, buffer.count)
@@ -144,7 +144,7 @@ extension Audit {
     /// - Returns: The process's audit information.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges.
-    public static func getAuditInfo<D: ProcessDescriptor>(
+    public static func auditInfo<D: ProcessDescriptor>(
         for descriptor: borrowing D
     ) throws -> AuditInfo where D: ~Copyable {
         let pid = try descriptor.pid()
@@ -172,8 +172,8 @@ extension Audit {
     ///   - descriptor: A process descriptor.
     /// - Throws: `Audit.Error` if the operation fails.
     /// - Note: Requires appropriate privileges.
-    public static func setAuditMask<D: ProcessDescriptor>(
-        _ mask: Mask,
+    public static func set<D: ProcessDescriptor>(
+        auditMask mask: Mask,
         for descriptor: borrowing D
     ) throws where D: ~Copyable {
         let pid = try descriptor.pid()

@@ -35,7 +35,7 @@ extension Audit {
     ///
     /// - Parameter number: The event number to look up.
     /// - Returns: Event information, or `nil` if not found.
-    public static func getEvent(number: EventNumber) -> EventInfo? {
+    public static func event(number: EventNumber) -> EventInfo? {
         EventInfo(from: caudit_getauevnum(number))
     }
 
@@ -43,7 +43,7 @@ extension Audit {
     ///
     /// - Parameter name: The event name to look up (e.g., "AUE_OPEN").
     /// - Returns: Event information, or `nil` if not found.
-    public static func getEvent(name: String) -> EventInfo? {
+    public static func event(named name: String) -> EventInfo? {
         name.withCString { cName in
             EventInfo(from: caudit_getauevnam(cName))
         }
@@ -96,9 +96,9 @@ extension Audit {
 
     /// Looks up a class by its mask value.
     ///
-    /// - Parameter classMask: The class mask to look up.
+    /// - Parameter mask: The class mask to look up.
     /// - Returns: Class information, or `nil` if not found.
-    public static func getClass(mask: EventClass) -> ClassInfo? {
+    public static func eventClass(mask: EventClass) -> ClassInfo? {
         ClassInfo(from: caudit_getauclassnum(mask))
     }
 
@@ -106,7 +106,7 @@ extension Audit {
     ///
     /// - Parameter name: The class name to look up (e.g., "fr").
     /// - Returns: Class information, or `nil` if not found.
-    public static func getClass(name: String) -> ClassInfo? {
+    public static func eventClass(named name: String) -> ClassInfo? {
         name.withCString { cName in
             ClassInfo(from: caudit_getauclassnam(cName))
         }

@@ -18,10 +18,10 @@ extension Audit {
     /// Example:
     /// ```swift
     /// var record = try Audit.Record(event: AUE_custom)
-    /// try record.addSubjectToken()  // Current process as subject
-    /// try record.addText("Custom operation performed")
-    /// try record.addPath("/path/to/file")
-    /// try record.addReturn(success: true)
+    /// try record.addSubject()  // Current process as subject
+    /// try record.add(text: "Custom operation performed")
+    /// try record.add(path: "/path/to/file")
+    /// try record.add(returnToken: true)
     /// try record.commit()
     /// ```
     public struct Record {
@@ -48,7 +48,7 @@ extension Audit {
         /// who performed the action.
         ///
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addSubjectToken() throws {
+        public mutating func addSubject() throws {
             guard let token = caudit_to_me() else {
                 throw Error(errno: Glibc.errno)
             }
@@ -70,7 +70,7 @@ extension Audit {
         ///   - sessionID: The audit session ID.
         ///   - terminalID: The terminal ID.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addSubjectToken(
+        public mutating func add(subject
             auditID: AuditID,
             effectiveUID: uid_t,
             effectiveGID: gid_t,
@@ -97,7 +97,7 @@ extension Audit {
         ///
         /// - Parameter text: The text message to include.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addText(_ text: String) throws {
+        public mutating func add(text: String) throws {
             let token = text.withCString { cText in
                 caudit_to_text(cText)
             }
@@ -114,7 +114,7 @@ extension Audit {
         ///
         /// - Parameter path: The file path to include.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addPath(_ path: String) throws {
+        public mutating func add(path: String) throws {
             let token = path.withCString { cPath in
                 caudit_to_path(cPath)
             }
@@ -134,7 +134,7 @@ extension Audit {
         ///   - name: A description of the argument.
         ///   - value: The 32-bit argument value.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addArgument32(
+        public mutating func add(argument32
             number: Int8,
             name: String,
             value: UInt32
@@ -158,7 +158,7 @@ extension Audit {
         ///   - name: A description of the argument.
         ///   - value: The 64-bit argument value.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addArgument64(
+        public mutating func add(argument64
             number: Int8,
             name: String,
             value: UInt64
@@ -181,7 +181,7 @@ extension Audit {
         ///   - returnValue: The return value.
         ///   - error: The error code (errno).
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addExit(returnValue: Int32, error: Int32) throws {
+        public mutating func add(exit returnValue: Int32, error: Int32) throws {
             guard let token = caudit_to_exit(returnValue, error) else {
                 throw Error(errno: Glibc.errno)
             }
@@ -200,7 +200,7 @@ extension Audit {
         ///   - success: `true` if the operation succeeded.
         ///   - value: The return value (typically 0 for success).
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addReturn(success: Bool, value: UInt32 = 0) throws {
+        public mutating func add(returnToken success: Bool, value: UInt32 = 0) throws {
             let status: Int8 = success ? 0 : 1
             guard let token = caudit_to_return32(status, value) else {
                 throw Error(errno: Glibc.errno)
@@ -215,7 +215,7 @@ extension Audit {
         ///
         /// - Parameter data: The raw data to include.
         /// - Throws: `Audit.Error` if the token cannot be added.
-        public mutating func addOpaque(_ data: [UInt8]) throws {
+        public mutating func add(opaque data: [UInt8]) throws {
             guard data.count <= UInt16.max else {
                 throw Error.invalidArgument
             }
