@@ -169,7 +169,7 @@ public struct DeviceCapability: Capability, DeviceDescriptor, ~Copyable {
     ///
     /// Only valid for seekable devices.
     public func pwrite(_ data: Data, offset: off_t) throws -> Int {
-        let (n, err): (Int, Int32) = try self.unsafe { fd in
+        let (n, err): (Int, Int32) = self.unsafe { fd in
             data.withUnsafeBytes { ptr -> (Int, Int32) in
                 while true {
                     let r = Glibc.pwrite(fd, ptr.baseAddress, ptr.count, offset)
