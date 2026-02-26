@@ -9,7 +9,7 @@ import Descriptors
 import Foundation
 import FreeBSDKit
 
-struct InotifyCapability: Capability, InotifyDescriptor, ~Copyable {
+public struct InotifyCapability: Capability, InotifyDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle
 

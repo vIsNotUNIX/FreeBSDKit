@@ -9,7 +9,7 @@ import Descriptors
 import Foundation
 import FreeBSDKit
 
-struct StreamCapability: Capability, StreamDescriptor, ~Copyable {
+public struct StreamCapability: Capability, StreamDescriptor, ~Copyable {
     public typealias RAWBSD = Int32
     private var handle: RawCapabilityHandle
 
