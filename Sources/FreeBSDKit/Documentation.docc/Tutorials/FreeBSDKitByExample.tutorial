@@ -1,0 +1,188 @@
+@Tutorials(name: "FreeBSDKit by Example") {
+    @Intro(title: "FreeBSDKit by Example") {
+        Learn FreeBSD system programming with Swift through practical, hands-on examples.
+
+        This tutorial series takes you from basic concepts through advanced techniques,
+        building real applications along the way.
+
+        @Image(source: "freebsd-banner.png", alt: "FreeBSDKit banner")
+    }
+
+    @Volume(name: "Getting Started") {
+        Set up your development environment and learn the fundamentals of FreeBSDKit.
+
+        @Image(source: "chapter1-icon.png", alt: "Getting started icon")
+
+        @Chapter(name: "Setting Up Your Environment") {
+            Install Swift on FreeBSD and create your first FreeBSDKit project.
+
+            @Image(source: "setup-icon.png", alt: "Setup icon")
+
+            @TutorialReference(tutorial: "doc:SettingUpEnvironment")
+        }
+
+        @Chapter(name: "Understanding BSD Errors") {
+            Learn how FreeBSDKit handles system errors with type-safe Swift APIs.
+
+            @Image(source: "errors-icon.png", alt: "Errors icon")
+
+            @TutorialReference(tutorial: "doc:UnderstandingBSDErrors")
+        }
+    }
+
+    @Volume(name: "Descriptors and Capabilities") {
+        Master file descriptors, sockets, and FreeBSD's capability system.
+
+        @Image(source: "chapter2-icon.png", alt: "Descriptors icon")
+
+        @Chapter(name: "Working with File Descriptors") {
+            Learn to work with type-safe, ownership-aware file descriptors.
+
+            @Image(source: "files-icon.png", alt: "Files icon")
+
+            @TutorialReference(tutorial: "doc:WorkingWithFileDescriptors")
+        }
+
+        @Chapter(name: "Socket Programming") {
+            Create network and Unix domain sockets with Swift.
+
+            @Image(source: "sockets-icon.png", alt: "Sockets icon")
+
+            @TutorialReference(tutorial: "doc:SocketProgramming")
+        }
+
+        @Chapter(name: "Passing Descriptors Between Processes") {
+            Send file descriptors over Unix domain sockets.
+
+            @Image(source: "passing-icon.png", alt: "Descriptor passing icon")
+
+            @TutorialReference(tutorial: "doc:PassingDescriptors")
+        }
+    }
+
+    @Volume(name: "Capsicum Sandboxing") {
+        Secure your applications with capability-based sandboxing.
+
+        @Image(source: "chapter3-icon.png", alt: "Capsicum icon")
+
+        @Chapter(name: "Introduction to Capsicum") {
+            Understand capability mode and how it restricts process access.
+
+            @Image(source: "capsicum-icon.png", alt: "Capsicum icon")
+
+            @TutorialReference(tutorial: "doc:IntroductionToCapsicum")
+        }
+
+        @Chapter(name: "Limiting Capability Rights") {
+            Restrict what operations can be performed on file descriptors.
+
+            @Image(source: "rights-icon.png", alt: "Rights icon")
+
+            @TutorialReference(tutorial: "doc:LimitingCapabilityRights")
+        }
+
+        @Chapter(name: "Using Casper Services") {
+            Access system services from within a Capsicum sandbox.
+
+            @Image(source: "casper-icon.png", alt: "Casper icon")
+
+            @TutorialReference(tutorial: "doc:UsingCasperServices")
+        }
+    }
+
+    @Volume(name: "FreeBSD Jails") {
+        Create and manage lightweight containers with FreeBSD jails.
+
+        @Image(source: "chapter4-icon.png", alt: "Jails icon")
+
+        @Chapter(name: "Creating Your First Jail") {
+            Set up a basic jail with network and filesystem isolation.
+
+            @Image(source: "jail-icon.png", alt: "Jail icon")
+
+            @TutorialReference(tutorial: "doc:CreatingYourFirstJail")
+        }
+
+        @Chapter(name: "Jail Parameters and Configuration") {
+            Configure jail behavior with parameters.
+
+            @Image(source: "config-icon.png", alt: "Configuration icon")
+
+            @TutorialReference(tutorial: "doc:JailParameters")
+        }
+    }
+
+    @Volume(name: "Inter-Process Communication") {
+        Build privilege-separated applications with FPC.
+
+        @Image(source: "chapter5-icon.png", alt: "IPC icon")
+
+        @Chapter(name: "FPC Fundamentals") {
+            Create message-passing communication between processes.
+
+            @Image(source: "fpc-icon.png", alt: "FPC icon")
+
+            @TutorialReference(tutorial: "doc:FPCFundamentals")
+        }
+
+        @Chapter(name: "Building a Privilege-Separated Application") {
+            Design and implement a real-world sandboxed application.
+
+            @Image(source: "privsep-icon.png", alt: "Privilege separation icon")
+
+            @TutorialReference(tutorial: "doc:PrivilegeSeparatedApplication")
+        }
+    }
+
+    @Volume(name: "Security and Auditing") {
+        Monitor system activity and implement mandatory access controls.
+
+        @Image(source: "chapter6-icon.png", alt: "Security icon")
+
+        @Chapter(name: "BSM Audit Events") {
+            Monitor real-time security events with the audit subsystem.
+
+            @Image(source: "audit-icon.png", alt: "Audit icon")
+
+            @TutorialReference(tutorial: "doc:BSMAuditEvents")
+        }
+
+        @Chapter(name: "MAC Labels") {
+            Work with mandatory access control labels.
+
+            @Image(source: "mac-icon.png", alt: "MAC icon")
+
+            @TutorialReference(tutorial: "doc:MACLabels")
+        }
+    }
+
+    @Volume(name: "Resource Management") {
+        Control CPU, memory, and other resources.
+
+        @Image(source: "chapter7-icon.png", alt: "Resources icon")
+
+        @Chapter(name: "CPU Sets") {
+            Pin processes to specific CPUs.
+
+            @Image(source: "cpu-icon.png", alt: "CPU icon")
+
+            @TutorialReference(tutorial: "doc:CPUSets")
+        }
+
+        @Chapter(name: "Resource Limits with rctl") {
+            Set resource limits on processes and jails.
+
+            @Image(source: "rctl-icon.png", alt: "rctl icon")
+
+            @TutorialReference(tutorial: "doc:ResourceLimits")
+        }
+
+        @Chapter(name: "Process Control with procctl") {
+            Control process behavior and security features.
+
+            @Image(source: "procctl-icon.png", alt: "procctl icon")
+
+            @TutorialReference(tutorial: "doc:ProcessControl")
+        }
+    }
+}

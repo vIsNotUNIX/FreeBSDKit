@@ -1,0 +1,135 @@
+@Tutorial(time: 30) {
+    @Intro(title: "Creating Your First Jail") {
+        Set up a basic jail with network and filesystem isolation.
+
+        FreeBSD jails provide lightweight OS-level virtualization, allowing
+        you to run isolated environments that share the host kernel but have
+        separate filesystems, network stacks, and process namespaces.
+
+        @Image(source: "jail-hero.png", alt: "FreeBSD Jails")
+    }
+
+    @Section(title: "Understanding Jails") {
+        @ContentAndMedia {
+            A FreeBSD jail is an isolated environment with:
+            - Its own root filesystem
+            - Its own network namespace (IP addresses)
+            - Its own process namespace (PID 1)
+            - Its own users and groups
+            - Resource limits and restrictions
+
+            Jails are created using `jail_set(2)` and managed with
+            `jail_get(2)`, `jail_attach(2)`, and `jail_remove(2)`.
+
+            @Image(source: "jail-architecture.png", alt: "Jail architecture")
+        }
+
+        @Steps {
+            @Step {
+                Import the Jails module.
+
+                @Code(name: "Example.swift", file: "jail-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Creating a Basic Jail") {
+        @ContentAndMedia {
+            Create a jail with a name, hostname, and root path.
+
+            @Image(source: "create-jail.png", alt: "Creating a jail")
+        }
+
+        @Steps {
+            @Step {
+                Define jail parameters using JailParameters.
+
+                @Code(name: "Example.swift", file: "jail-parameters.swift")
+            }
+
+            @Step {
+                Create the jail with jail_set.
+
+                @Code(name: "Example.swift", file: "jail-create.swift")
+            }
+
+            @Step {
+                The complete example.
+
+                @Code(name: "CreateJail.swift", file: "jail-create-complete.swift")
+            }
+        }
+    }
+
+    @Section(title: "Configuring Networking") {
+        @ContentAndMedia {
+            Assign IP addresses to your jail for network access.
+
+            @Image(source: "jail-network.png", alt: "Jail networking")
+        }
+
+        @Steps {
+            @Step {
+                Configure IPv4 networking.
+
+                @Code(name: "Example.swift", file: "jail-ipv4.swift")
+            }
+
+            @Step {
+                Configure IPv6 networking.
+
+                @Code(name: "Example.swift", file: "jail-ipv6.swift")
+            }
+
+            @Step {
+                Use VNET for full network stack isolation.
+
+                @Code(name: "Example.swift", file: "jail-vnet.swift")
+            }
+        }
+    }
+
+    @Section(title: "Querying Jails") {
+        @ContentAndMedia {
+            Get information about running jails.
+
+            @Image(source: "query-jails.png", alt: "Querying jails")
+        }
+
+        @Steps {
+            @Step {
+                Get jail info by JID (jail ID).
+
+                @Code(name: "Example.swift", file: "jail-get-jid.swift")
+            }
+
+            @Step {
+                Get jail info by name.
+
+                @Code(name: "Example.swift", file: "jail-get-name.swift")
+            }
+
+            @Step {
+                List all jails.
+
+                @Code(name: "Example.swift", file: "jail-list-all.swift")
+            }
+        }
+    }
+
+    @Section(title: "Removing Jails") {
+        @ContentAndMedia {
+            Clean up jails when they're no longer needed.
+
+            @Image(source: "remove-jail.png", alt: "Removing jails")
+        }
+
+        @Steps {
+            @Step {
+                Remove a jail by JID.
+
+                @Code(name: "Example.swift", file: "jail-remove.swift")
+            }
+        }
+    }
+}

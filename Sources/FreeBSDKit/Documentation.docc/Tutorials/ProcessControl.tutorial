@@ -1,0 +1,64 @@
+@Tutorial(time: 15) {
+    @Intro(title: "Process Control with procctl") {
+        Control process behavior and security features.
+
+        FreeBSD's procctl(2) system call provides control over various
+        process attributes including ASLR, core dump behavior, and
+        process descriptors.
+
+        @Image(source: "procctl-hero.png", alt: "Process control")
+    }
+
+    @Section(title: "Understanding procctl") {
+        @ContentAndMedia {
+            procctl controls various process features:
+            - ASLR (Address Space Layout Randomization)
+            - Stack gap randomization
+            - Core dump settings
+            - Process descriptors (pdfork)
+            - Signal handling
+
+            @Image(source: "procctl-features.png", alt: "procctl features")
+        }
+
+        @Steps {
+            @Step {
+                Import the Procctl module.
+
+                @Code(name: "Example.swift", file: "procctl-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Controlling ASLR") {
+        @ContentAndMedia {
+            Enable or disable Address Space Layout Randomization.
+
+            @Image(source: "procctl-aslr.png", alt: "ASLR control")
+        }
+
+        @Steps {
+            @Step {
+                Configure ASLR for a process.
+
+                @Code(name: "Example.swift", file: "procctl-aslr.swift")
+            }
+        }
+    }
+
+    @Section(title: "Process Descriptors") {
+        @ContentAndMedia {
+            Use pdfork and process descriptors for capability-friendly process management.
+
+            @Image(source: "procctl-pdfork.png", alt: "Process descriptors")
+        }
+
+        @Steps {
+            @Step {
+                Create child processes with pdfork.
+
+                @Code(name: "Example.swift", file: "procctl-pdfork.swift")
+            }
+        }
+    }
+}

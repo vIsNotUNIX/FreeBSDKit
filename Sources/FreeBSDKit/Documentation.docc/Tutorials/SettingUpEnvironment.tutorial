@@ -1,0 +1,89 @@
+@Tutorial(time: 15) {
+    @Intro(title: "Setting Up Your Environment") {
+        Install Swift on FreeBSD and create your first FreeBSDKit project.
+
+        In this tutorial, you'll set up a development environment for FreeBSD system
+        programming with Swift and create a simple project that uses FreeBSDKit.
+
+        @Image(source: "setup-hero.png", alt: "Development environment setup")
+    }
+
+    @Section(title: "Installing Swift on FreeBSD") {
+        @ContentAndMedia {
+            FreeBSD includes Swift in its ports collection. You can install it using
+            pkg or by building from ports.
+
+            @Image(source: "swift-install.png", alt: "Swift installation")
+        }
+
+        @Steps {
+            @Step {
+                Install Swift from packages.
+
+                @Code(name: "Terminal", file: "install-swift.sh")
+            }
+
+            @Step {
+                Verify the installation by checking the Swift version.
+
+                @Code(name: "Terminal", file: "verify-swift.sh")
+            }
+        }
+    }
+
+    @Section(title: "Creating a FreeBSDKit Project") {
+        @ContentAndMedia {
+            Create a new Swift package that depends on FreeBSDKit.
+
+            @Image(source: "new-project.png", alt: "New project")
+        }
+
+        @Steps {
+            @Step {
+                Create a new directory and initialize a Swift package.
+
+                @Code(name: "Terminal", file: "create-package.sh")
+            }
+
+            @Step {
+                Edit `Package.swift` to add FreeBSDKit as a dependency.
+
+                @Code(name: "Package.swift", file: "Package-01.swift")
+            }
+
+            @Step {
+                Add FreeBSDKit to your target's dependencies.
+
+                @Code(name: "Package.swift", file: "Package-02.swift")
+            }
+        }
+    }
+
+    @Section(title: "Your First FreeBSDKit Program") {
+        @ContentAndMedia {
+            Write a simple program that uses FreeBSDKit to query system information.
+
+            @Image(source: "first-program.png", alt: "First program")
+        }
+
+        @Steps {
+            @Step {
+                Create a simple program that reads extended attributes from a file.
+
+                @Code(name: "main.swift", file: "main-01.swift")
+            }
+
+            @Step {
+                Build and run your program.
+
+                @Code(name: "Terminal", file: "build-run.sh")
+            }
+
+            @Step {
+                Congratulations! You've created your first FreeBSDKit application.
+
+                @Image(source: "success.png", alt: "Success")
+            }
+        }
+    }
+}

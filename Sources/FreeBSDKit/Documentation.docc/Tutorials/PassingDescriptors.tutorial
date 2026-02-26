@@ -1,0 +1,97 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Passing Descriptors Between Processes") {
+        Send file descriptors over Unix domain sockets.
+
+        Descriptor passing is a powerful IPC mechanism that allows one process
+        to share open files, sockets, and other descriptors with another process.
+        This is essential for privilege separation patterns.
+
+        @Image(source: "descriptor-passing-hero.png", alt: "Descriptor passing")
+    }
+
+    @Section(title: "Understanding Descriptor Passing") {
+        @ContentAndMedia {
+            When you pass a file descriptor over a Unix socket, the kernel
+            creates a new file descriptor in the receiving process that
+            references the same underlying kernel object.
+
+            This enables patterns like:
+            - A privileged process opening files and passing them to sandboxed workers
+            - Sharing sockets between processes
+            - Hot-swapping connections
+
+            @Image(source: "fd-passing-diagram.png", alt: "Descriptor passing diagram")
+        }
+
+        @Steps {
+            @Step {
+                FreeBSDKit provides `sendDescriptors` and `recvDescriptors`
+                methods on socket descriptors.
+
+                @Code(name: "Example.swift", file: "fd-passing-overview.swift")
+            }
+        }
+    }
+
+    @Section(title: "Sending Descriptors") {
+        @ContentAndMedia {
+            Use `sendDescriptors` to send one or more file descriptors
+            over a Unix domain socket.
+
+            @Image(source: "send-fd.png", alt: "Sending descriptors")
+        }
+
+        @Steps {
+            @Step {
+                Open a file and send its descriptor to another process.
+
+                @Code(name: "Sender.swift", file: "send-fd-example.swift")
+            }
+
+            @Step {
+                You can send multiple descriptors in a single message.
+
+                @Code(name: "Sender.swift", file: "send-multiple-fds.swift")
+            }
+        }
+    }
+
+    @Section(title: "Receiving Descriptors") {
+        @ContentAndMedia {
+            Use `recvDescriptors` to receive file descriptors from another process.
+
+            @Image(source: "recv-fd.png", alt: "Receiving descriptors")
+        }
+
+        @Steps {
+            @Step {
+                Receive a descriptor and use it.
+
+                @Code(name: "Receiver.swift", file: "recv-fd-example.swift")
+            }
+
+            @Step {
+                Convert received descriptors to typed capabilities.
+
+                @Code(name: "Receiver.swift", file: "recv-fd-typed.swift")
+            }
+        }
+    }
+
+    @Section(title: "Privilege Separation Pattern") {
+        @ContentAndMedia {
+            A common pattern is having a privileged parent process that opens
+            files and passes them to a sandboxed child.
+
+            @Image(source: "privsep-pattern.png", alt: "Privilege separation")
+        }
+
+        @Steps {
+            @Step {
+                Complete example: privileged opener with sandboxed worker.
+
+                @Code(name: "PrivSep.swift", file: "privsep-complete.swift")
+            }
+        }
+    }
+}

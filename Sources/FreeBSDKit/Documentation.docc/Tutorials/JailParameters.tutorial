@@ -1,0 +1,109 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Jail Parameters and Configuration") {
+        Configure jail behavior with parameters.
+
+        FreeBSD jails have many parameters that control security, networking,
+        resource limits, and behavior. This tutorial covers the most important
+        configuration options.
+
+        @Image(source: "jail-config-hero.png", alt: "Jail configuration")
+    }
+
+    @Section(title: "Security Parameters") {
+        @ContentAndMedia {
+            Control what a jail can and cannot do.
+
+            @Image(source: "jail-security.png", alt: "Jail security")
+        }
+
+        @Steps {
+            @Step {
+                Configure securelevel restrictions.
+
+                @Code(name: "Example.swift", file: "jail-securelevel.swift")
+            }
+
+            @Step {
+                Control allowed operations.
+
+                @Code(name: "Example.swift", file: "jail-allow.swift")
+            }
+        }
+    }
+
+    @Section(title: "Process and Resource Limits") {
+        @ContentAndMedia {
+            Limit resources available to jails.
+
+            @Image(source: "jail-limits.png", alt: "Resource limits")
+        }
+
+        @Steps {
+            @Step {
+                Set child jail limits.
+
+                @Code(name: "Example.swift", file: "jail-children.swift")
+            }
+
+            @Step {
+                Use rctl for resource limits.
+
+                @Code(name: "Example.swift", file: "jail-rctl.swift")
+            }
+        }
+    }
+
+    @Section(title: "Filesystem Parameters") {
+        @ContentAndMedia {
+            Configure filesystem access and mounting.
+
+            @Image(source: "jail-filesystem.png", alt: "Filesystem")
+        }
+
+        @Steps {
+            @Step {
+                Configure mount permissions.
+
+                @Code(name: "Example.swift", file: "jail-mount.swift")
+            }
+
+            @Step {
+                Set up devfs rules.
+
+                @Code(name: "Example.swift", file: "jail-devfs.swift")
+            }
+        }
+    }
+
+    @Section(title: "Modifying Running Jails") {
+        @ContentAndMedia {
+            Update parameters on a running jail.
+
+            @Image(source: "jail-modify.png", alt: "Modifying jails")
+        }
+
+        @Steps {
+            @Step {
+                Update jail parameters.
+
+                @Code(name: "Example.swift", file: "jail-update.swift")
+            }
+        }
+    }
+
+    @Section(title: "Complete Configuration Example") {
+        @ContentAndMedia {
+            A production-ready jail configuration.
+
+            @Image(source: "jail-complete.png", alt: "Complete configuration")
+        }
+
+        @Steps {
+            @Step {
+                Production web server jail configuration.
+
+                @Code(name: "ProductionJail.swift", file: "jail-production.swift")
+            }
+        }
+    }
+}

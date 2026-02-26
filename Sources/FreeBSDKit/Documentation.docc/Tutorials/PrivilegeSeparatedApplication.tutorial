@@ -1,0 +1,77 @@
+@Tutorial(time: 40) {
+    @Intro(title: "Building a Privilege-Separated Application") {
+        Design and implement a real-world sandboxed application.
+
+        This tutorial walks through building a complete privilege-separated
+        application using FPC, Capsicum, and descriptor passing.
+
+        @Image(source: "privsep-hero.png", alt: "Privilege separation")
+    }
+
+    @Section(title: "Privilege Separation Design") {
+        @ContentAndMedia {
+            A privilege-separated application splits into components:
+
+            - **Parent (privileged)**: Opens files, handles authentication
+            - **Worker (sandboxed)**: Processes untrusted data
+
+            @Image(source: "privsep-design.png", alt: "Design")
+        }
+
+        @Steps {
+            @Step {
+                Design the message protocol.
+
+                @Code(name: "Protocol.swift", file: "privsep-protocol.swift")
+            }
+        }
+    }
+
+    @Section(title: "The Privileged Parent") {
+        @ContentAndMedia {
+            Implement the parent process that handles privileged operations.
+
+            @Image(source: "privsep-parent.png", alt: "Parent process")
+        }
+
+        @Steps {
+            @Step {
+                Create the parent process.
+
+                @Code(name: "Parent.swift", file: "privsep-parent.swift")
+            }
+        }
+    }
+
+    @Section(title: "The Sandboxed Worker") {
+        @ContentAndMedia {
+            Implement the sandboxed worker process.
+
+            @Image(source: "privsep-worker.png", alt: "Worker process")
+        }
+
+        @Steps {
+            @Step {
+                Create the sandboxed worker.
+
+                @Code(name: "Worker.swift", file: "privsep-worker.swift")
+            }
+        }
+    }
+
+    @Section(title: "Putting It Together") {
+        @ContentAndMedia {
+            The complete privilege-separated application.
+
+            @Image(source: "privsep-complete.png", alt: "Complete application")
+        }
+
+        @Steps {
+            @Step {
+                The main entry point.
+
+                @Code(name: "Main.swift", file: "privsep-main.swift")
+            }
+        }
+    }
+}

@@ -1,0 +1,102 @@
+@Tutorial(time: 25) {
+    @Intro(title: "Socket Programming") {
+        Create network and Unix domain sockets with Swift.
+
+        FreeBSDKit provides type-safe socket APIs for both network and local
+        inter-process communication. Unix domain sockets are particularly
+        important for Capsicum-based privilege separation.
+
+        @Image(source: "sockets-hero.png", alt: "Socket programming")
+    }
+
+    @Section(title: "Unix Domain Sockets") {
+        @ContentAndMedia {
+            Unix domain sockets provide efficient local IPC. FreeBSDKit
+            supports STREAM, DGRAM, and SEQPACKET socket types.
+
+            SEQPACKET is particularly useful because it combines:
+            - Connection-oriented semantics (like STREAM)
+            - Message boundary preservation (like DGRAM)
+
+            @Image(source: "unix-sockets.png", alt: "Unix domain sockets")
+        }
+
+        @Steps {
+            @Step {
+                Create a simple Unix domain STREAM server.
+
+                @Code(name: "Server.swift", file: "unix-stream-server.swift")
+            }
+
+            @Step {
+                Create a client that connects to the server.
+
+                @Code(name: "Client.swift", file: "unix-stream-client.swift")
+            }
+        }
+    }
+
+    @Section(title: "SEQPACKET Sockets") {
+        @ContentAndMedia {
+            SEQPACKET sockets preserve message boundaries while providing
+            reliable, connection-oriented delivery. This is the preferred
+            socket type for FPC (FreeBSD Privilege-separated Communication).
+
+            @Image(source: "seqpacket.png", alt: "SEQPACKET sockets")
+        }
+
+        @Steps {
+            @Step {
+                Create a SEQPACKET server that handles messages.
+
+                @Code(name: "Server.swift", file: "seqpacket-server.swift")
+            }
+
+            @Step {
+                Create a SEQPACKET client.
+
+                @Code(name: "Client.swift", file: "seqpacket-client.swift")
+            }
+        }
+    }
+
+    @Section(title: "Socket Pairs") {
+        @ContentAndMedia {
+            Socket pairs create two connected sockets - perfect for
+            parent-child IPC after fork.
+
+            @Image(source: "socketpair.png", alt: "Socket pairs")
+        }
+
+        @Steps {
+            @Step {
+                Create a socket pair for IPC.
+
+                @Code(name: "Example.swift", file: "socketpair-example.swift")
+            }
+        }
+    }
+
+    @Section(title: "Directory-Relative Socket Operations") {
+        @ContentAndMedia {
+            Use `bindat` and `connectat` for Capsicum-compatible socket
+            operations that work with directory capabilities.
+
+            @Image(source: "socket-at.png", alt: "Directory-relative sockets")
+        }
+
+        @Steps {
+            @Step {
+                Bind a socket relative to a directory descriptor.
+
+                @Code(name: "Server.swift", file: "socket-bindat.swift")
+            }
+
+            @Step {
+                Connect to a socket relative to a directory descriptor.
+
+                @Code(name: "Client.swift", file: "socket-connectat.swift")
+            }
+        }
+    }
+}

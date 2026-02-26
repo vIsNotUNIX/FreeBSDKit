@@ -1,0 +1,103 @@
+@Tutorial(time: 30) {
+    @Intro(title: "Introduction to Capsicum") {
+        Understand capability mode and how it restricts process access.
+
+        Capsicum is FreeBSD's capability-based security framework that allows
+        applications to sandbox themselves by giving up access to global
+        namespaces like the filesystem.
+
+        @Image(source: "capsicum-hero.png", alt: "Capsicum sandboxing")
+    }
+
+    @Section(title: "What is Capsicum?") {
+        @ContentAndMedia {
+            Capsicum provides **capability mode** - an operating mode where a
+            process can only access resources through file descriptors it
+            already holds.
+
+            Once in capability mode:
+            - No access to the global filesystem namespace
+            - No access to the global process namespace
+            - No access to network sockets (without existing descriptors)
+            - System calls like `open()`, `connect()`, `kill()` fail with ECAPMODE
+
+            @Image(source: "capsicum-diagram.png", alt: "Capsicum architecture")
+        }
+
+        @Steps {
+            @Step {
+                Check if Capsicum is available on the system.
+
+                @Code(name: "Example.swift", file: "capsicum-check.swift")
+            }
+
+            @Step {
+                Enter capability mode with `cap_enter()`.
+
+                @Code(name: "Example.swift", file: "capsicum-enter.swift")
+            }
+        }
+    }
+
+    @Section(title: "Preparing for Capability Mode") {
+        @ContentAndMedia {
+            Before entering capability mode, you must open all the file
+            descriptors your application will need.
+
+            @Image(source: "capsicum-prepare.png", alt: "Preparing for capability mode")
+        }
+
+        @Steps {
+            @Step {
+                Open files and directories before sandboxing.
+
+                @Code(name: "Example.swift", file: "capsicum-prepare.swift")
+            }
+
+            @Step {
+                Create sockets before sandboxing.
+
+                @Code(name: "Example.swift", file: "capsicum-sockets.swift")
+            }
+        }
+    }
+
+    @Section(title: "A Simple Sandboxed Application") {
+        @ContentAndMedia {
+            Let's build a simple file processor that sandboxes itself.
+
+            @Image(source: "sandboxed-app.png", alt: "Sandboxed application")
+        }
+
+        @Steps {
+            @Step {
+                Complete example: a sandboxed file processor.
+
+                @Code(name: "FileProcessor.swift", file: "sandboxed-processor.swift")
+            }
+
+            @Step {
+                Verify that filesystem access is blocked.
+
+                @Code(name: "Test.swift", file: "capsicum-verify.swift")
+            }
+        }
+    }
+
+    @Section(title: "Error Handling in Capability Mode") {
+        @ContentAndMedia {
+            Operations that violate capability mode return `ENOTCAPABLE`.
+            Handle this error appropriately.
+
+            @Image(source: "capsicum-errors.png", alt: "Capability mode errors")
+        }
+
+        @Steps {
+            @Step {
+                Handle capability mode errors.
+
+                @Code(name: "Example.swift", file: "capsicum-errors.swift")
+            }
+        }
+    }
+}

@@ -1,0 +1,79 @@
+@Tutorial(time: 20) {
+    @Intro(title: "BSM Audit Events") {
+        Monitor real-time security events with the audit subsystem.
+
+        FreeBSD's BSM (Basic Security Module) audit subsystem logs security-relevant
+        events. FreeBSDKit provides APIs to monitor these events in real-time.
+
+        @Image(source: "audit-hero.png", alt: "BSM Audit")
+    }
+
+    @Section(title: "Understanding BSM Audit") {
+        @ContentAndMedia {
+            BSM audit records events like:
+            - File access and modifications
+            - Process creation and termination
+            - Network connections
+            - Authentication attempts
+            - Administrative actions
+
+            @Image(source: "audit-events.png", alt: "Audit events")
+        }
+
+        @Steps {
+            @Step {
+                Import the Audit module.
+
+                @Code(name: "Example.swift", file: "audit-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Opening the Audit Pipe") {
+        @ContentAndMedia {
+            Connect to the audit pipe to receive real-time events.
+
+            @Image(source: "audit-pipe.png", alt: "Audit pipe")
+        }
+
+        @Steps {
+            @Step {
+                Open and configure the audit pipe.
+
+                @Code(name: "Example.swift", file: "audit-pipe.swift")
+            }
+        }
+    }
+
+    @Section(title: "Reading Audit Records") {
+        @ContentAndMedia {
+            Read and parse audit records from the pipe.
+
+            @Image(source: "audit-read.png", alt: "Reading records")
+        }
+
+        @Steps {
+            @Step {
+                Read and display audit records.
+
+                @Code(name: "Example.swift", file: "audit-read.swift")
+            }
+        }
+    }
+
+    @Section(title: "Filtering Events") {
+        @ContentAndMedia {
+            Use preselection masks to filter events.
+
+            @Image(source: "audit-filter.png", alt: "Filtering events")
+        }
+
+        @Steps {
+            @Step {
+                Configure event filtering.
+
+                @Code(name: "Example.swift", file: "audit-filter.swift")
+            }
+        }
+    }
+}

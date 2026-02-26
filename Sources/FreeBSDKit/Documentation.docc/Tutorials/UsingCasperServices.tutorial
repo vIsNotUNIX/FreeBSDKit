@@ -1,0 +1,102 @@
+@Tutorial(time: 25) {
+    @Intro(title: "Using Casper Services") {
+        Access system services from within a Capsicum sandbox.
+
+        Casper provides helper services that allow sandboxed applications
+        to perform operations that would otherwise be blocked by capability
+        mode, such as DNS resolution and reading system databases.
+
+        @Image(source: "casper-hero.png", alt: "Casper services")
+    }
+
+    @Section(title: "What is Casper?") {
+        @ContentAndMedia {
+            Casper is a framework of helper processes that provide access
+            to system services from within a Capsicum sandbox.
+
+            Available services include:
+            - `cap_dns` - DNS hostname resolution
+            - `cap_sysctl` - Read/write sysctl values
+            - `cap_pwd` - Password database lookups
+            - `cap_grp` - Group database lookups
+            - `cap_syslog` - System logging
+            - `cap_fileargs` - Pre-opened file arguments
+            - `cap_net` - Network operations
+            - `cap_netdb` - Network database lookups
+
+            @Image(source: "casper-diagram.png", alt: "Casper architecture")
+        }
+
+        @Steps {
+            @Step {
+                Initialize Casper before entering capability mode.
+
+                @Code(name: "Example.swift", file: "casper-init.swift")
+            }
+        }
+    }
+
+    @Section(title: "DNS Resolution") {
+        @ContentAndMedia {
+            Use `cap_dns` to resolve hostnames from within a sandbox.
+
+            @Image(source: "casper-dns.png", alt: "DNS resolution")
+        }
+
+        @Steps {
+            @Step {
+                Create a DNS service and resolve hostnames.
+
+                @Code(name: "Example.swift", file: "casper-dns.swift")
+            }
+        }
+    }
+
+    @Section(title: "System Control (sysctl)") {
+        @ContentAndMedia {
+            Use `cap_sysctl` to read and write sysctl values.
+
+            @Image(source: "casper-sysctl.png", alt: "sysctl access")
+        }
+
+        @Steps {
+            @Step {
+                Read sysctl values from a sandbox.
+
+                @Code(name: "Example.swift", file: "casper-sysctl.swift")
+            }
+        }
+    }
+
+    @Section(title: "User and Group Lookups") {
+        @ContentAndMedia {
+            Use `cap_pwd` and `cap_grp` for password and group lookups.
+
+            @Image(source: "casper-users.png", alt: "User lookups")
+        }
+
+        @Steps {
+            @Step {
+                Look up users and groups from a sandbox.
+
+                @Code(name: "Example.swift", file: "casper-pwd-grp.swift")
+            }
+        }
+    }
+
+    @Section(title: "Complete Sandboxed Application") {
+        @ContentAndMedia {
+            Build an application that uses multiple Casper services.
+
+            @Image(source: "casper-complete.png", alt: "Complete application")
+        }
+
+        @Steps {
+            @Step {
+                A network client that resolves DNS and logs activity.
+
+                @Code(name: "SandboxedClient.swift", file: "casper-complete.swift")
+            }
+        }
+    }
+}

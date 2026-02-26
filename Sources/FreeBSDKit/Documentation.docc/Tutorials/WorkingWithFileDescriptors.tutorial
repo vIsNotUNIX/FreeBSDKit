@@ -1,0 +1,121 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Working with File Descriptors") {
+        Learn to work with type-safe, ownership-aware file descriptors.
+
+        FreeBSDKit provides move-only descriptor types that leverage Swift's
+        ownership system to prevent resource leaks and use-after-close bugs.
+
+        @Image(source: "descriptors-hero.png", alt: "File descriptors")
+    }
+
+    @Section(title: "Understanding Descriptor Types") {
+        @ContentAndMedia {
+            FreeBSDKit provides a hierarchy of descriptor types, each with
+            specific capabilities and safety guarantees.
+
+            The key types are:
+            - `FileCapability` - A file descriptor with capability rights
+            - `DirectoryCapability` - A directory descriptor for path operations
+            - `SocketCapability` - A socket descriptor for network/IPC
+            - `ProcessCapability` - A process descriptor (pdfork)
+
+            @Image(source: "descriptor-types.png", alt: "Descriptor type hierarchy")
+        }
+
+        @Steps {
+            @Step {
+                Descriptors are move-only types (`~Copyable`) that automatically
+                close when they go out of scope.
+
+                @Code(name: "Example.swift", file: "descriptor-ownership.swift")
+            }
+
+            @Step {
+                Use `borrowing` to temporarily access a descriptor without
+                transferring ownership.
+
+                @Code(name: "Example.swift", file: "descriptor-borrowing.swift")
+            }
+        }
+    }
+
+    @Section(title: "Opening Files and Directories") {
+        @ContentAndMedia {
+            Open files and directories with type-safe APIs that return
+            the appropriate descriptor type.
+
+            @Image(source: "open-files.png", alt: "Opening files")
+        }
+
+        @Steps {
+            @Step {
+                Open a file for reading using FileCapability.
+
+                @Code(name: "Example.swift", file: "open-file-read.swift")
+            }
+
+            @Step {
+                Open a file for writing with specific flags.
+
+                @Code(name: "Example.swift", file: "open-file-write.swift")
+            }
+
+            @Step {
+                Open a directory for path-relative operations.
+
+                @Code(name: "Example.swift", file: "open-directory.swift")
+            }
+
+            @Step {
+                Use `openat` for path-relative file access.
+
+                @Code(name: "Example.swift", file: "openat-example.swift")
+            }
+        }
+    }
+
+    @Section(title: "Reading and Writing") {
+        @ContentAndMedia {
+            Use the stream descriptor protocol for reading and writing data.
+
+            @Image(source: "read-write.png", alt: "Reading and writing")
+        }
+
+        @Steps {
+            @Step {
+                Read data from a file descriptor.
+
+                @Code(name: "Example.swift", file: "read-data.swift")
+            }
+
+            @Step {
+                Write data to a file descriptor.
+
+                @Code(name: "Example.swift", file: "write-data.swift")
+            }
+        }
+    }
+
+    @Section(title: "Directory Operations") {
+        @ContentAndMedia {
+            Perform operations relative to a directory descriptor.
+            This is essential for secure Capsicum sandboxing.
+
+            @Image(source: "directory-ops.png", alt: "Directory operations")
+        }
+
+        @Steps {
+            @Step {
+                Create files and directories relative to a directory descriptor.
+
+                @Code(name: "Example.swift", file: "directory-create.swift")
+            }
+
+            @Step {
+                List directory contents.
+
+                @Code(name: "Example.swift", file: "directory-list.swift")
+            }
+        }
+    }
+}

@@ -1,0 +1,81 @@
+@Tutorial(time: 25) {
+    @Intro(title: "FPC Fundamentals") {
+        Create message-passing communication between processes.
+
+        FPC (FreeBSD Privilege-separated Communication) provides a simple,
+        message-oriented IPC mechanism built on SEQPACKET sockets with
+        support for descriptor passing.
+
+        @Image(source: "fpc-hero.png", alt: "FPC communication")
+    }
+
+    @Section(title: "What is FPC?") {
+        @ContentAndMedia {
+            FPC is a protocol for inter-process communication designed for
+            privilege-separated applications. It provides:
+
+            - Message-boundary-preserving communication (SEQPACKET)
+            - File descriptor passing
+            - Async/await Swift integration
+            - Works in Capsicum sandboxes
+
+            @Image(source: "fpc-architecture.png", alt: "FPC architecture")
+        }
+
+        @Steps {
+            @Step {
+                Import FPC and understand the core types.
+
+                @Code(name: "Example.swift", file: "fpc-overview.swift")
+            }
+        }
+    }
+
+    @Section(title: "Creating an FPC Server") {
+        @ContentAndMedia {
+            Use `FPCListener` to create a server that accepts connections.
+
+            @Image(source: "fpc-server.png", alt: "FPC server")
+        }
+
+        @Steps {
+            @Step {
+                Create and start a listener.
+
+                @Code(name: "Server.swift", file: "fpc-server.swift")
+            }
+        }
+    }
+
+    @Section(title: "Creating an FPC Client") {
+        @ContentAndMedia {
+            Use `FPCClient` to connect to a server.
+
+            @Image(source: "fpc-client.png", alt: "FPC client")
+        }
+
+        @Steps {
+            @Step {
+                Connect to a server and send messages.
+
+                @Code(name: "Client.swift", file: "fpc-client.swift")
+            }
+        }
+    }
+
+    @Section(title: "Exchanging Messages") {
+        @ContentAndMedia {
+            Send and receive structured messages with FPC.
+
+            @Image(source: "fpc-messages.png", alt: "FPC messages")
+        }
+
+        @Steps {
+            @Step {
+                Define message types and exchange data.
+
+                @Code(name: "Messages.swift", file: "fpc-messages.swift")
+            }
+        }
+    }
+}

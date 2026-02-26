@@ -1,0 +1,104 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Limiting Capability Rights") {
+        Restrict what operations can be performed on file descriptors.
+
+        Capsicum's capability rights system lets you limit what operations
+        can be performed on a file descriptor, even if the underlying file
+        permissions would allow more.
+
+        @Image(source: "rights-hero.png", alt: "Capability rights")
+    }
+
+    @Section(title: "Understanding Capability Rights") {
+        @ContentAndMedia {
+            Every file descriptor has associated capability rights that
+            determine what operations are allowed. You can only reduce
+            rights, never increase them.
+
+            Common rights include:
+            - `CAP_READ` - Read from descriptor
+            - `CAP_WRITE` - Write to descriptor
+            - `CAP_SEEK` - Seek within file
+            - `CAP_MMAP` - Memory map the file
+            - `CAP_FSTAT` - Get file status
+            - `CAP_LOOKUP` - Look up files in directory
+
+            @Image(source: "rights-diagram.png", alt: "Rights hierarchy")
+        }
+
+        @Steps {
+            @Step {
+                View the available capability rights.
+
+                @Code(name: "Example.swift", file: "cap-rights-list.swift")
+            }
+        }
+    }
+
+    @Section(title: "Limiting Rights on Descriptors") {
+        @ContentAndMedia {
+            Use `cap_rights_limit()` to restrict a descriptor's rights.
+            This is a one-way operation - you cannot add rights back.
+
+            @Image(source: "limit-rights.png", alt: "Limiting rights")
+        }
+
+        @Steps {
+            @Step {
+                Limit a file to read-only access.
+
+                @Code(name: "Example.swift", file: "cap-limit-readonly.swift")
+            }
+
+            @Step {
+                Limit a directory capability for specific operations.
+
+                @Code(name: "Example.swift", file: "cap-limit-directory.swift")
+            }
+        }
+    }
+
+    @Section(title: "Rights for Different Use Cases") {
+        @ContentAndMedia {
+            Different use cases require different combinations of rights.
+
+            @Image(source: "rights-usecases.png", alt: "Rights use cases")
+        }
+
+        @Steps {
+            @Step {
+                Rights for a configuration file (read-only, no execute).
+
+                @Code(name: "Example.swift", file: "cap-rights-config.swift")
+            }
+
+            @Step {
+                Rights for a log file (append-only).
+
+                @Code(name: "Example.swift", file: "cap-rights-log.swift")
+            }
+
+            @Step {
+                Rights for a data directory (lookup and read files).
+
+                @Code(name: "Example.swift", file: "cap-rights-datadir.swift")
+            }
+        }
+    }
+
+    @Section(title: "Querying Current Rights") {
+        @ContentAndMedia {
+            Check what rights a descriptor currently has.
+
+            @Image(source: "query-rights.png", alt: "Querying rights")
+        }
+
+        @Steps {
+            @Step {
+                Get and display current rights.
+
+                @Code(name: "Example.swift", file: "cap-rights-get.swift")
+            }
+        }
+    }
+}

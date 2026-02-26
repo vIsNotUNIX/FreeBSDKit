@@ -1,0 +1,63 @@
+@Tutorial(time: 15) {
+    @Intro(title: "CPU Sets") {
+        Pin processes to specific CPUs.
+
+        CPU sets (cpusets) allow you to control which CPUs a process
+        or group of processes can execute on. This is useful for
+        performance tuning and resource isolation.
+
+        @Image(source: "cpuset-hero.png", alt: "CPU Sets")
+    }
+
+    @Section(title: "Understanding CPU Sets") {
+        @ContentAndMedia {
+            A CPU set is a bitmask indicating which CPUs are available
+            to a process. CPU sets can be:
+            - Per-process (cpuset_setaffinity)
+            - Per-thread (pthread cpuset)
+            - Hierarchical (cpuset_create)
+
+            @Image(source: "cpuset-diagram.png", alt: "CPU set diagram")
+        }
+
+        @Steps {
+            @Step {
+                Import and understand cpuset basics.
+
+                @Code(name: "Example.swift", file: "cpuset-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Setting CPU Affinity") {
+        @ContentAndMedia {
+            Pin a process to specific CPUs.
+
+            @Image(source: "cpuset-affinity.png", alt: "CPU affinity")
+        }
+
+        @Steps {
+            @Step {
+                Set CPU affinity for a process.
+
+                @Code(name: "Example.swift", file: "cpuset-affinity.swift")
+            }
+        }
+    }
+
+    @Section(title: "Querying CPU Sets") {
+        @ContentAndMedia {
+            Get the current CPU set for a process.
+
+            @Image(source: "cpuset-query.png", alt: "Query CPU set")
+        }
+
+        @Steps {
+            @Step {
+                Query and display CPU affinity.
+
+                @Code(name: "Example.swift", file: "cpuset-query.swift")
+            }
+        }
+    }
+}

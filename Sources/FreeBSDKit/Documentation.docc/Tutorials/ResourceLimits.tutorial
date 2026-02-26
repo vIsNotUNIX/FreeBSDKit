@@ -1,0 +1,69 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Resource Limits with rctl") {
+        Set resource limits on processes and jails.
+
+        FreeBSD's rctl (Resource Control) framework allows setting and
+        enforcing resource limits on processes, users, login classes, and jails.
+
+        @Image(source: "rctl-hero.png", alt: "Resource limits")
+    }
+
+    @Section(title: "Understanding rctl") {
+        @ContentAndMedia {
+            rctl can limit resources like:
+            - CPU time and percentage
+            - Memory (resident, virtual, swap)
+            - Process count
+            - Open files
+            - Disk I/O
+
+            Limits can be enforced with different actions:
+            - `deny` - Block the operation
+            - `log` - Log to syslog
+            - `devctl` - Notify devd
+            - `sig*` - Send a signal
+
+            @Image(source: "rctl-diagram.png", alt: "rctl diagram")
+        }
+
+        @Steps {
+            @Step {
+                Import and understand rctl.
+
+                @Code(name: "Example.swift", file: "rctl-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Adding Resource Limits") {
+        @ContentAndMedia {
+            Add limits to processes, users, and jails.
+
+            @Image(source: "rctl-add.png", alt: "Adding limits")
+        }
+
+        @Steps {
+            @Step {
+                Add resource limits.
+
+                @Code(name: "Example.swift", file: "rctl-add.swift")
+            }
+        }
+    }
+
+    @Section(title: "Querying Resource Usage") {
+        @ContentAndMedia {
+            Check current resource usage against limits.
+
+            @Image(source: "rctl-query.png", alt: "Query usage")
+        }
+
+        @Steps {
+            @Step {
+                Query resource usage.
+
+                @Code(name: "Example.swift", file: "rctl-query.swift")
+            }
+        }
+    }
+}

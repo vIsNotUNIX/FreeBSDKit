@@ -1,0 +1,81 @@
+@Tutorial(time: 10) {
+    @Intro(title: "Understanding BSD Errors") {
+        Learn how FreeBSDKit handles system errors with type-safe Swift APIs.
+
+        FreeBSDKit wraps BSD errno values in Swift's error handling system,
+        providing rich error information while remaining compatible with
+        system programming conventions.
+
+        @Image(source: "errors-hero.png", alt: "Error handling")
+    }
+
+    @Section(title: "The BSDError Type") {
+        @ContentAndMedia {
+            `BSDError` is the primary error type used throughout FreeBSDKit.
+            It wraps the standard BSD errno values and provides descriptive
+            error messages.
+
+            @Image(source: "bsderror.png", alt: "BSDError type")
+        }
+
+        @Steps {
+            @Step {
+                BSDError provides common error cases as static properties.
+
+                @Code(name: "BSDError.swift", file: "bsderror-cases.swift")
+            }
+
+            @Step {
+                You can also create BSDError from any errno value.
+
+                @Code(name: "Example.swift", file: "bsderror-from-errno.swift")
+            }
+        }
+    }
+
+    @Section(title: "Handling Errors in Practice") {
+        @ContentAndMedia {
+            FreeBSDKit APIs throw `BSDError` when system calls fail.
+            Use standard Swift error handling to catch and respond to errors.
+
+            @Image(source: "handling-errors.png", alt: "Error handling")
+        }
+
+        @Steps {
+            @Step {
+                Use do-catch to handle errors from FreeBSDKit operations.
+
+                @Code(name: "Example.swift", file: "error-handling-01.swift")
+            }
+
+            @Step {
+                Match specific error cases for detailed handling.
+
+                @Code(name: "Example.swift", file: "error-handling-02.swift")
+            }
+
+            @Step {
+                Access the underlying errno for interoperability with C code.
+
+                @Code(name: "Example.swift", file: "error-handling-03.swift")
+            }
+        }
+    }
+
+    @Section(title: "Creating Errors in Custom Code") {
+        @ContentAndMedia {
+            When writing your own system-level code, use `BSDError.throwErrno()`
+            to convert errno values to Swift errors.
+
+            @Image(source: "custom-errors.png", alt: "Custom error handling")
+        }
+
+        @Steps {
+            @Step {
+                Use `throwErrno` after a failed system call.
+
+                @Code(name: "Example.swift", file: "throw-errno.swift")
+            }
+        }
+    }
+}

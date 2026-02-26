@@ -1,0 +1,66 @@
+@Tutorial(time: 15) {
+    @Intro(title: "MAC Labels") {
+        Work with mandatory access control labels.
+
+        FreeBSD's MAC framework provides mandatory access controls beyond
+        traditional Unix permissions. Labels can be applied to files,
+        processes, and other objects.
+
+        @Image(source: "mac-hero.png", alt: "MAC Labels")
+    }
+
+    @Section(title: "Understanding MAC Labels") {
+        @ContentAndMedia {
+            MAC labels consist of policy:label pairs that are enforced
+            by the kernel regardless of Unix permissions.
+
+            Common policies include:
+            - `bsdextended` - Extended file system permissions
+            - `ifoff` - Network interface controls
+            - `partition` - Process partitioning
+            - `lomac` - Low-watermark MAC
+
+            @Image(source: "mac-labels.png", alt: "MAC label structure")
+        }
+
+        @Steps {
+            @Step {
+                Import the MacLabel module.
+
+                @Code(name: "Example.swift", file: "mac-import.swift")
+            }
+        }
+    }
+
+    @Section(title: "Reading MAC Labels") {
+        @ContentAndMedia {
+            Read labels from files and processes.
+
+            @Image(source: "mac-read.png", alt: "Reading labels")
+        }
+
+        @Steps {
+            @Step {
+                Get the MAC label of a file.
+
+                @Code(name: "Example.swift", file: "mac-get.swift")
+            }
+        }
+    }
+
+    @Section(title: "Setting MAC Labels") {
+        @ContentAndMedia {
+            Apply labels to files.
+
+            @Image(source: "mac-set.png", alt: "Setting labels")
+        }
+
+        @Steps {
+            @Step {
+                Set a MAC label on a file.
+
+                @Code(name: "Example.swift", file: "mac-set.swift")
+            }
+        }
+    }
+}
