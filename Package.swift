@@ -1,5 +1,4 @@
 // swift-tools-version: 6.3
-// The FreeBSD ports tree still uses 5.10. You can build with 6.2
 
 import PackageDescription
 
