@@ -202,22 +202,114 @@ struct DTraceCoreErrorTests {
         let probeIterFailed = DTraceCoreError.probeIterFailed(message: "test")
         let handlerFailed = DTraceCoreError.handlerFailed(message: "test")
         let aggregateFailed = DTraceCoreError.aggregateFailed(message: "test")
+        let procGrabFailed = DTraceCoreError.procGrabFailed(pid: 1234, message: "test")
+        let consumeFailed = DTraceCoreError.consumeFailed(message: "test")
         let invalidHandle = DTraceCoreError.invalidHandle
 
         // Just verify they can be created and are Error conforming
         let errors: [any Error] = [
             openFailed, compileFailed, execFailed, goFailed, stopFailed,
             workFailed, setOptFailed, getOptFailed, probeIterFailed,
-            handlerFailed, aggregateFailed, invalidHandle
+            handlerFailed, aggregateFailed, procGrabFailed, consumeFailed,
+            invalidHandle
         ]
 
-        #expect(errors.count == 12)
+        #expect(errors.count == 14)
     }
 
     @Test("Error is Sendable")
     func testErrorSendable() {
         let error: any Error & Sendable = DTraceCoreError.invalidHandle
         #expect(error is DTraceCoreError)
+    }
+}
+
+@Suite("DTraceHandle Types Tests")
+struct DTraceHandleTypesTests {
+
+    @Test("AggregateWalkResult enum values")
+    func testAggregateWalkResult() {
+        let next = DTraceHandle.AggregateWalkResult.next
+        let abort = DTraceHandle.AggregateWalkResult.abort
+        let clear = DTraceHandle.AggregateWalkResult.clear
+        let remove = DTraceHandle.AggregateWalkResult.remove
+
+        #expect(next.rawValue == 0)
+        #expect(abort.rawValue == 1)
+        #expect(clear.rawValue == 2)
+        #expect(remove.rawValue == 5)
+    }
+
+    @Test("ConsumeResult enum values")
+    func testConsumeResult() {
+        let error = DTraceHandle.ConsumeResult.error
+        let this = DTraceHandle.ConsumeResult.this
+        let next = DTraceHandle.ConsumeResult.next
+        let abort = DTraceHandle.ConsumeResult.abort
+
+        #expect(error.rawValue == -1)
+        #expect(this.rawValue == 0)
+        #expect(next.rawValue == 1)
+        #expect(abort.rawValue == 2)
+    }
+
+    @Test("DropKind enum values")
+    func testDropKind() {
+        let principal = DTraceHandle.DropKind.principal
+        let aggregation = DTraceHandle.DropKind.aggregation
+        let dynamic = DTraceHandle.DropKind.dynamic
+        let speculation = DTraceHandle.DropKind.speculation
+        let unknown = DTraceHandle.DropKind.unknown
+
+        #expect(principal.rawValue == 0)
+        #expect(aggregation.rawValue == 1)
+        #expect(dynamic.rawValue == 2)
+        #expect(speculation.rawValue == 5)
+        #expect(unknown.rawValue == -1)
+    }
+
+    @Test("OutputFormat enum values")
+    func testOutputFormat() {
+        let text = DTraceHandle.OutputFormat.text
+        let structured = DTraceHandle.OutputFormat.structured
+
+        #expect(text.rawValue == 0)
+        #expect(structured.rawValue == 1)
+    }
+
+    @Test("DropInfo is Sendable")
+    func testDropInfoSendable() {
+        func useSendable<T: Sendable>(_ value: T) -> T { value }
+        let info = DTraceHandle.DropInfo(kind: .principal, drops: 10, message: "test")
+        let result = useSendable(info)
+        #expect(result.drops == 10)
+        #expect(result.kind == .principal)
+        #expect(result.message == "test")
+    }
+
+    @Test("ErrorInfo is Sendable")
+    func testErrorInfoSendable() {
+        func useSendable<T: Sendable>(_ value: T) -> T { value }
+        let info = DTraceHandle.ErrorInfo(fault: 42, message: "test error")
+        let result = useSendable(info)
+        #expect(result.fault == 42)
+        #expect(result.message == "test error")
+    }
+
+    @Test("ProbeData is Sendable")
+    func testProbeDataSendable() {
+        func useSendable<T: Sendable>(_ value: T) -> T { value }
+        let probe = DTraceProbeDescription(
+            id: 1,
+            provider: "syscall",
+            module: "freebsd",
+            function: "read",
+            name: "entry"
+        )
+        let data = DTraceHandle.ProbeData(cpu: 0, probe: probe)
+        let result = useSendable(data)
+        #expect(result.cpu == 0)
+        #expect(result.probe.function == "read")
     }
 }
 

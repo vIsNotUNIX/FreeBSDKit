@@ -33,6 +33,8 @@ Then add the specific libraries you need to your target:
         .product(name: "ACL", package: "FreeBSDKit"),
         .product(name: "Rctl", package: "FreeBSDKit"),
         .product(name: "Cpuset", package: "FreeBSDKit"),
+        .product(name: "DTraceCore", package: "FreeBSDKit"),
+        .product(name: "DTraceBuilder", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -1114,6 +1116,171 @@ try Cpuset.setJailAffinity(5, to: CPUSet(cpus: [0, 1]))
 
 ---
 
+### DTraceCore & DTraceBuilder
+
+Swift interface to FreeBSD's DTrace dynamic tracing framework.
+
+**DTraceCore** provides low-level bindings to libdtrace with move-only handle semantics:
+
+```swift
+import DTraceCore
+
+// Open DTrace handle
+let handle = try DTraceHandle.open()
+
+// Set buffer sizes
+try handle.setOption("bufsize", value: "4m")
+try handle.setOption("aggsize", value: "4m")
+
+// Compile and execute a D program
+let program = try handle.compile("""
+    syscall:::entry
+    {
+        @[execname] = count();
+    }
+    """)
+try handle.exec(program)
+
+// Start tracing
+try handle.go()
+
+// Process trace data
+while true {
+    let status = handle.work()
+    if status == .done || status == .error { break }
+    handle.sleep()
+}
+
+// Print results and stop
+try handle.aggregateSnap()
+try handle.aggregatePrint()
+try handle.stop()
+```
+
+**Error and Drop Handlers:**
+
+```swift
+// Register error handler
+try handle.onError { error in
+    print("DTrace error: \(error.message)")
+    return true  // Continue execution
+}
+
+// Register drop handler (buffer overflow notifications)
+try handle.onDrop { drop in
+    print("Dropped \(drop.drops) records: \(drop.message)")
+    return true
+}
+```
+
+**Programmatic Aggregation Access:**
+
+```swift
+// Walk aggregations programmatically instead of printing
+try handle.aggregateWalk(sorted: true) { data, size in
+    // Process raw aggregation data
+    print("Record: \(size) bytes")
+    return .next  // Continue walking
+}
+```
+
+**Structured JSON Output:**
+
+```swift
+// Enable JSON output format
+try handle.enableStructuredOutput()
+print("JSON enabled: \(handle.isStructuredOutputEnabled)")
+
+// Output will now be in JSON format
+try handle.aggregatePrint()
+
+handle.disableStructuredOutput()
+```
+
+**DTraceBuilder** provides a fluent API for constructing D scripts:
+
+```swift
+import DTraceBuilder
+
+// Create a tracing session with proper buffer defaults
+var session = try DTraceSession.create(
+    traceBufferSize: "4m",
+    aggBufferSize: "4m"
+)
+
+// Use predefined trace templates
+session.syscallCounts(for: .execname("nginx"))
+
+// Or build custom traces fluently
+session.trace("syscall::read:entry")
+    .targeting(.pid(1234))
+    .when("arg0 > 0")
+    .counting(by: .function)
+
+// Start and run
+try session.start()
+
+for _ in 1...5 {
+    let status = session.work()
+    if status == .done { break }
+    session.sleep()
+}
+
+try session.stop()
+try session.printAggregations()
+```
+
+**Predefined Templates:**
+
+```swift
+// System call counting
+session.syscallCounts(for: .execname("postgres"))
+
+// File opens with paths
+session.fileOpens(for: .uid(0))
+
+// CPU profiling
+session.cpuProfile(hz: 997, for: .processNameContains("http"))
+
+// I/O bytes per process
+session.ioBytes()
+
+// Syscall latency histograms
+session.syscallLatency("read", for: .pid(1234))
+```
+
+**Target Predicates:**
+
+```swift
+let target: DTraceTarget = .execname("nginx") && !.uid(0)
+let target: DTraceTarget = .pid(1234) || .pid(5678)
+let target: DTraceTarget = (.execname("postgres") || .execname("mysql")) && .jail(5)
+```
+
+**Output Capture:**
+
+```swift
+// Capture output to a buffer for programmatic access
+let buffer = DTraceOutputBuffer()
+session.output(to: .buffer(buffer))
+
+try session.start()
+// ... trace ...
+try session.stop()
+try session.printAggregations()
+
+let output = buffer.contents  // Get captured text
+```
+
+**Key Types:**
+- `DTraceHandle` - Low-level libdtrace handle (~Copyable)
+- `DTraceSession` - High-level fluent session builder
+- `DTraceScript` - D script builder with aggregation helpers
+- `DTraceTarget` - Process targeting predicates
+- `DTraceProbeDescription` - Probe metadata (provider:module:function:name)
+
+---
+
 ### CMacLabelParser
 
 Dependency-free C library for parsing MAC labels.
@@ -1201,6 +1368,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CCpuset` | CPU affinity macros and syscall wrappers |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
+| `CDTrace` | DTrace libdtrace wrappers and constants |
 
 ---
 

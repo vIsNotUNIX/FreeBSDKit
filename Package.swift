@@ -70,10 +70,6 @@ let package = Package(
             targets: ["DTraceBuilder"]
         ),
         .executable(
-            name: "testtool",
-            targets: ["TestTool"]
-        ),
-        .executable(
             name: "maclabel",
             targets: ["maclabel"]
         ),
@@ -323,10 +319,6 @@ let package = Package(
         .testTarget(
             name: "DTraceBuilderTests",
             dependencies: ["DTraceBuilder", "Descriptors", "Capabilities"]
-        ),
-        .executableTarget(
-            name: "TestTool",
-            dependencies: ["Capsicum", "Descriptors"]
         ),
         .executableTarget(
             name: "maclabel",

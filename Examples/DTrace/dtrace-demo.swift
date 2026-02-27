@@ -514,6 +514,164 @@ func lowLevelDemo() {
     }
 }
 
+func handlersDemo() {
+    printHeader("Error and Drop Handlers Demo")
+
+    guard getuid() == 0 else {
+        print("ERROR: This demo requires root privileges.")
+        print("Run with: sudo dtrace-demo handlers")
+        return
+    }
+
+    do {
+        let handle = try DTraceHandle.open()
+        try handle.setOption("bufsize", value: "4m")
+        try handle.setOption("aggsize", value: "4m")
+
+        // Set up error handler
+        print("Setting up error handler...")
+        try handle.onError { error in
+            print("  [ERROR] Fault \(error.fault): \(error.message)")
+            return true  // Continue execution
+        }
+
+        // Set up drop handler
+        print("Setting up drop handler...")
+        try handle.onDrop { drop in
+            print("  [DROP] \(drop.kind): \(drop.drops) records - \(drop.message)")
+            return true  // Continue execution
+        }
+
+        print("Handlers registered successfully!")
+        print()
+        print("In a real application, these handlers would be called if:")
+        print("  - An error occurs during tracing (onError)")
+        print("  - Data is dropped due to buffer overflow (onDrop)")
+
+    } catch let error as DTraceCoreError {
+        print("DTrace error: \(error)")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
+func aggregateWalkDemo() {
+    printHeader("Programmatic Aggregation Walk Demo")
+
+    guard getuid() == 0 else {
+        print("ERROR: This demo requires root privileges.")
+        print("Run with: sudo dtrace-demo aggwalk")
+        return
+    }
+
+    do {
+        let handle = try DTraceHandle.open()
+        try handle.setOption("bufsize", value: "4m")
+        try handle.setOption("aggsize", value: "4m")
+
+        print("Compiling CPU profile program...")
+        let program = try handle.compile("""
+            profile-97
+            {
+                @[execname] = count();
+            }
+            """)
+
+        print("Executing program...")
+        try handle.exec(program)
+
+        print("Starting trace for 1 second...")
+        try handle.go()
+
+        let endTime = Date().addingTimeInterval(1)
+        while Date() < endTime {
+            let workStatus = handle.work()
+            if workStatus == .done || workStatus == .error { break }
+            handle.sleep()
+        }
+
+        try handle.stop()
+
+        printSection("Walking Aggregations Programmatically")
+        print("(Raw data pointers and sizes)")
+        print()
+
+        var count = 0
+        try handle.aggregateSnap()
+        try handle.aggregateWalk(sorted: true) { data, size in
+            count += 1
+            print("  Record \(count): \(size) bytes at \(data)")
+            return .next
+        }
+
+        print()
+        print("Processed \(count) aggregation records")
+        print()
+        print("In a real application, you would parse the raw data")
+        print("to extract keys and values for custom processing.")
+
+    } catch let error as DTraceCoreError {
+        print("DTrace error: \(error)")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
+func jsonOutputDemo() {
+    printHeader("JSON Structured Output Demo")
+
+    guard getuid() == 0 else {
+        print("ERROR: This demo requires root privileges.")
+        print("Run with: sudo dtrace-demo json")
+        return
+    }
+
+    do {
+        let handle = try DTraceHandle.open()
+        try handle.setOption("bufsize", value: "4m")
+        try handle.setOption("aggsize", value: "4m")
+
+        print("Enabling structured (JSON) output...")
+        try handle.enableStructuredOutput()
+
+        print("Structured output enabled: \(handle.isStructuredOutputEnabled)")
+        print()
+
+        print("Compiling program...")
+        let program = try handle.compile("""
+            profile-97
+            {
+                @[execname] = count();
+            }
+            """)
+
+        try handle.exec(program)
+
+        print("Starting trace for 1 second...")
+        try handle.go()
+
+        let endTime = Date().addingTimeInterval(1)
+        while Date() < endTime {
+            let workStatus = handle.work()
+            if workStatus == .done || workStatus == .error { break }
+            handle.sleep()
+        }
+
+        try handle.stop()
+
+        printSection("JSON Output")
+        try handle.aggregateSnap()
+        try handle.aggregatePrint()
+
+        handle.disableStructuredOutput()
+
+    } catch let error as DTraceCoreError {
+        print("DTrace error: \(error)")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
 func showUsage() {
     print("""
     dtrace-demo - DTraceBuilder API Demonstration
@@ -525,6 +683,9 @@ func showUsage() {
       dtrace-demo target PID  Trace syscalls for a specific PID (requires root)
       dtrace-demo buffer      Demonstrate capturing output to buffer (requires root)
       dtrace-demo lowlevel    Demonstrate low-level DTraceHandle API (requires root)
+      dtrace-demo handlers    Demonstrate error and drop handlers (requires root)
+      dtrace-demo aggwalk     Demonstrate programmatic aggregation walking (requires root)
+      dtrace-demo json        Demonstrate JSON structured output (requires root)
       dtrace-demo help        Show this help
 
     Examples:
@@ -534,6 +695,9 @@ func showUsage() {
       sudo dtrace-demo target 1234  # Trace specific process
       sudo dtrace-demo buffer       # Capture to memory buffer
       sudo dtrace-demo lowlevel     # Low-level API demo
+      sudo dtrace-demo handlers     # Error/drop handler callbacks
+      sudo dtrace-demo aggwalk      # Walk aggregations programmatically
+      sudo dtrace-demo json         # Get JSON output from DTrace
     """)
 }
 
@@ -562,6 +726,12 @@ if args.isEmpty {
         captureToBuffer()
     case "lowlevel":
         lowLevelDemo()
+    case "handlers":
+        handlersDemo()
+    case "aggwalk":
+        aggregateWalkDemo()
+    case "json":
+        jsonOutputDemo()
     case "help", "-h", "--help":
         showUsage()
     default:

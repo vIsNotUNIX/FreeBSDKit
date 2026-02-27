@@ -19,6 +19,7 @@ FreeBSDKit provides idiomatic Swift APIs for FreeBSD-specific system features in
 - **Casper** - Capability-mode helper services
 - **Audit** - BSM audit event monitoring
 - **Resource Controls** - CPU sets, resource limits, and process control
+- **DTrace** - Dynamic tracing with fluent script builder
 
 ## Topics
 
