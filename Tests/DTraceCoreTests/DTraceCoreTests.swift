@@ -6,6 +6,8 @@
 
 import Testing
 @testable import DTraceCore
+import Glibc
+
 
 @Suite("DTraceCore Tests")
 struct DTraceCoreTests {
@@ -321,6 +323,96 @@ struct DTraceProgramInfoTests {
         // Create a mock dtrace_proginfo_t to test our Swift struct
         // Note: We can't directly create one in tests without dtrace,
         // but we can verify the struct definition is correct
-        #expect(true)  // Placeholder - actual testing requires dtrace handle
+        #expect(Bool(true))  // Placeholder - actual testing requires dtrace handle
+    }
+}
+
+@Suite("DTraceHandle Integration Tests")
+struct DTraceHandleIntegrationTests {
+
+    @Test("Structured output methods exist")
+    func testStructuredOutputAPI() throws {
+        // Skip if not root - DTrace requires elevated privileges
+        guard getuid() == 0 else {
+            print("Skipping testStructuredOutputAPI: requires root privileges")
+            return
+        }
+
+        let handle = try DTraceHandle.open()
+
+        // Test enable/disable cycle
+        try handle.enableStructuredOutput()
+        #expect(handle.isStructuredOutputEnabled == true)
+
+        handle.disableStructuredOutput()
+        #expect(handle.isStructuredOutputEnabled == false)
+    }
+
+    @Test("Error handler registration")
+    func testErrorHandlerAPI() throws {
+        guard getuid() == 0 else {
+            print("Skipping testErrorHandlerAPI: requires root privileges")
+            return
+        }
+
+        let handle = try DTraceHandle.open()
+
+        // Verify handler can be registered without error
+        try handle.onError { _ in
+            return true
+        }
+
+        #expect(Bool(true))  // If we get here, registration succeeded
+    }
+
+    @Test("Drop handler registration")
+    func testDropHandlerAPI() throws {
+        guard getuid() == 0 else {
+            print("Skipping testDropHandlerAPI: requires root privileges")
+            return
+        }
+
+        let handle = try DTraceHandle.open()
+
+        // Verify handler can be registered without error
+        try handle.onDrop { _ in
+            return true
+        }
+
+        #expect(Bool(true))  // If we get here, registration succeeded
+    }
+
+    @Test("Aggregate walk with empty aggregations")
+    func testAggregateWalkAPI() throws {
+        guard getuid() == 0 else {
+            print("Skipping testAggregateWalkAPI: requires root privileges")
+            return
+        }
+
+        let handle = try DTraceHandle.open()
+        try handle.setOption("bufsize", value: "4m")
+        try handle.setOption("aggsize", value: "4m")
+
+        // Compile a simple program
+        let program = try handle.compile("BEGIN { exit(0); }")
+        try handle.exec(program)
+        try handle.go()
+
+        // Wait for completion
+        while handle.work() == .okay {
+            handle.sleep()
+        }
+
+        try handle.stop()
+
+        // Walk empty aggregations (should not crash)
+        var count = 0
+        try handle.aggregateSnap()
+        try handle.aggregateWalk(sorted: true) { _, _ in
+            count += 1
+            return .next
+        }
+
+        #expect(count == 0)  // No aggregations in this simple program
     }
 }
