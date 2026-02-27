@@ -13,16 +13,24 @@ extension ACL {
     ///
     /// - Parameter path: The file path.
     /// - Returns: `true` if the file has an extended ACL.
-    public static func hasExtendedACL(path: String) -> Bool {
+    public static func isExtended(at path: String) -> Bool {
         return acl_extended_file_np(path) == 1
     }
 
-    /// Checks if a symlink has an extended ACL (not following the link).
+    /// Checks if a file has an extended ACL (not following symlinks).
     ///
-    /// - Parameter path: The symlink path.
+    /// - Parameter path: The file path (symlinks not followed).
+    /// - Returns: `true` if the file has an extended ACL.
+    public static func isExtendedNoFollow(at path: String) -> Bool {
+        return acl_extended_file_nofollow_np(path) == 1
+    }
+
+    /// Checks if a symlink itself has an extended ACL.
+    ///
+    /// - Parameter linkPath: The symlink path.
     /// - Returns: `true` if the symlink has an extended ACL.
-    public static func hasExtendedACL(linkPath path: String) -> Bool {
-        return acl_extended_link_np(path) == 1
+    public static func isExtended(atLink linkPath: String) -> Bool {
+        return acl_extended_link_np(linkPath) == 1
     }
 
     /// Validates this ACL for a specific file.
@@ -31,23 +39,34 @@ extension ACL {
     ///   - path: The file path.
     ///   - type: The ACL type.
     /// - Returns: `true` if the ACL would be valid for this file.
-    public func isValid(forPath path: String, type: ACLType = .access) -> Bool {
+    public func validates(for path: String, type: ACLType = .access) -> Bool {
         guard let h = unsafeHandle else { return false }
         return acl_valid_file_np(path, type.rawValue, h) == 0
+    }
+
+    /// Validates this ACL for a symlink (not following the link).
+    ///
+    /// - Parameters:
+    ///   - linkPath: The symlink path.
+    ///   - type: The ACL type.
+    /// - Returns: `true` if the ACL would be valid for this symlink.
+    public func validates(forLinkAt linkPath: String, type: ACLType = .access) -> Bool {
+        guard let h = unsafeHandle else { return false }
+        return acl_valid_link_np(linkPath, type.rawValue, h) == 0
     }
 
     /// Validates this ACL for a specific file descriptor.
     ///
     /// - Parameters:
-    ///   - fd: The file descriptor.
+    ///   - fileDescriptor: The file descriptor.
     ///   - type: The ACL type.
     /// - Returns: `true` if the ACL would be valid for this file.
-    public func isValid(forFD fd: Int32, type: ACLType = .access) -> Bool {
+    public func validates(forFileDescriptor fd: Int32, type: ACLType = .access) -> Bool {
         guard let h = unsafeHandle else { return false }
         return acl_valid_fd_np(fd, type.rawValue, h) == 0
     }
 
-    /// Compares this ACL to another for equality.
+    /// Compares this ACL to another for semantic equality.
     ///
     /// - Parameter other: The other ACL to compare.
     /// - Returns: `true` if the ACLs are semantically equal.
@@ -57,12 +76,61 @@ extension ACL {
         }
         return acl_cmp_np(h1, h2) == 0
     }
+
+    /// Removes the default ACL from a symlink (not following the link).
+    ///
+    /// - Parameter linkPath: The symlink path.
+    /// - Throws: `ACL.Error` if the operation fails.
+    public static func removeDefaultFromLink(at linkPath: String) throws {
+        if acl_delete_def_link_np(linkPath) != 0 {
+            throw Error(errno: Glibc.errno)
+        }
+    }
+}
+
+// MARK: - Deprecated API (for migration)
+
+extension ACL {
+    @available(*, deprecated, renamed: "isExtended(at:)")
+    public static func hasExtendedACL(path: String) -> Bool {
+        isExtended(at: path)
+    }
+
+    @available(*, deprecated, renamed: "isExtendedNoFollow(at:)")
+    public static func hasExtendedACLNoFollow(path: String) -> Bool {
+        isExtendedNoFollow(at: path)
+    }
+
+    @available(*, deprecated, renamed: "isExtended(atLink:)")
+    public static func hasExtendedACL(linkPath: String) -> Bool {
+        isExtended(atLink: linkPath)
+    }
+
+    @available(*, deprecated, renamed: "validates(for:type:)")
+    public func isValid(forPath path: String, type: ACLType = .access) -> Bool {
+        validates(for: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "validates(forLinkAt:type:)")
+    public func isValid(forLink path: String, type: ACLType = .access) -> Bool {
+        validates(forLinkAt: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "validates(forFileDescriptor:type:)")
+    public func isValid(forFD fd: Int32, type: ACLType = .access) -> Bool {
+        validates(forFileDescriptor: fd, type: type)
+    }
+
+    @available(*, deprecated, renamed: "removeDefaultFromLink(at:)")
+    public static func deleteDefaultLink(path: String) throws {
+        try removeDefaultFromLink(at: path)
+    }
 }
 
 // MARK: - Builder Pattern
 
 extension ACL {
-    /// Builder for creating ACLs programmatically.
+    /// Builder for creating POSIX.1e ACLs programmatically.
     public struct Builder {
         private var entries: [(tag: ACLEntry.Tag, qualifier: uid_t?, permissions: ACLEntry.Permissions)]
 
@@ -105,10 +173,10 @@ extension ACL {
         /// - Returns: The constructed ACL.
         /// - Throws: `ACL.Error` if building fails.
         public func build() throws -> ACL {
-            var acl = try ACL(count: entries.count)
+            var acl = try ACL(capacity: entries.count)
 
             for (tag, qualifier, permissions) in entries {
-                let entry = try acl.createEntry()
+                let entry = try acl.addEntry()
                 try entry.set(tag: tag)
                 if let q = qualifier {
                     try entry.set(qualifier: q)
@@ -119,14 +187,14 @@ extension ACL {
             // Calculate mask if we have extended entries
             let hasExtended = entries.contains { $0.tag == .user || $0.tag == .group }
             if hasExtended {
-                try acl.calculateMask()
+                try acl.recalculateMask()
             }
 
             return acl
         }
     }
 
-    /// Creates a builder for constructing ACLs.
+    /// Creates a builder for constructing POSIX.1e ACLs.
     public static func builder() -> Builder {
         Builder()
     }
@@ -208,10 +276,10 @@ extension ACL {
         /// - Returns: The constructed ACL.
         /// - Throws: `ACL.Error` if building fails.
         public func build() throws -> ACL {
-            var acl = try ACL(count: entries.count)
+            var acl = try ACL(capacity: entries.count)
 
             for (tag, qualifier, type, permissions, flags) in entries {
-                let entry = try acl.createEntry()
+                let entry = try acl.addEntry()
                 try entry.set(tag: tag)
                 if let q = qualifier {
                     try entry.set(qualifier: q)

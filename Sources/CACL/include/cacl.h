@@ -86,10 +86,14 @@ static const int CACL_FIRST_ENTRY = ACL_FIRST_ENTRY;
 static const int CACL_NEXT_ENTRY = ACL_NEXT_ENTRY;
 
 /* Text output flags for acl_to_text_np */
+static const int CACL_TEXT_VERBOSE = ACL_TEXT_VERBOSE;
 static const int CACL_TEXT_NUMERIC_IDS = ACL_TEXT_NUMERIC_IDS;
 static const int CACL_TEXT_APPEND_ID = ACL_TEXT_APPEND_ID;
 
 /* Maximum entries */
 static const int CACL_MAX_ENTRIES = ACL_MAX_ENTRIES;
+
+/* Undefined ID for entries without qualifier */
+static const uid_t CACL_UNDEFINED_ID = ACL_UNDEFINED_ID;
 
 #endif /* CACL_H */

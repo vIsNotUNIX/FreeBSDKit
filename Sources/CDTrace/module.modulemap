@@ -1,0 +1,5 @@
+module CDTrace {
+    header "include/cdtrace.h"
+    link "dtrace"
+    export *
+}

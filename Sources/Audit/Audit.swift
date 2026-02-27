@@ -7,8 +7,6 @@
 import CAudit
 import Glibc
 
-// MARK: - Audit State Queries
-
 extension Audit {
     /// Checks if auditing is currently enabled.
     ///

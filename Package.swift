@@ -61,6 +61,14 @@ let package = Package(
             name: "Audit",
             targets: ["Audit"]
         ),
+        .library(
+            name: "DTraceCore",
+            targets: ["DTraceCore"]
+        ),
+        .library(
+            name: "DTraceBuilder",
+            targets: ["DTraceBuilder"]
+        ),
         .executable(
             name: "testtool",
             targets: ["TestTool"]
@@ -68,6 +76,18 @@ let package = Package(
         .executable(
             name: "maclabel",
             targets: ["maclabel"]
+        ),
+        .executable(
+            name: "dtrace-demo",
+            targets: ["dtrace-demo"]
+        ),
+        .executable(
+            name: "acl-demo",
+            targets: ["acl-demo"]
+        ),
+        .executable(
+            name: "fpc-demo",
+            targets: ["fpc-demo"]
         )
     ],
     dependencies: [
@@ -281,6 +301,29 @@ let package = Package(
             name: "CAuditTests",
             dependencies: ["CAudit"]
         ),
+        .target(
+            name: "CDTrace",
+            path: "Sources/CDTrace",
+            linkerSettings: [
+                .linkedLibrary("dtrace")
+            ]
+        ),
+        .target(
+            name: "DTraceCore",
+            dependencies: ["CDTrace"]
+        ),
+        .target(
+            name: "DTraceBuilder",
+            dependencies: ["DTraceCore", "FreeBSDKit"]
+        ),
+        .testTarget(
+            name: "DTraceCoreTests",
+            dependencies: ["DTraceCore"]
+        ),
+        .testTarget(
+            name: "DTraceBuilderTests",
+            dependencies: ["DTraceBuilder", "Descriptors", "Capabilities"]
+        ),
         .executableTarget(
             name: "TestTool",
             dependencies: ["Capsicum", "Descriptors"]
@@ -295,10 +338,20 @@ let package = Package(
             exclude: ["README.md"]
         ),
         .executableTarget(
-            name: "fpc-test-harness",
+            name: "fpc-demo",
             dependencies: ["FPC", "Capabilities", "Descriptors"],
-            path: "Sources/fpc-test-harness",
+            path: "Examples/FPCDemo",
             exclude: ["README.md"]
+        ),
+        .executableTarget(
+            name: "dtrace-demo",
+            dependencies: ["DTraceBuilder"],
+            path: "Examples/DTrace"
+        ),
+        .executableTarget(
+            name: "acl-demo",
+            dependencies: ["ACL"],
+            path: "Examples/ACLDemo"
         )
 
     ]

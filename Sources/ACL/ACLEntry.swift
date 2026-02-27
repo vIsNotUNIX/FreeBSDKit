@@ -25,20 +25,23 @@ public struct ACLEntry {
         self.entry = entry
     }
 
+    /// Provides access to the underlying entry handle.
+    internal var unsafeEntry: acl_entry_t {
+        entry
+    }
+
     // MARK: - Tag Type
 
     /// The tag type identifying what this entry applies to.
     public var tag: Tag {
-        get {
-            var tagType: acl_tag_t = 0
-            if acl_get_tag_type(entry, &tagType) != 0 {
-                return .undefined
-            }
-            return Tag(rawValue: tagType) ?? .undefined
+        var tagType: acl_tag_t = 0
+        if acl_get_tag_type(entry, &tagType) != 0 {
+            return .undefined
         }
+        return Tag(rawValue: tagType) ?? .undefined
     }
 
-    /// Sets the tag type.
+    /// Sets the tag type for this entry.
     ///
     /// - Parameter tag: The new tag type.
     /// - Throws: `ACL.Error` if the operation fails.
@@ -52,20 +55,18 @@ public struct ACLEntry {
 
     /// The qualifier (user or group ID) for USER and GROUP tag types.
     public var qualifier: uid_t? {
-        get {
-            guard tag == .user || tag == .group else {
-                return nil
-            }
-            guard let ptr = acl_get_qualifier(entry) else {
-                return nil
-            }
-            let id = ptr.assumingMemoryBound(to: uid_t.self).pointee
-            acl_free(ptr)
-            return id
+        guard tag == .user || tag == .group else {
+            return nil
         }
+        guard let ptr = acl_get_qualifier(entry) else {
+            return nil
+        }
+        let id = ptr.assumingMemoryBound(to: uid_t.self).pointee
+        acl_free(ptr)
+        return id
     }
 
-    /// Sets the qualifier (user or group ID).
+    /// Sets the qualifier (user or group ID) for this entry.
     ///
     /// - Parameter qualifier: The user or group ID.
     /// - Throws: `ACL.Error` if the operation fails.
@@ -76,32 +77,30 @@ public struct ACLEntry {
         }
     }
 
-    // MARK: - Permissions
+    // MARK: - POSIX.1e Permissions
 
     /// The POSIX.1e permissions for this entry.
     public var permissions: Permissions {
-        get {
-            var permset: acl_permset_t?
-            if acl_get_permset(entry, &permset) != 0 {
-                return []
-            }
-            guard let ps = permset else { return [] }
-
-            var result: Permissions = []
-            if acl_get_perm_np(ps, CACL_READ) != 0 {
-                result.insert(.read)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE) != 0 {
-                result.insert(.write)
-            }
-            if acl_get_perm_np(ps, CACL_EXECUTE) != 0 {
-                result.insert(.execute)
-            }
-            return result
+        var permset: acl_permset_t?
+        if acl_get_permset(entry, &permset) != 0 {
+            return []
         }
+        guard let ps = permset else { return [] }
+
+        var result: Permissions = []
+        if acl_get_perm_np(ps, CACL_READ) != 0 {
+            result.insert(.read)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE) != 0 {
+            result.insert(.write)
+        }
+        if acl_get_perm_np(ps, CACL_EXECUTE) != 0 {
+            result.insert(.execute)
+        }
+        return result
     }
 
-    /// Sets the POSIX.1e permissions.
+    /// Sets the POSIX.1e permissions for this entry.
     ///
     /// - Parameter permissions: The permissions to set.
     /// - Throws: `ACL.Error` if the operation fails.
@@ -131,65 +130,101 @@ public struct ACLEntry {
         }
     }
 
-    /// The NFSv4 permissions for this entry.
-    public var nfs4Permissions: NFS4Permissions {
-        get {
-            var permset: acl_permset_t?
-            if acl_get_permset(entry, &permset) != 0 {
-                return []
-            }
-            guard let ps = permset else { return [] }
-
-            var result: NFS4Permissions = []
-
-            if acl_get_perm_np(ps, CACL_READ_DATA) != 0 {
-                result.insert(.readData)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE_DATA) != 0 {
-                result.insert(.writeData)
-            }
-            if acl_get_perm_np(ps, CACL_APPEND_DATA) != 0 {
-                result.insert(.appendData)
-            }
-            if acl_get_perm_np(ps, CACL_READ_NAMED_ATTRS) != 0 {
-                result.insert(.readNamedAttrs)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE_NAMED_ATTRS) != 0 {
-                result.insert(.writeNamedAttrs)
-            }
-            if acl_get_perm_np(ps, CACL_EXECUTE) != 0 {
-                result.insert(.execute)
-            }
-            if acl_get_perm_np(ps, CACL_DELETE_CHILD) != 0 {
-                result.insert(.deleteChild)
-            }
-            if acl_get_perm_np(ps, CACL_READ_ATTRIBUTES) != 0 {
-                result.insert(.readAttributes)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE_ATTRIBUTES) != 0 {
-                result.insert(.writeAttributes)
-            }
-            if acl_get_perm_np(ps, CACL_DELETE) != 0 {
-                result.insert(.delete)
-            }
-            if acl_get_perm_np(ps, CACL_READ_ACL) != 0 {
-                result.insert(.readACL)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE_ACL) != 0 {
-                result.insert(.writeACL)
-            }
-            if acl_get_perm_np(ps, CACL_WRITE_OWNER) != 0 {
-                result.insert(.writeOwner)
-            }
-            if acl_get_perm_np(ps, CACL_SYNCHRONIZE) != 0 {
-                result.insert(.synchronize)
-            }
-
-            return result
+    /// Adds additional POSIX.1e permissions to this entry.
+    ///
+    /// - Parameter permission: The permissions to add.
+    /// - Throws: `ACL.Error` if the operation fails.
+    public func add(permission: Permissions) throws {
+        var permset: acl_permset_t?
+        if acl_get_permset(entry, &permset) != 0 {
+            throw ACL.Error(errno: Glibc.errno)
         }
+        guard let ps = permset else {
+            throw ACL.Error.invalidACL
+        }
+
+        if permission.contains(.read) { acl_add_perm(ps, CACL_READ) }
+        if permission.contains(.write) { acl_add_perm(ps, CACL_WRITE) }
+        if permission.contains(.execute) { acl_add_perm(ps, CACL_EXECUTE) }
     }
 
-    /// Sets the NFSv4 permissions.
+    /// Removes POSIX.1e permissions from this entry.
+    ///
+    /// - Parameter permission: The permissions to remove.
+    /// - Throws: `ACL.Error` if the operation fails.
+    public func remove(permission: Permissions) throws {
+        var permset: acl_permset_t?
+        if acl_get_permset(entry, &permset) != 0 {
+            throw ACL.Error(errno: Glibc.errno)
+        }
+        guard let ps = permset else {
+            throw ACL.Error.invalidACL
+        }
+
+        if permission.contains(.read) { acl_delete_perm(ps, CACL_READ) }
+        if permission.contains(.write) { acl_delete_perm(ps, CACL_WRITE) }
+        if permission.contains(.execute) { acl_delete_perm(ps, CACL_EXECUTE) }
+    }
+
+    // MARK: - NFSv4 Permissions
+
+    /// The NFSv4 permissions for this entry.
+    public var nfs4Permissions: NFS4Permissions {
+        var permset: acl_permset_t?
+        if acl_get_permset(entry, &permset) != 0 {
+            return []
+        }
+        guard let ps = permset else { return [] }
+
+        var result: NFS4Permissions = []
+
+        if acl_get_perm_np(ps, CACL_READ_DATA) != 0 {
+            result.insert(.readData)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE_DATA) != 0 {
+            result.insert(.writeData)
+        }
+        if acl_get_perm_np(ps, CACL_APPEND_DATA) != 0 {
+            result.insert(.appendData)
+        }
+        if acl_get_perm_np(ps, CACL_READ_NAMED_ATTRS) != 0 {
+            result.insert(.readNamedAttrs)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE_NAMED_ATTRS) != 0 {
+            result.insert(.writeNamedAttrs)
+        }
+        if acl_get_perm_np(ps, CACL_EXECUTE) != 0 {
+            result.insert(.execute)
+        }
+        if acl_get_perm_np(ps, CACL_DELETE_CHILD) != 0 {
+            result.insert(.deleteChild)
+        }
+        if acl_get_perm_np(ps, CACL_READ_ATTRIBUTES) != 0 {
+            result.insert(.readAttributes)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE_ATTRIBUTES) != 0 {
+            result.insert(.writeAttributes)
+        }
+        if acl_get_perm_np(ps, CACL_DELETE) != 0 {
+            result.insert(.delete)
+        }
+        if acl_get_perm_np(ps, CACL_READ_ACL) != 0 {
+            result.insert(.readACL)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE_ACL) != 0 {
+            result.insert(.writeACL)
+        }
+        if acl_get_perm_np(ps, CACL_WRITE_OWNER) != 0 {
+            result.insert(.writeOwner)
+        }
+        if acl_get_perm_np(ps, CACL_SYNCHRONIZE) != 0 {
+            result.insert(.synchronize)
+        }
+
+        return result
+    }
+
+    /// Sets the NFSv4 permissions for this entry.
     ///
     /// - Parameter nfs4Permissions: The NFSv4 permissions to set.
     /// - Throws: `ACL.Error` if the operation fails.
@@ -228,18 +263,16 @@ public struct ACLEntry {
 
     /// The NFSv4 entry type (allow, deny, audit, alarm).
     public var entryType: EntryType? {
-        get {
-            var type: acl_entry_type_t = 0
-            if acl_get_entry_type_np(entry, &type) != 0 {
-                return nil
-            }
-            return EntryType(rawValue: type)
+        var type: acl_entry_type_t = 0
+        if acl_get_entry_type_np(entry, &type) != 0 {
+            return nil
         }
+        return EntryType(rawValue: type)
     }
 
-    /// Sets the NFSv4 entry type.
+    /// Sets the NFSv4 entry type for this entry.
     ///
-    /// - Parameter entryType: The entry type.
+    /// - Parameter entryType: The entry type (allow, deny, etc.).
     /// - Throws: `ACL.Error` if the operation fails.
     public func set(entryType: EntryType) throws {
         if acl_set_entry_type_np(entry, entryType.rawValue) != 0 {
@@ -249,36 +282,34 @@ public struct ACLEntry {
 
     // MARK: - NFSv4 Flags
 
-    /// The NFSv4 inheritance flags.
+    /// The NFSv4 inheritance flags for this entry.
     public var flags: Flags {
-        get {
-            var flagset: acl_flagset_t?
-            if acl_get_flagset_np(entry, &flagset) != 0 {
-                return []
-            }
-            guard let fs = flagset else { return [] }
-
-            var result: Flags = []
-            if acl_get_flag_np(fs, CACL_ENTRY_FILE_INHERIT) != 0 {
-                result.insert(.fileInherit)
-            }
-            if acl_get_flag_np(fs, CACL_ENTRY_DIRECTORY_INHERIT) != 0 {
-                result.insert(.directoryInherit)
-            }
-            if acl_get_flag_np(fs, CACL_ENTRY_NO_PROPAGATE_INHERIT) != 0 {
-                result.insert(.noPropagateInherit)
-            }
-            if acl_get_flag_np(fs, CACL_ENTRY_INHERIT_ONLY) != 0 {
-                result.insert(.inheritOnly)
-            }
-            if acl_get_flag_np(fs, CACL_ENTRY_INHERITED) != 0 {
-                result.insert(.inherited)
-            }
-            return result
+        var flagset: acl_flagset_t?
+        if acl_get_flagset_np(entry, &flagset) != 0 {
+            return []
         }
+        guard let fs = flagset else { return [] }
+
+        var result: Flags = []
+        if acl_get_flag_np(fs, CACL_ENTRY_FILE_INHERIT) != 0 {
+            result.insert(.fileInherit)
+        }
+        if acl_get_flag_np(fs, CACL_ENTRY_DIRECTORY_INHERIT) != 0 {
+            result.insert(.directoryInherit)
+        }
+        if acl_get_flag_np(fs, CACL_ENTRY_NO_PROPAGATE_INHERIT) != 0 {
+            result.insert(.noPropagateInherit)
+        }
+        if acl_get_flag_np(fs, CACL_ENTRY_INHERIT_ONLY) != 0 {
+            result.insert(.inheritOnly)
+        }
+        if acl_get_flag_np(fs, CACL_ENTRY_INHERITED) != 0 {
+            result.insert(.inherited)
+        }
+        return result
     }
 
-    /// Sets the NFSv4 inheritance flags.
+    /// Sets the NFSv4 inheritance flags for this entry.
     ///
     /// - Parameter flags: The flags to set.
     /// - Throws: `ACL.Error` if the operation fails.
@@ -304,6 +335,48 @@ public struct ACLEntry {
         }
     }
 
+    /// Adds NFSv4 inheritance flags to this entry.
+    ///
+    /// - Parameter flag: The flags to add.
+    /// - Throws: `ACL.Error` if the operation fails.
+    public func add(flag: Flags) throws {
+        var flagset: acl_flagset_t?
+        if acl_get_flagset_np(entry, &flagset) != 0 {
+            throw ACL.Error(errno: Glibc.errno)
+        }
+        guard let fs = flagset else {
+            throw ACL.Error.invalidACL
+        }
+
+        if flag.contains(.fileInherit) { acl_add_flag_np(fs, CACL_ENTRY_FILE_INHERIT) }
+        if flag.contains(.directoryInherit) { acl_add_flag_np(fs, CACL_ENTRY_DIRECTORY_INHERIT) }
+        if flag.contains(.noPropagateInherit) { acl_add_flag_np(fs, CACL_ENTRY_NO_PROPAGATE_INHERIT) }
+        if flag.contains(.inheritOnly) { acl_add_flag_np(fs, CACL_ENTRY_INHERIT_ONLY) }
+        if flag.contains(.inherited) { acl_add_flag_np(fs, CACL_ENTRY_INHERITED) }
+    }
+
+    /// Removes NFSv4 inheritance flags from this entry.
+    ///
+    /// - Parameter flag: The flags to remove.
+    /// - Throws: `ACL.Error` if the operation fails.
+    public func remove(flag: Flags) throws {
+        var flagset: acl_flagset_t?
+        if acl_get_flagset_np(entry, &flagset) != 0 {
+            throw ACL.Error(errno: Glibc.errno)
+        }
+        guard let fs = flagset else {
+            throw ACL.Error.invalidACL
+        }
+
+        if flag.contains(.fileInherit) { acl_delete_flag_np(fs, CACL_ENTRY_FILE_INHERIT) }
+        if flag.contains(.directoryInherit) { acl_delete_flag_np(fs, CACL_ENTRY_DIRECTORY_INHERIT) }
+        if flag.contains(.noPropagateInherit) { acl_delete_flag_np(fs, CACL_ENTRY_NO_PROPAGATE_INHERIT) }
+        if flag.contains(.inheritOnly) { acl_delete_flag_np(fs, CACL_ENTRY_INHERIT_ONLY) }
+        if flag.contains(.inherited) { acl_delete_flag_np(fs, CACL_ENTRY_INHERITED) }
+    }
+
+    // MARK: - Copying
+
     /// Copies this entry's contents to another entry.
     ///
     /// - Parameter destination: The destination entry.
@@ -314,3 +387,4 @@ public struct ACLEntry {
         }
     }
 }
+

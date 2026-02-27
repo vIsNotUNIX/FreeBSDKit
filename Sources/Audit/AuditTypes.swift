@@ -37,8 +37,6 @@ public enum Audit {
         case disabled = -1
     }
 
-    // MARK: - Audit Policy
-
     /// Audit policy flags controlling what additional information is recorded.
     public struct Policy: OptionSet, Sendable {
         public let rawValue: Int32

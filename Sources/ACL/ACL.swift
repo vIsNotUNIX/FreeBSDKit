@@ -18,7 +18,7 @@ import Glibc
 ///
 /// ```swift
 /// // Get ACL from a file
-/// var acl = try ACL.get(path: "/path/to/file")
+/// var acl = try ACL(contentsOf: "/path/to/file")
 ///
 /// // Check the ACL brand
 /// if acl.brand == .nfs4 {
@@ -26,26 +26,28 @@ import Glibc
 /// }
 ///
 /// // Iterate over entries
-/// for entry in acl {
+/// for entry in acl.entries {
 ///     print("Tag: \(entry.tag), Permissions: \(entry.permissions)")
 /// }
 ///
 /// // Create a new POSIX.1e ACL from mode
-/// var acl = ACL.fromMode(0o755)
+/// var acl = ACL(mode: 0o755)
 ///
-/// // Set ACL on a file
-/// try acl.set(path: "/path/to/file", type: .access)
+/// // Apply ACL to a file
+/// try acl.apply(to: "/path/to/file", type: .access)
 /// ```
 public struct ACL: ~Copyable {
     /// The underlying acl_t handle.
     private var handle: acl_t?
 
+    // MARK: - Initializers
+
     /// Creates an empty ACL with space for the specified number of entries.
     ///
-    /// - Parameter count: Initial entry capacity (default: 4).
+    /// - Parameter capacity: Initial entry capacity (default: 4).
     /// - Throws: `ACL.Error` if allocation fails.
-    public init(count: Int = 4) throws {
-        handle = acl_init(Int32(count))
+    public init(capacity: Int = 4) throws {
+        handle = acl_init(Int32(capacity))
         if handle == nil {
             throw Error(errno: Glibc.errno)
         }
@@ -58,66 +60,97 @@ public struct ACL: ~Copyable {
         self.handle = handle
     }
 
+    /// Creates an ACL from the contents of a file at the given path.
+    ///
+    /// - Parameters:
+    ///   - path: The file path.
+    ///   - type: The ACL type to retrieve (default: .access).
+    /// - Throws: `ACL.Error` if the operation fails.
+    public init(contentsOf path: String, type: ACLType = .access) throws {
+        let h = acl_get_file(path, type.rawValue)
+        if h == nil {
+            throw Error(errno: Glibc.errno)
+        }
+        self.handle = h
+    }
+
+    /// Creates an ACL from a symbolic link (not following it).
+    ///
+    /// - Parameters:
+    ///   - linkPath: The symlink path.
+    ///   - type: The ACL type to retrieve (default: .access).
+    /// - Throws: `ACL.Error` if the operation fails.
+    public init(linkAt linkPath: String, type: ACLType = .access) throws {
+        let h = acl_get_link_np(linkPath, type.rawValue)
+        if h == nil {
+            throw Error(errno: Glibc.errno)
+        }
+        self.handle = h
+    }
+
+    /// Creates an ACL from a file descriptor.
+    ///
+    /// - Parameters:
+    ///   - fileDescriptor: The file descriptor.
+    ///   - type: The ACL type to retrieve (default: .access).
+    /// - Throws: `ACL.Error` if the operation fails.
+    public init(fileDescriptor fd: Int32, type: ACLType = .access) throws {
+        let h = acl_get_fd_np(fd, type.rawValue)
+        if h == nil {
+            throw Error(errno: Glibc.errno)
+        }
+        self.handle = h
+    }
+
+    /// Creates a POSIX.1e ACL from a Unix mode.
+    ///
+    /// - Parameter mode: The Unix permission mode (e.g., 0o755).
+    public init?(mode: mode_t) {
+        guard let h = acl_from_mode_np(mode) else {
+            return nil
+        }
+        self.handle = h
+    }
+
+    /// Creates an ACL by parsing a text representation.
+    ///
+    /// - Parameter text: The text representation (e.g., "user::rwx,group::r-x,other::r-x").
+    public init?(parsing text: String) {
+        guard let h = acl_from_text(text) else {
+            return nil
+        }
+        self.handle = h
+    }
+
+    /// Creates an ACL from serialized data.
+    ///
+    /// - Warning: On FreeBSD, this may return nil (not implemented).
+    ///   Use `init(parsing:)` for portable ACL storage.
+    ///
+    /// - Parameter data: The ACL data bytes from `serialized()`.
+    public init?(data: [UInt8]) {
+        let h = data.withUnsafeBytes { ptr in
+            acl_copy_int(ptr.baseAddress!)
+        }
+        guard let handle = h else { return nil }
+        self.handle = handle
+    }
+
     deinit {
         if let h = handle {
             acl_free(h)
         }
     }
 
-    // MARK: - File Operations
+    // MARK: - Applying ACL to Files
 
-    /// Gets the ACL for a file path.
-    ///
-    /// - Parameters:
-    ///   - path: The file path.
-    ///   - type: The ACL type to retrieve (default: .access).
-    /// - Returns: The file's ACL.
-    /// - Throws: `ACL.Error` if the operation fails.
-    public static func get(path: String, type: ACLType = .access) throws -> ACL {
-        let handle = acl_get_file(path, type.rawValue)
-        if handle == nil {
-            throw Error(errno: Glibc.errno)
-        }
-        return ACL(taking: handle!)
-    }
-
-    /// Gets the ACL for a symbolic link (not following it).
-    ///
-    /// - Parameters:
-    ///   - path: The symlink path.
-    ///   - type: The ACL type to retrieve (default: .access).
-    /// - Returns: The symlink's ACL.
-    /// - Throws: `ACL.Error` if the operation fails.
-    public static func getLink(path: String, type: ACLType = .access) throws -> ACL {
-        let handle = acl_get_link_np(path, type.rawValue)
-        if handle == nil {
-            throw Error(errno: Glibc.errno)
-        }
-        return ACL(taking: handle!)
-    }
-
-    /// Gets the ACL for a file descriptor.
-    ///
-    /// - Parameters:
-    ///   - fd: The file descriptor.
-    ///   - type: The ACL type to retrieve (default: .access).
-    /// - Returns: The file's ACL.
-    /// - Throws: `ACL.Error` if the operation fails.
-    public static func get(fd: Int32, type: ACLType = .access) throws -> ACL {
-        let handle = acl_get_fd_np(fd, type.rawValue)
-        if handle == nil {
-            throw Error(errno: Glibc.errno)
-        }
-        return ACL(taking: handle!)
-    }
-
-    /// Sets this ACL on a file path.
+    /// Applies this ACL to a file at the given path.
     ///
     /// - Parameters:
     ///   - path: The file path.
     ///   - type: The ACL type to set (default: .access).
     /// - Throws: `ACL.Error` if the operation fails.
-    public func set(path: String, type: ACLType = .access) throws {
+    public func apply(to path: String, type: ACLType = .access) throws {
         guard let h = handle else {
             throw Error.invalidACL
         }
@@ -126,28 +159,28 @@ public struct ACL: ~Copyable {
         }
     }
 
-    /// Sets this ACL on a symbolic link (not following it).
+    /// Applies this ACL to a symbolic link (not following it).
     ///
     /// - Parameters:
-    ///   - path: The symlink path.
+    ///   - linkPath: The symlink path.
     ///   - type: The ACL type to set (default: .access).
     /// - Throws: `ACL.Error` if the operation fails.
-    public func setLink(path: String, type: ACLType = .access) throws {
+    public func apply(toLinkAt linkPath: String, type: ACLType = .access) throws {
         guard let h = handle else {
             throw Error.invalidACL
         }
-        if acl_set_link_np(path, type.rawValue, h) != 0 {
+        if acl_set_link_np(linkPath, type.rawValue, h) != 0 {
             throw Error(errno: Glibc.errno)
         }
     }
 
-    /// Sets this ACL on a file descriptor.
+    /// Applies this ACL to a file descriptor.
     ///
     /// - Parameters:
-    ///   - fd: The file descriptor.
+    ///   - fileDescriptor: The file descriptor.
     ///   - type: The ACL type to set (default: .access).
     /// - Throws: `ACL.Error` if the operation fails.
-    public func set(fd: Int32, type: ACLType = .access) throws {
+    public func apply(toFileDescriptor fd: Int32, type: ACLType = .access) throws {
         guard let h = handle else {
             throw Error.invalidACL
         }
@@ -156,81 +189,61 @@ public struct ACL: ~Copyable {
         }
     }
 
-    /// Deletes the ACL from a file path.
+    // MARK: - Removing ACLs from Files
+
+    /// Removes the ACL from a file at the given path.
     ///
     /// - Parameters:
     ///   - path: The file path.
-    ///   - type: The ACL type to delete.
+    ///   - type: The ACL type to remove.
     /// - Throws: `ACL.Error` if the operation fails.
-    public static func delete(path: String, type: ACLType) throws {
+    public static func remove(from path: String, type: ACLType) throws {
         if acl_delete_file_np(path, type.rawValue) != 0 {
             throw Error(errno: Glibc.errno)
         }
     }
 
-    /// Deletes the ACL from a symbolic link.
+    /// Removes the ACL from a symbolic link.
     ///
     /// - Parameters:
-    ///   - path: The symlink path.
-    ///   - type: The ACL type to delete.
+    ///   - linkPath: The symlink path.
+    ///   - type: The ACL type to remove.
     /// - Throws: `ACL.Error` if the operation fails.
-    public static func deleteLink(path: String, type: ACLType) throws {
-        if acl_delete_link_np(path, type.rawValue) != 0 {
+    public static func remove(fromLinkAt linkPath: String, type: ACLType) throws {
+        if acl_delete_link_np(linkPath, type.rawValue) != 0 {
             throw Error(errno: Glibc.errno)
         }
     }
 
-    /// Deletes the ACL from a file descriptor.
+    /// Removes the ACL from a file descriptor.
     ///
     /// - Parameters:
-    ///   - fd: The file descriptor.
-    ///   - type: The ACL type to delete.
+    ///   - fileDescriptor: The file descriptor.
+    ///   - type: The ACL type to remove.
     /// - Throws: `ACL.Error` if the operation fails.
-    public static func delete(fd: Int32, type: ACLType) throws {
+    public static func remove(fromFileDescriptor fd: Int32, type: ACLType) throws {
         if acl_delete_fd_np(fd, type.rawValue) != 0 {
             throw Error(errno: Glibc.errno)
         }
     }
 
-    /// Deletes the default ACL from a directory.
+    /// Removes the default ACL from a directory.
     ///
     /// - Parameter path: The directory path.
     /// - Throws: `ACL.Error` if the operation fails.
-    public static func deleteDefault(path: String) throws {
+    public static func removeDefault(from path: String) throws {
         if acl_delete_def_file(path) != 0 {
             throw Error(errno: Glibc.errno)
         }
     }
 
-    // MARK: - Creation Helpers
+    // MARK: - Copying
 
-    /// Creates a POSIX.1e ACL from a Unix mode.
+    /// Creates a copy of this ACL.
     ///
-    /// - Parameter mode: The Unix permission mode (e.g., 0o755).
-    /// - Returns: A POSIX.1e ACL representing the mode.
-    public static func fromMode(_ mode: mode_t) -> ACL? {
-        guard let handle = acl_from_mode_np(mode) else {
-            return nil
-        }
-        return ACL(taking: handle)
-    }
-
-    /// Creates an ACL from a text representation.
-    ///
-    /// - Parameter text: The text representation (e.g., "user::rwx,group::r-x,other::r-x").
-    /// - Returns: The parsed ACL, or nil if parsing fails.
-    public static func fromText(_ text: String) -> ACL? {
-        guard let handle = acl_from_text(text) else {
-            return nil
-        }
-        return ACL(taking: handle)
-    }
-
-    /// Duplicates this ACL.
-    ///
-    /// - Returns: A copy of this ACL.
-    /// - Throws: `ACL.Error` if duplication fails.
-    public func duplicate() throws -> ACL {
+    /// - Returns: A new ACL with the same entries.
+    /// - Throws: `ACL.Error` if copying fails.
+    public func copy() throws -> ACL {
         guard let h = handle else {
             throw Error.invalidACL
         }
@@ -266,9 +279,7 @@ public struct ACL: ~Copyable {
         return trivial != 0
     }
 
-    /// Validates the ACL structure.
-    ///
-    /// - Returns: `true` if the ACL is valid.
+    /// Whether the ACL structure is valid.
     public var isValid: Bool {
         guard let h = handle else {
             return false
@@ -289,7 +300,7 @@ public struct ACL: ~Copyable {
         return result
     }
 
-    /// The text representation with options.
+    /// Returns the text representation with the specified options.
     ///
     /// - Parameter options: Text output options.
     /// - Returns: The text representation.
@@ -305,9 +316,7 @@ public struct ACL: ~Copyable {
         return result
     }
 
-    /// Converts to equivalent Unix mode if possible.
-    ///
-    /// - Returns: The equivalent mode, or nil if not expressible as a mode.
+    /// The equivalent Unix mode, if this ACL can be expressed as one.
     public var equivalentMode: mode_t? {
         guard let h = handle else {
             return nil
@@ -321,11 +330,11 @@ public struct ACL: ~Copyable {
 
     // MARK: - Entry Management
 
-    /// Creates a new entry in this ACL.
+    /// Adds a new entry to this ACL.
     ///
     /// - Returns: The new entry.
     /// - Throws: `ACL.Error` if creation fails.
-    public mutating func createEntry() throws -> ACLEntry {
+    public mutating func addEntry() throws -> ACLEntry {
         guard handle != nil else {
             throw Error.invalidACL
         }
@@ -336,12 +345,12 @@ public struct ACL: ~Copyable {
         return ACLEntry(entry: entry!)
     }
 
-    /// Creates a new entry at a specific index.
+    /// Inserts a new entry at the specified index.
     ///
-    /// - Parameter index: The index to insert at.
+    /// - Parameter index: The index at which to insert.
     /// - Returns: The new entry.
     /// - Throws: `ACL.Error` if creation fails.
-    public mutating func createEntry(at index: Int) throws -> ACLEntry {
+    public mutating func insertEntry(at index: Int) throws -> ACLEntry {
         guard handle != nil else {
             throw Error.invalidACL
         }
@@ -352,11 +361,11 @@ public struct ACL: ~Copyable {
         return ACLEntry(entry: entry!)
     }
 
-    /// Deletes an entry at a specific index.
+    /// Removes the entry at the specified index.
     ///
-    /// - Parameter index: The index to delete.
-    /// - Throws: `ACL.Error` if deletion fails.
-    public mutating func deleteEntry(at index: Int) throws {
+    /// - Parameter index: The index of the entry to remove.
+    /// - Throws: `ACL.Error` if removal fails.
+    public mutating func removeEntry(at index: Int) throws {
         guard let h = handle else {
             throw Error.invalidACL
         }
@@ -365,10 +374,26 @@ public struct ACL: ~Copyable {
         }
     }
 
-    /// Calculates and sets the mask entry for POSIX.1e ACLs.
+    /// Removes the specified entry from this ACL.
+    ///
+    /// - Warning: The entry must belong to this ACL. Using an entry from
+    ///   a different ACL is undefined behavior.
+    ///
+    /// - Parameter entry: The entry to remove.
+    /// - Throws: `ACL.Error` if removal fails.
+    public mutating func removeEntry(_ entry: ACLEntry) throws {
+        guard let h = handle else {
+            throw Error.invalidACL
+        }
+        if acl_delete_entry(h, entry.unsafeEntry) != 0 {
+            throw Error(errno: Glibc.errno)
+        }
+    }
+
+    /// Recalculates and updates the mask entry for POSIX.1e ACLs.
     ///
     /// - Throws: `ACL.Error` if calculation fails.
-    public mutating func calculateMask() throws {
+    public mutating func recalculateMask() throws {
         guard handle != nil else {
             throw Error.invalidACL
         }
@@ -377,12 +402,12 @@ public struct ACL: ~Copyable {
         }
     }
 
-    /// Strips extended ACL entries, leaving only the base entries.
+    /// Returns a new ACL with extended entries removed.
     ///
     /// - Parameter recalculateMask: Whether to recalculate the mask entry.
     /// - Returns: A new ACL with only base entries.
     /// - Throws: `ACL.Error` if stripping fails.
-    public func stripped(recalculateMask: Bool = true) throws -> ACL {
+    public func strippingExtendedEntries(recalculateMask: Bool = true) throws -> ACL {
         guard let h = handle else {
             throw Error.invalidACL
         }
@@ -390,6 +415,33 @@ public struct ACL: ~Copyable {
             throw Error(errno: Glibc.errno)
         }
         return ACL(taking: stripped)
+    }
+
+    // MARK: - Serialization
+
+    /// Returns the serialized binary representation of this ACL.
+    ///
+    /// - Warning: On FreeBSD, this may throw ENOSYS (not implemented).
+    ///   Use `text` property for portable ACL storage.
+    ///
+    /// - Returns: The ACL as serialized bytes.
+    /// - Throws: `ACL.Error` if serialization fails.
+    public func serialized() throws -> [UInt8] {
+        guard let h = handle else {
+            throw Error.invalidACL
+        }
+
+        let maxSize: Int = 8192
+        var buffer = [UInt8](repeating: 0, count: maxSize)
+
+        let copied = buffer.withUnsafeMutableBytes { ptr in
+            acl_copy_ext(ptr.baseAddress!, h, maxSize)
+        }
+        if copied < 0 {
+            throw Error(errno: Glibc.errno)
+        }
+
+        return Array(buffer.prefix(Int(copied)))
     }
 
     // MARK: - Internal
@@ -428,25 +480,11 @@ extension ACL {
     }
 
     /// Returns an iterator over the ACL entries.
-    ///
-    /// - Returns: An iterator that yields each entry in the ACL.
     public func makeIterator() -> EntryIterator {
         EntryIterator(acl: handle)
     }
 
-    /// Iterates over all entries in the ACL.
-    ///
-    /// - Parameter body: A closure called for each entry.
-    public func forEachEntry(_ body: (ACLEntry) throws -> Void) rethrows {
-        var iterator = makeIterator()
-        while let entry = iterator.next() {
-            try body(entry)
-        }
-    }
-
-    /// Returns all entries as an array.
-    ///
-    /// - Returns: An array of all ACL entries.
+    /// All entries in this ACL.
     public var entries: [ACLEntry] {
         var result: [ACLEntry] = []
         var iterator = makeIterator()
@@ -454,5 +492,119 @@ extension ACL {
             result.append(entry)
         }
         return result
+    }
+}
+
+// MARK: - Deprecated API (for migration)
+
+extension ACL {
+    @available(*, deprecated, renamed: "init(capacity:)")
+    public init(count: Int = 4) throws {
+        try self.init(capacity: count)
+    }
+
+    @available(*, deprecated, renamed: "init(contentsOf:type:)")
+    public static func get(path: String, type: ACLType = .access) throws -> ACL {
+        try ACL(contentsOf: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "init(linkAt:type:)")
+    public static func getLink(path: String, type: ACLType = .access) throws -> ACL {
+        try ACL(linkAt: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "init(fileDescriptor:type:)")
+    public static func get(fd: Int32, type: ACLType = .access) throws -> ACL {
+        try ACL(fileDescriptor: fd, type: type)
+    }
+
+    @available(*, deprecated, renamed: "init(mode:)")
+    public static func fromMode(_ mode: mode_t) -> ACL? {
+        ACL(mode: mode)
+    }
+
+    @available(*, deprecated, renamed: "init(parsing:)")
+    public static func fromText(_ text: String) -> ACL? {
+        ACL(parsing: text)
+    }
+
+    @available(*, deprecated, renamed: "init(data:)")
+    public static func fromData(_ data: [UInt8]) -> ACL? {
+        ACL(data: data)
+    }
+
+    @available(*, deprecated, renamed: "apply(to:type:)")
+    public func set(path: String, type: ACLType = .access) throws {
+        try apply(to: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "apply(toLinkAt:type:)")
+    public func setLink(path: String, type: ACLType = .access) throws {
+        try apply(toLinkAt: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "apply(toFileDescriptor:type:)")
+    public func set(fd: Int32, type: ACLType = .access) throws {
+        try apply(toFileDescriptor: fd, type: type)
+    }
+
+    @available(*, deprecated, renamed: "remove(from:type:)")
+    public static func delete(path: String, type: ACLType) throws {
+        try remove(from: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "remove(fromLinkAt:type:)")
+    public static func deleteLink(path: String, type: ACLType) throws {
+        try remove(fromLinkAt: path, type: type)
+    }
+
+    @available(*, deprecated, renamed: "remove(fromFileDescriptor:type:)")
+    public static func delete(fd: Int32, type: ACLType) throws {
+        try remove(fromFileDescriptor: fd, type: type)
+    }
+
+    @available(*, deprecated, renamed: "removeDefault(from:)")
+    public static func deleteDefault(path: String) throws {
+        try removeDefault(from: path)
+    }
+
+    @available(*, deprecated, renamed: "copy()")
+    public func duplicate() throws -> ACL {
+        try copy()
+    }
+
+    @available(*, deprecated, renamed: "addEntry()")
+    public mutating func createEntry() throws -> ACLEntry {
+        try addEntry()
+    }
+
+    @available(*, deprecated, renamed: "insertEntry(at:)")
+    public mutating func createEntry(at index: Int) throws -> ACLEntry {
+        try insertEntry(at: index)
+    }
+
+    @available(*, deprecated, renamed: "removeEntry(at:)")
+    public mutating func deleteEntry(at index: Int) throws {
+        try removeEntry(at: index)
+    }
+
+    @available(*, deprecated, renamed: "removeEntry(_:)")
+    public mutating func deleteEntry(_ entry: ACLEntry) throws {
+        try removeEntry(entry)
+    }
+
+    @available(*, deprecated, renamed: "recalculateMask()")
+    public mutating func calculateMask() throws {
+        try recalculateMask()
+    }
+
+    @available(*, deprecated, renamed: "strippingExtendedEntries(recalculateMask:)")
+    public func stripped(recalculateMask: Bool = true) throws -> ACL {
+        try strippingExtendedEntries(recalculateMask: recalculateMask)
+    }
+
+    @available(*, deprecated, renamed: "serialized()")
+    public func toData() throws -> [UInt8] {
+        try serialized()
     }
 }

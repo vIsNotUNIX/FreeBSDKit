@@ -240,6 +240,9 @@ extension ACL {
             self.rawValue = rawValue
         }
 
+        /// Verbose output with long tag names.
+        public static let verbose = TextOptions(rawValue: CACL_TEXT_VERBOSE)
+
         /// Use numeric IDs instead of names.
         public static let numericIDs = TextOptions(rawValue: CACL_TEXT_NUMERIC_IDS)
 

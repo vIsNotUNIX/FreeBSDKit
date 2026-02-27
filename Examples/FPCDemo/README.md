@@ -1,37 +1,37 @@
-# FPC Test Harness
+# FPC Demo
 
-A comprehensive test harness demonstrating FPC (Free Process Communication) IPC capabilities over FreeBSD SOCK_SEQPACKET Unix domain sockets.
+A comprehensive demo demonstrating FPC (FreeBSD Process Communication) IPC capabilities over FreeBSD SOCK_SEQPACKET Unix domain sockets.
 
 ## Building
 
 ```bash
-swift build
+swift build --product fpc-demo
 ```
 
-## Running Tests
+## Running
 
 ### Quick Test (in-process socketpair)
 ```bash
-.build/debug/fpc-test-harness pair
+.build/debug/fpc-demo pair
 ```
 
 ### Full Test Suite (separate processes)
 
 **Terminal 1 - Start server:**
 ```bash
-.build/debug/fpc-test-harness server /tmp/bpc-test.sock
+.build/debug/fpc-demo server /tmp/fpc-test.sock
 ```
 
 **Terminal 2 - Run client:**
 ```bash
-.build/debug/fpc-test-harness client /tmp/bpc-test.sock
+.build/debug/fpc-demo client /tmp/fpc-test.sock
 ```
 
 ### Automated (single command)
 ```bash
-.build/debug/fpc-test-harness server /tmp/bpc-test.sock &
+.build/debug/fpc-demo server /tmp/fpc-test.sock &
 sleep 0.5
-.build/debug/fpc-test-harness client /tmp/bpc-test.sock
+.build/debug/fpc-demo client /tmp/fpc-test.sock
 ```
 
 ## Test Coverage
@@ -58,14 +58,14 @@ sleep 0.5
 
 | FPC API | Test Coverage |
 |---------|---------------|
-| `BSDEndpoint.pair()` | Pair tests |
-| `BSDClient.connect()` | Client/server tests |
-| `BSDListener.listen()` | Server tests |
-| `BSDListener.connections()` | Server tests |
+| `FPCEndpoint.pair()` | Pair tests |
+| `FPCClient.connect()` | Client/server tests |
+| `FPCListener.listen()` | Server tests |
+| `FPCListener.connections()` | Server tests |
 | `start()` / `stop()` | All tests |
 | `send()` | Test 4 (unsolicited trigger), done signals |
 | `request(timeout:)` | Tests 1, 2, 3, 5 |
-| `reply(to: Message)` | All server handlers |
+| `reply(to: FPCMessage)` | All server handlers |
 | `incoming()` | Tests 4, 5 |
 
 ## Payload Coverage
@@ -97,7 +97,7 @@ Example output showing cross-process verification:
 Use ktrace to observe actual system calls:
 
 ```bash
-ktrace -i -t c .build/debug/fpc-test-harness pair
+ktrace -i -t c .build/debug/fpc-demo pair
 kdump | grep -E "socketpair|sendmsg|recvmsg"
 ```
 

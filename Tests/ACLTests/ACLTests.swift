@@ -16,26 +16,26 @@ final class ACLTests: XCTestCase {
 
     func testACLInit() throws {
         // An empty ACL is not valid until it has required entries
-        var acl = try ACL(count: 4)
+        var acl = try ACL(capacity: 4)
 
         // Add required entries to make it valid
-        let userObj = try acl.createEntry()
-        try userObj.set(tag:.userObj)
-        try userObj.set(permissions:.all)
+        let userObj = try acl.addEntry()
+        try userObj.set(tag: .userObj)
+        try userObj.set(permissions: .all)
 
-        let groupObj = try acl.createEntry()
-        try groupObj.set(tag:.groupObj)
-        try groupObj.set(permissions:.readExecute)
+        let groupObj = try acl.addEntry()
+        try groupObj.set(tag: .groupObj)
+        try groupObj.set(permissions: .readExecute)
 
-        let other = try acl.createEntry()
-        try other.set(tag:.other)
-        try other.set(permissions:[.read])
+        let other = try acl.addEntry()
+        try other.set(tag: .other)
+        try other.set(permissions: [.read])
 
         XCTAssertTrue(acl.isValid)
     }
 
     func testACLFromMode() {
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL from mode")
             return
         }
@@ -44,7 +44,7 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLFromText() {
-        guard let acl = ACL.fromText("user::rwx,group::r-x,other::r-x") else {
+        guard let acl = ACL(parsing: "user::rwx,group::r-x,other::r-x") else {
             XCTFail("Failed to create ACL from text")
             return
         }
@@ -52,18 +52,18 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLDuplicate() throws {
-        guard let original = ACL.fromMode(0o644) else {
+        guard let original = ACL(mode: 0o644) else {
             XCTFail("Failed to create ACL")
             return
         }
-        let copy = try original.duplicate()
+        let copy = try original.copy()
         XCTAssertTrue(original.isEqual(to: copy))
     }
 
     // MARK: - ACL Text Conversion Tests
 
     func testACLToText() {
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -75,7 +75,7 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLTextOutput() {
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -87,7 +87,7 @@ final class ACLTests: XCTestCase {
     // MARK: - ACL Properties Tests
 
     func testACLBrand() {
-        guard let posixACL = ACL.fromMode(0o644) else {
+        guard let posixACL = ACL(mode: 0o644) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -95,7 +95,7 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLIsTrivial() {
-        guard let trivial = ACL.fromMode(0o755) else {
+        guard let trivial = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -103,7 +103,7 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLEquivalentMode() {
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -115,7 +115,7 @@ final class ACLTests: XCTestCase {
     // MARK: - Entry Iteration Tests
 
     func testACLIteration() {
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -125,7 +125,7 @@ final class ACLTests: XCTestCase {
         var hasGroupObj = false
         var hasOther = false
 
-        acl.forEachEntry { entry in
+        for entry in acl.entries {
             entryCount += 1
             switch entry.tag {
             case .userObj:
@@ -155,7 +155,7 @@ final class ACLTests: XCTestCase {
     }
 
     func testACLEntriesArray() {
-        guard let acl = ACL.fromMode(0o644) else {
+        guard let acl = ACL(mode: 0o644) else {
             XCTFail("Failed to create ACL")
             return
         }
@@ -167,28 +167,28 @@ final class ACLTests: XCTestCase {
     // MARK: - Entry Modification Tests
 
     func testCreateEntry() throws {
-        var acl = try ACL()
-        let entry = try acl.createEntry()
-        try entry.set(tag:.userObj)
-        try entry.set(permissions:.all)
+        var acl = try ACL(capacity: 4)
+        let entry = try acl.addEntry()
+        try entry.set(tag: .userObj)
+        try entry.set(permissions: .all)
         XCTAssertEqual(entry.tag, .userObj)
         XCTAssertEqual(entry.permissions, .all)
     }
 
     func testEntryPermissions() throws {
-        var acl = try ACL()
-        let entry = try acl.createEntry()
-        try entry.set(tag:.userObj)
+        var acl = try ACL(capacity: 4)
+        let entry = try acl.addEntry()
+        try entry.set(tag: .userObj)
 
-        try entry.set(permissions:[.read, .execute])
+        try entry.set(permissions: [.read, .execute])
         XCTAssertTrue(entry.permissions.contains(.read))
         XCTAssertFalse(entry.permissions.contains(.write))
         XCTAssertTrue(entry.permissions.contains(.execute))
 
-        try entry.set(permissions:.all)
+        try entry.set(permissions: .all)
         XCTAssertEqual(entry.permissions, .all)
 
-        try entry.set(permissions:[])
+        try entry.set(permissions: [])
         XCTAssertEqual(entry.permissions, [])
     }
 
@@ -218,36 +218,36 @@ final class ACLTests: XCTestCase {
     // MARK: - Tag Tests
 
     func testEntryTagTypes() throws {
-        var acl = try ACL()
+        var acl = try ACL(capacity: 4)
 
-        let userObj = try acl.createEntry()
-        try userObj.set(tag:.userObj)
+        let userObj = try acl.addEntry()
+        try userObj.set(tag: .userObj)
         XCTAssertEqual(userObj.tag, .userObj)
 
-        let groupObj = try acl.createEntry()
-        try groupObj.set(tag:.groupObj)
+        let groupObj = try acl.addEntry()
+        try groupObj.set(tag: .groupObj)
         XCTAssertEqual(groupObj.tag, .groupObj)
 
-        let other = try acl.createEntry()
-        try other.set(tag:.other)
+        let other = try acl.addEntry()
+        try other.set(tag: .other)
         XCTAssertEqual(other.tag, .other)
     }
 
     // MARK: - Qualifier Tests
 
     func testEntryQualifier() throws {
-        var acl = try ACL()
-        let entry = try acl.createEntry()
-        try entry.set(tag:.user)
-        try entry.set(qualifier:1000)
+        var acl = try ACL(capacity: 4)
+        let entry = try acl.addEntry()
+        try entry.set(tag: .user)
+        try entry.set(qualifier: 1000)
 
         XCTAssertEqual(entry.qualifier, 1000)
     }
 
     func testQualifierOnlyForUserGroup() throws {
-        var acl = try ACL()
-        let entry = try acl.createEntry()
-        try entry.set(tag:.userObj)
+        var acl = try ACL(capacity: 4)
+        let entry = try acl.addEntry()
+        try entry.set(tag: .userObj)
         XCTAssertNil(entry.qualifier)
     }
 
@@ -277,7 +277,7 @@ final class ACLTests: XCTestCase {
 
         // Should have mask entry due to extended entries
         var hasMask = false
-        acl.forEachEntry { entry in
+        for entry in acl.entries {
             if entry.tag == .mask {
                 hasMask = true
             }
@@ -302,19 +302,19 @@ final class ACLTests: XCTestCase {
 
         // Try to get the ACL - skip if not supported
         do {
-            let acl = try ACL.get(path: tempPath)
+            let acl = try ACL(contentsOf: tempPath)
             XCTAssertTrue(acl.isValid)
             XCTAssertEqual(acl.brand, .posix)
 
             // Modify and set back
-            guard let newACL = ACL.fromMode(0o755) else {
+            guard let newACL = ACL(mode: 0o755) else {
                 XCTFail("Failed to create ACL")
                 return
             }
-            try newACL.set(path: tempPath)
+            try newACL.apply(to: tempPath)
 
             // Verify
-            let verify = try ACL.get(path: tempPath)
+            let verify = try ACL(contentsOf: tempPath)
             if let mode = verify.equivalentMode {
                 XCTAssertEqual(mode & 0o777, 0o755)
             }
@@ -336,7 +336,7 @@ final class ACLTests: XCTestCase {
         }
 
         do {
-            let acl = try ACL.get(fd: fd)
+            let acl = try ACL(fileDescriptor: fd)
             XCTAssertTrue(acl.isValid)
         } catch let error as ACL.Error where error.errno == EOPNOTSUPP || error.errno == EINVAL {
             // ACLs not supported on this filesystem, skip test
@@ -355,7 +355,7 @@ final class ACLTests: XCTestCase {
 
         // Basic file shouldn't have extended ACL
         // This may return false or error depending on filesystem support
-        _ = ACL.hasExtendedACL(path: tempPath)
+        _ = ACL.isExtended(at: tempPath)
     }
 
     func testACLStripped() throws {
@@ -366,7 +366,7 @@ final class ACLTests: XCTestCase {
         _ = builder.otherPermissions([.read])
 
         let acl = try builder.build()
-        let stripped = try acl.stripped()
+        let stripped = try acl.strippingExtendedEntries()
 
         // Stripped should only have base entries (may include mask)
         let entries = stripped.entries
@@ -446,7 +446,7 @@ final class ACLTests: XCTestCase {
 
     func testGetNonExistentFile() {
         do {
-            _ = try ACL.get(path: "/nonexistent/path/file")
+            _ = try ACL(contentsOf: "/nonexistent/path/file")
             XCTFail("Should have thrown an error")
         } catch let error as ACL.Error {
             XCTAssertEqual(error.errno, ENOENT)
@@ -475,7 +475,7 @@ final class ACLTests: XCTestCase {
             XCTAssertEqual(acl.brand, ACL.Brand.posix)
 
             // Create new ACL and set using descriptor
-            guard let newACL = ACL.fromMode(0o755) else {
+            guard let newACL = ACL(mode: 0o755) else {
                 XCTFail("Failed to create ACL")
                 descriptor.close()
                 return
@@ -513,7 +513,7 @@ final class ACLTests: XCTestCase {
             return
         }
 
-        guard let acl = ACL.fromMode(0o755) else {
+        guard let acl = ACL(mode: 0o755) else {
             XCTFail("Failed to create ACL")
             descriptor.close()
             return
