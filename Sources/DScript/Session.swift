@@ -7,18 +7,23 @@
 import DTraceCore
 import Glibc
 
-/// A high-level, fluent interface for DTrace sessions.
+/// A high-level interface for DTrace sessions using the DScript result builder.
 ///
-/// `DTraceSession` wraps `DTraceHandle` and provides a guided experience
-/// for building and running D programs.
+/// `DScriptSession` wraps `DTraceHandle` and provides a guided experience
+/// for building and running D programs using the type-safe `DScript` API.
 ///
 /// ## Example
 ///
 /// ```swift
-/// var session = try DTraceSession()
-/// session.trace("syscall:::entry")
-/// session.targeting(.execname("nginx"))
-/// session.counting(by: .function)
+/// let script = DScript {
+///     Probe("syscall:::entry") {
+///         Target(.execname("nginx"))
+///         Count(by: "probefunc")
+///     }
+/// }
+///
+/// var session = try DScriptSession.create()
+/// session.add(script)
 /// try session.start()
 ///
 /// while session.work() == .okay {
@@ -27,10 +32,9 @@ import Glibc
 ///
 /// try session.printAggregations()
 /// ```
-public struct DTraceSession: ~Copyable {
+public struct DScriptSession: ~Copyable {
     private var handle: DTraceHandle
-    private var scripts: [DTraceScript] = []
-    private var currentScript: DTraceScript?
+    private var scripts: [DScript] = []
     private var isStarted: Bool = false
     private var outputDestination: DTraceOutput = .stdout
 
@@ -58,11 +62,66 @@ public struct DTraceSession: ~Copyable {
         flags: DTraceOpenFlags = [],
         traceBufferSize: String = "4m",
         aggBufferSize: String = "4m"
-    ) throws -> DTraceSession {
-        var session = try DTraceSession(flags: flags)
+    ) throws -> DScriptSession {
+        var session = try DScriptSession(flags: flags)
         try session.handle.setOption("bufsize", value: traceBufferSize)
         try session.handle.setOption("aggsize", value: aggBufferSize)
         return session
+    }
+
+    /// Creates a session and runs the provided DScript.
+    ///
+    /// A convenience initializer for running a single DScript.
+    ///
+    /// ```swift
+    /// let script = DScript {
+    ///     Probe("syscall:::entry") {
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    ///
+    /// var session = try DScriptSession.run(script)
+    /// // Session is already started
+    /// ```
+    public static func run(
+        _ script: DScript,
+        flags: DTraceOpenFlags = [],
+        traceBufferSize: String = "4m",
+        aggBufferSize: String = "4m"
+    ) throws -> DScriptSession {
+        var session = try create(
+            flags: flags,
+            traceBufferSize: traceBufferSize,
+            aggBufferSize: aggBufferSize
+        )
+        session.add(script)
+        try session.start()
+        return session
+    }
+
+    /// Creates a session using a result builder and starts it.
+    ///
+    /// ```swift
+    /// var session = try DScriptSession.run {
+    ///     Probe("syscall:::entry") {
+    ///         Target(.execname("nginx"))
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    /// ```
+    public static func run(
+        flags: DTraceOpenFlags = [],
+        traceBufferSize: String = "4m",
+        aggBufferSize: String = "4m",
+        @DScriptBuilder _ builder: () -> [ProbeClause]
+    ) throws -> DScriptSession {
+        let script = DScript(builder)
+        return try run(
+            script,
+            flags: flags,
+            traceBufferSize: traceBufferSize,
+            aggBufferSize: aggBufferSize
+        )
     }
 
     // MARK: - Configuration
@@ -92,145 +151,72 @@ public struct DTraceSession: ~Copyable {
         try option("aggsize", value: size)
     }
 
-    // MARK: - Script Building
+    // MARK: - Adding Scripts
 
-    /// Starts tracing the specified probe.
-    public mutating func trace(_ probeSpec: String) {
-        finalizeCurrentScript()
-        currentScript = DTraceScript(probeSpec)
+    /// Adds a DScript to the session.
+    ///
+    /// ```swift
+    /// var session = try DScriptSession.create()
+    ///
+    /// let script = DScript {
+    ///     Probe("syscall:::entry") {
+    ///         Target(.execname("nginx"))
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    ///
+    /// session.add(script)
+    /// try session.start()
+    /// ```
+    public mutating func add(_ script: DScript) {
+        scripts.append(script)
     }
 
-    /// Sets the target filter for the current probe.
-    public mutating func targeting(_ target: DTraceTarget) {
-        if let script = currentScript {
-            currentScript = script.targeting(target)
-        }
+    /// Adds a script using a result builder.
+    ///
+    /// ```swift
+    /// var session = try DScriptSession.create()
+    /// session.add {
+    ///     Probe("syscall:::entry") {
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    /// try session.start()
+    /// ```
+    public mutating func add(@DScriptBuilder _ builder: () -> [ProbeClause]) {
+        scripts.append(DScript(builder))
     }
 
-    /// Adds a custom predicate condition.
-    public mutating func when(_ predicate: String) {
-        if let script = currentScript {
-            currentScript = script.when(predicate)
-        }
-    }
+    // MARK: - Predefined Scripts
 
-    /// Sets a raw action for the current probe.
-    public mutating func action(_ code: String) {
-        if let script = currentScript {
-            currentScript = script.action(code)
-        }
-    }
-
-    // MARK: - Aggregation Keys
-
-    /// What to aggregate by.
-    public enum AggregationKey: Sendable {
-        case function
-        case execname
-        case pid
-        case uid
-        case cpu
-        case custom(String)
-
-        public var expression: String {
-            switch self {
-            case .function: return "probefunc"
-            case .execname: return "execname"
-            case .pid: return "pid"
-            case .uid: return "uid"
-            case .cpu: return "cpu"
-            case .custom(let expr): return expr
-            }
-        }
-    }
-
-    /// Adds a count aggregation.
-    public mutating func counting(by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.count(by: key.expression)
-        }
-    }
-
-    /// Adds a sum aggregation.
-    public mutating func summing(_ value: String, by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.sum(value, by: key.expression)
-        }
-    }
-
-    /// Adds a histogram (quantize) aggregation.
-    public mutating func histogram(_ value: String, by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.quantize(value, by: key.expression)
-        }
-    }
-
-    /// Adds a min aggregation.
-    public mutating func minimum(_ value: String, by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.min(value, by: key.expression)
-        }
-    }
-
-    /// Adds a max aggregation.
-    public mutating func maximum(_ value: String, by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.max(value, by: key.expression)
-        }
-    }
-
-    /// Adds an average aggregation.
-    public mutating func averaging(_ value: String, by key: AggregationKey = .function) {
-        if let script = currentScript {
-            currentScript = script.avg(value, by: key.expression)
-        }
-    }
-
-    /// Adds a printf action.
-    public mutating func printf(_ format: String, _ args: String...) {
-        if let script = currentScript {
-            let argList = args.isEmpty ? "" : ", " + args.joined(separator: ", ")
-            currentScript = script.action("printf(\"\(format)\\n\"\(argList));")
-        }
-    }
-
-    /// Adds a stack trace.
-    public mutating func stackTrace(userland: Bool = false) {
-        if let script = currentScript {
-            currentScript = script.stack(userland: userland)
-        }
-    }
-
-    // MARK: - Predefined Traces
-
-    /// Traces syscall counts for a target.
+    /// Adds a syscall counting script.
     public mutating func syscallCounts(for target: DTraceTarget = .all) {
-        finalizeCurrentScript()
         scripts.append(.syscallCounts(for: target))
     }
 
-    /// Traces file opens for a target.
+    /// Adds a file open tracing script.
     public mutating func fileOpens(for target: DTraceTarget = .all) {
-        finalizeCurrentScript()
         scripts.append(.fileOpens(for: target))
     }
 
-    /// Profiles CPU usage.
+    /// Adds a CPU profiling script.
     public mutating func cpuProfile(hz: Int = 997, for target: DTraceTarget = .all) {
-        finalizeCurrentScript()
         scripts.append(.cpuProfile(hz: hz, for: target))
     }
 
-    /// Traces I/O bytes.
+    /// Adds an I/O bytes tracking script.
     public mutating func ioBytes(for target: DTraceTarget = .all) {
-        finalizeCurrentScript()
         scripts.append(.ioBytes(for: target))
     }
 
-    /// Traces syscall latency.
+    /// Adds a syscall latency measurement script.
     public mutating func syscallLatency(_ syscall: String, for target: DTraceTarget = .all) {
-        finalizeCurrentScript()
         scripts.append(.syscallLatency(syscall, for: target))
+    }
+
+    /// Adds a process exec tracing script.
+    public mutating func processExec() {
+        scripts.append(.processExec())
     }
 
     // MARK: - Execution
@@ -239,10 +225,8 @@ public struct DTraceSession: ~Copyable {
     ///
     /// - Throws: Any compilation or execution errors.
     public mutating func start() throws {
-        finalizeCurrentScript()
-
         for script in scripts {
-            let source = script.build()
+            let source = script.source
             let program = try handle.compile(source)
             try handle.exec(program)
         }
@@ -325,26 +309,35 @@ public struct DTraceSession: ~Copyable {
         try handle.countProbes(matching: pattern)
     }
 
-    // MARK: - Internals
+    // MARK: - JSON Output
 
-    private mutating func finalizeCurrentScript() {
-        if let script = currentScript {
-            scripts.append(script)
-            currentScript = nil
-        }
+    /// Enables JSON structured output for this session.
+    ///
+    /// When enabled, trace output will be formatted as JSON instead of plain text.
+    /// Call this before `start()`.
+    public mutating func enableJSONOutput() throws {
+        try handle.enableStructuredOutput()
     }
 
+    /// Whether JSON structured output is enabled.
+    public var isJSONOutputEnabled: Bool {
+        handle.isStructuredOutputEnabled
+    }
+
+    /// Disables JSON structured output.
+    public mutating func disableJSONOutput() {
+        handle.disableStructuredOutput()
+    }
+
+    // MARK: - Introspection
+
     /// Returns all scripts that will be compiled.
-    public func allScripts() -> [DTraceScript] {
-        var result = scripts
-        if let current = currentScript {
-            result.append(current)
-        }
-        return result
+    public var allScripts: [DScript] {
+        scripts
     }
 
     /// Returns the combined D source code.
-    public func buildSource() -> String {
-        allScripts().map { $0.build() }.joined(separator: "\n\n")
+    public var source: String {
+        scripts.map { $0.source }.joined(separator: "\n\n")
     }
 }

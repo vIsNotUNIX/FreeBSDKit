@@ -65,24 +65,27 @@ public enum DTraceOutput: Sendable {
 /// A buffer for capturing DTrace output.
 public final class DTraceOutputBuffer: @unchecked Sendable {
     private var memoryStream: UnsafeMutablePointer<FILE>?
-    private var buffer: UnsafeMutablePointer<CChar>?
-    private var size: Int = 0
+    // Store pointers so open_memstream can update them
+    private var bufferPtr: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+    private var sizePtr: UnsafeMutablePointer<Int>
 
     public init() {
-        var bufPtr: UnsafeMutablePointer<CChar>? = nil
-        var sizeVal: Int = 0
-        memoryStream = open_memstream(&bufPtr, &sizeVal)
-        buffer = bufPtr
-        size = sizeVal
+        bufferPtr = .allocate(capacity: 1)
+        sizePtr = .allocate(capacity: 1)
+        bufferPtr.initialize(to: nil)
+        sizePtr.initialize(to: 0)
+        memoryStream = open_memstream(bufferPtr, sizePtr)
     }
 
     deinit {
         if let stream = memoryStream {
             fclose(stream)
         }
-        if let buf = buffer {
+        if let buf = bufferPtr.pointee {
             free(buf)
         }
+        bufferPtr.deallocate()
+        sizePtr.deallocate()
     }
 
     /// The FILE pointer for internal use.
@@ -94,7 +97,7 @@ public final class DTraceOutputBuffer: @unchecked Sendable {
     public var contents: String {
         guard let stream = memoryStream else { return "" }
         fflush(stream)
-        guard let buf = buffer else { return "" }
+        guard let buf = bufferPtr.pointee else { return "" }
         return String(cString: buf)
     }
 
@@ -102,7 +105,7 @@ public final class DTraceOutputBuffer: @unchecked Sendable {
     public func clear() {
         guard let stream = memoryStream else { return }
         rewind(stream)
-        if let buf = buffer {
+        if let buf = bufferPtr.pointee {
             buf.pointee = 0
         }
     }

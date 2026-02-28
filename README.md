@@ -34,7 +34,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Rctl", package: "FreeBSDKit"),
         .product(name: "Cpuset", package: "FreeBSDKit"),
         .product(name: "DTraceCore", package: "FreeBSDKit"),
-        .product(name: "DTraceBuilder", package: "FreeBSDKit"),
+        .product(name: "DScript", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -1116,7 +1116,7 @@ try Cpuset.setJailAffinity(5, to: CPUSet(cpus: [0, 1]))
 
 ---
 
-### DTraceCore & DTraceBuilder
+### DTraceCore & DScript
 
 Swift interface to FreeBSD's DTrace dynamic tracing framework.
 
@@ -1197,28 +1197,27 @@ try handle.aggregatePrint()
 handle.disableStructuredOutput()
 ```
 
-**DTraceBuilder** provides a fluent API for constructing D scripts:
+**DScript** provides a type-safe result builder API for constructing D scripts:
 
 ```swift
-import DTraceBuilder
+import DScript
 
-// Create a tracing session with proper buffer defaults
-var session = try DTraceSession.create(
-    traceBufferSize: "4m",
-    aggBufferSize: "4m"
-)
+// Build scripts with the DScript result builder
+let script = DScript {
+    Probe("syscall::read:entry") {
+        Target(.pid(1234))
+        When("arg0 > 0")
+        Timestamp()
+    }
+    Probe("syscall::read:return") {
+        Target(.pid(1234))
+        When("self->ts")
+        Latency(by: "execname")
+    }
+}
 
-// Use predefined trace templates
-session.syscallCounts(for: .execname("nginx"))
-
-// Or build custom traces fluently
-session.trace("syscall::read:entry")
-    .targeting(.pid(1234))
-    .when("arg0 > 0")
-    .counting(by: .function)
-
-// Start and run
-try session.start()
+// Run it in a session
+var session = try DScriptSession.run(script)
 
 for _ in 1...5 {
     let status = session.work()
@@ -1233,20 +1232,18 @@ try session.printAggregations()
 **Predefined Templates:**
 
 ```swift
-// System call counting
-session.syscallCounts(for: .execname("postgres"))
+// Use predefined scripts directly
+let script = DScript.syscallCounts(for: .execname("postgres"))
+let script = DScript.fileOpens(for: .uid(0))
+let script = DScript.cpuProfile(hz: 997, for: .processNameContains("http"))
+let script = DScript.ioBytes()
+let script = DScript.syscallLatency("read", for: .pid(1234))
 
-// File opens with paths
-session.fileOpens(for: .uid(0))
-
-// CPU profiling
-session.cpuProfile(hz: 997, for: .processNameContains("http"))
-
-// I/O bytes per process
-session.ioBytes()
-
-// Syscall latency histograms
-session.syscallLatency("read", for: .pid(1234))
+// Or add them to a session
+var session = try DScriptSession.create()
+session.syscallCounts(for: .execname("nginx"))
+session.cpuProfile(hz: 997)
+try session.start()
 ```
 
 **Target Predicates:**
@@ -1274,8 +1271,8 @@ let output = buffer.contents  // Get captured text
 
 **Key Types:**
 - `DTraceHandle` - Low-level libdtrace handle (~Copyable)
-- `DTraceSession` - High-level fluent session builder
-- `DTraceScript` - D script builder with aggregation helpers
+- `DScriptSession` - High-level session manager
+- `DScript` - Type-safe D script builder (result builder)
 - `DTraceTarget` - Process targeting predicates
 - `DTraceProbeDescription` - Probe metadata (provider:module:function:name)
 

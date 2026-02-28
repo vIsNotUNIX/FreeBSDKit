@@ -66,8 +66,8 @@ let package = Package(
             targets: ["DTraceCore"]
         ),
         .library(
-            name: "DTraceBuilder",
-            targets: ["DTraceBuilder"]
+            name: "DScript",
+            targets: ["DScript"]
         ),
         .executable(
             name: "maclabel",
@@ -309,7 +309,7 @@ let package = Package(
             dependencies: ["CDTrace"]
         ),
         .target(
-            name: "DTraceBuilder",
+            name: "DScript",
             dependencies: ["DTraceCore", "FreeBSDKit"]
         ),
         .testTarget(
@@ -317,8 +317,8 @@ let package = Package(
             dependencies: ["DTraceCore"]
         ),
         .testTarget(
-            name: "DTraceBuilderTests",
-            dependencies: ["DTraceBuilder", "Descriptors", "Capabilities"]
+            name: "DScriptTests",
+            dependencies: ["DScript", "Descriptors", "Capabilities"]
         ),
         .executableTarget(
             name: "maclabel",
@@ -337,7 +337,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "dtrace-demo",
-            dependencies: ["DTraceBuilder"],
+            dependencies: ["DScript"],
             path: "Examples/DTrace"
         ),
         .executableTarget(
