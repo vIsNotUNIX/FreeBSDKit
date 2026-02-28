@@ -271,7 +271,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CasperTests",
-            dependencies: ["Casper"]
+            dependencies: ["Casper", "Capsicum"]
         ),
         .testTarget(
             name: "ProcctlTests",
