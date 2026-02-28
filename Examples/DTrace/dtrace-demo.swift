@@ -168,6 +168,76 @@ func showScripts() {
     printScript("DScript.ioBytes()", DScript.ioBytes())
     printScript("DScript.syscallLatency(\"read\")", DScript.syscallLatency("read"))
 
+    // Script JSON and Validation
+    printSection("Script JSON & Validation")
+
+    print("DScript provides multiple output formats and validation:\n")
+
+    let demoScript = DScript {
+        Probe("syscall::read:entry") {
+            Target(.execname("nginx"))
+            Timestamp()
+        }
+        Probe("syscall::read:return") {
+            Target(.execname("nginx"))
+            When("self->ts")
+            Latency(by: "execname")
+        }
+    }
+
+    print("1. D Source Code (.source):")
+    print("```d")
+    print(demoScript.source)
+    print("```\n")
+
+    print("2. Script AST as JSON (.jsonString):")
+    if let json = demoScript.jsonString {
+        print(json)
+    }
+    print()
+
+    print("3. Structural Validation (.validate()):")
+    print("```swift")
+    print("do {")
+    print("    try script.validate()  // Checks structure")
+    print("    print(\"Script structure is valid\")")
+    print("} catch {")
+    print("    print(\"Invalid: \\(error)\")")
+    print("}")
+    print("```")
+    do {
+        try demoScript.validate()
+        print("Result: Script structure is valid\n")
+    } catch {
+        print("Result: \(error)\n")
+    }
+
+    print("4. DTrace Compilation (.compile()) - requires root:")
+    print("```swift")
+    print("do {")
+    print("    try script.compile()  // Actually compiles with DTrace")
+    print("    print(\"Script compiles successfully\")")
+    print("} catch let error as DScriptError {")
+    print("    print(\"Compilation failed: \\(error)\")")
+    print("}")
+    print("```")
+    if getuid() == 0 {
+        do {
+            try demoScript.compile()
+            print("Result: Script compiles successfully\n")
+        } catch {
+            print("Result: \(error)\n")
+        }
+    } else {
+        print("Result: (skipped - requires root)\n")
+    }
+
+    print("5. Data Conversion:")
+    print("  script.data              // UTF-8 Data")
+    print("  script.nullTerminatedData // UTF-8 Data with null terminator")
+    print("  script.write(to: path)   // Write to file")
+    print()
+
     // Output destinations
     printSection("DTraceOutput Destinations")
 
@@ -268,41 +338,16 @@ func listProbes() {
     do {
         let session = try DScriptSession.create()
 
-        // Provider summary
+        // Provider summary - dynamically discovered
         printSection("Probe Counts by Provider")
 
-        // FreeBSD DTrace providers (ordered by typical usage)
-        let providers = [
-            // Core tracing
-            "syscall",      // System call entry/return
-            "fbt",          // Function boundary tracing (kernel)
-            "profile",      // Profiling (timer-based sampling)
-            "dtrace",       // Meta provider (BEGIN/END/ERROR)
+        print("Discovering providers...")
+        let providers = try session.listProviders()
+        print("Found \(providers.count) providers:\n")
 
-            // Process/scheduling
-            "proc",         // Process lifecycle events
-            "sched",        // Scheduler events
-
-            // I/O and networking
-            "io",           // Block I/O
-            "ip", "tcp", "udp", "sctp",  // Network protocols
-            "vfs",          // VFS operations
-
-            // Specialized
-            "lockstat",     // Lock statistics
-            "sdt",          // Static defined tracing (kernel markers)
-            "kinst",        // Kernel instruction tracing
-
-            // Userland (require target process)
-            "fasttrap",     // Userland tracing
-            "pid",          // Per-process function tracing
-            "usdt",         // Userland SDT
-        ]
         for provider in providers {
             let count = try session.countProbes(matching: "\(provider):::")
-            if count > 0 {
-                print("  \(provider): \(count) probes")
-            }
+            print("  \(provider): \(count) probes")
         }
 
         // Sample probes
@@ -658,18 +703,84 @@ func jsonOutputDemo() {
         return
     }
 
+    // Part 1: Script AST as JSON (no root needed for this part)
+    printSection("Part 1: Script AST as JSON")
+
+    let script = DScript {
+        Probe("profile-97") {
+            Count(by: "execname")
+        }
+    }
+
+    print("Script source:")
+    print(script.source)
+    print()
+
+    print("Script as JSON (.jsonString):")
+    if let json = script.jsonString {
+        print(json)
+    }
+    print()
+
+    // Part 2: DScriptSession with JSON output
+    printSection("Part 2: DScriptSession JSON Output")
+
+    do {
+        var session = try DScriptSession.create()
+
+        print("Enabling JSON output mode...")
+        try session.enableJSONOutput()
+        print("JSON mode enabled: \(session.isJSONOutputEnabled)")
+        print()
+
+        // Capture to buffer so we can show the JSON
+        let buffer = DTraceOutputBuffer()
+        session.output(to: .buffer(buffer))
+
+        session.add {
+            Probe("profile-97") {
+                Count(by: "execname")
+            }
+        }
+
+        print("Starting trace for 1 second...")
+        try session.start()
+
+        let endTime = Date().addingTimeInterval(1)
+        while Date() < endTime {
+            let status = session.work()
+            if status == .done || status == .error { break }
+            session.sleep()
+        }
+
+        try session.stop()
+        try session.printAggregations()
+
+        print()
+        print("JSON Output from DTrace:")
+        print(buffer.contents)
+
+        session.disableJSONOutput()
+
+    } catch let error as DTraceCoreError {
+        print("DTrace error: \(error)")
+    } catch {
+        print("Error: \(error)")
+    }
+
+    // Part 3: Low-level API
+    printSection("Part 3: Low-Level DTraceHandle JSON")
+
     do {
         let handle = try DTraceHandle.open()
         try handle.setOption("bufsize", value: "4m")
         try handle.setOption("aggsize", value: "4m")
 
-        print("Enabling structured (JSON) output...")
+        print("Enabling structured (JSON) output on handle...")
         try handle.enableStructuredOutput()
-
         print("Structured output enabled: \(handle.isStructuredOutputEnabled)")
         print()
 
-        print("Compiling program...")
         let program = try handle.compile("""
             profile-97
             {
@@ -691,7 +802,8 @@ func jsonOutputDemo() {
 
         try handle.stop()
 
-        printSection("JSON Output")
+        print()
+        print("JSON aggregation output:")
         try handle.aggregateSnap()
         try handle.aggregatePrint()
 

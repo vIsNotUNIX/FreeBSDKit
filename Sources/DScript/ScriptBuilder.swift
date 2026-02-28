@@ -184,12 +184,76 @@ public struct DScript: Sendable, CustomStringConvertible {
             }
         }
     }
+
+    /// Compiles the script using DTrace to validate D syntax.
+    ///
+    /// This actually invokes the DTrace compiler to check for syntax errors,
+    /// undefined variables, invalid probe specifications, etc.
+    ///
+    /// - Returns: `true` if compilation succeeded.
+    /// - Throws: `DScriptError.compilationFailed` with details if compilation fails,
+    ///           or other errors if DTrace cannot be initialized.
+    ///
+    /// - Note: Requires appropriate privileges (typically root) to open DTrace.
+    ///
+    /// ```swift
+    /// let script = DScript {
+    ///     Probe("syscall:::entry") {
+    ///         Count()
+    ///     }
+    /// }
+    ///
+    /// do {
+    ///     try script.compile()
+    ///     print("Script is valid!")
+    /// } catch let error as DScriptError {
+    ///     print("Compilation failed: \(error)")
+    /// }
+    /// ```
+    @discardableResult
+    public func compile() throws -> Bool {
+        // First do structural validation
+        try validate()
+
+        // Try to compile with DTrace
+        let handle = try DTraceHandle.open()
+        do {
+            let program = try handle.compile(source)
+            // Program compiled successfully - we don't need to exec it
+            _ = program
+            return true
+        } catch let error as DTraceCoreError {
+            let message: String
+            switch error {
+            case .compileFailed(let msg):
+                message = msg
+            case .openFailed(_, let msg):
+                message = "Failed to open DTrace: \(msg)"
+            default:
+                message = String(describing: error)
+            }
+            throw DScriptError.compilationFailed(
+                source: source,
+                error: message
+            )
+        }
+    }
+
+    /// Checks if the script compiles without throwing.
+    ///
+    /// - Returns: `true` if compilation succeeds, `false` otherwise.
+    ///
+    /// - Note: Requires appropriate privileges (typically root) to open DTrace.
+    public var isValid: Bool {
+        (try? compile()) ?? false
+    }
 }
 
 /// Errors that can occur when building a DTrace script.
 public enum DScriptError: Error, CustomStringConvertible {
     case emptyScript
     case emptyClause(probe: String, index: Int)
+    case compilationFailed(source: String, error: String)
 
     public var description: String {
         switch self {
@@ -197,6 +261,8 @@ public enum DScriptError: Error, CustomStringConvertible {
             return "Script contains no probe clauses"
         case .emptyClause(let probe, let index):
             return "Probe clause \(index) '\(probe)' has no actions"
+        case .compilationFailed(_, let error):
+            return "D script compilation failed: \(error)"
         }
     }
 }

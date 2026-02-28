@@ -12,7 +12,7 @@ import Glibc
 /// `DScriptSession` wraps `DTraceHandle` and provides a guided experience
 /// for building and running D programs using the type-safe `DScript` API.
 ///
-/// ## Example
+/// ## Basic Example
 ///
 /// ```swift
 /// let script = DScript {
@@ -31,6 +31,39 @@ import Glibc
 /// }
 ///
 /// try session.printAggregations()
+/// ```
+///
+/// ## JSON Output
+///
+/// DTrace supports native JSON output for aggregations and trace data:
+///
+/// ```swift
+/// var session = try DScriptSession.create()
+/// try session.enableJSONOutput()  // Enable JSON mode
+///
+/// session.add(script)
+/// try session.start()
+///
+/// // Output will now be JSON formatted
+/// while session.work() == .okay { session.sleep() }
+/// try session.printAggregations()
+///
+/// session.disableJSONOutput()  // Back to text mode
+/// ```
+///
+/// ## Output Capture
+///
+/// Capture output to a buffer for programmatic processing:
+///
+/// ```swift
+/// let buffer = DTraceOutputBuffer()
+/// session.output(to: .buffer(buffer))
+///
+/// try session.start()
+/// // ... trace ...
+/// try session.printAggregations()
+///
+/// let output = buffer.contents  // Get captured text/JSON
 /// ```
 public struct DScriptSession: ~Copyable {
     private var handle: DTraceHandle
@@ -309,22 +342,64 @@ public struct DScriptSession: ~Copyable {
         try handle.countProbes(matching: pattern)
     }
 
+    /// Lists all available DTrace providers on the system.
+    ///
+    /// This queries the kernel for all probes and extracts the unique provider names.
+    ///
+    /// - Returns: Array of provider names sorted alphabetically.
+    public func listProviders() throws -> [String] {
+        let probes = try handle.listProbes(matching: nil)
+        let providers = Set(probes.map { $0.provider })
+        return providers.sorted()
+    }
+
     // MARK: - JSON Output
 
     /// Enables JSON structured output for this session.
     ///
-    /// When enabled, trace output will be formatted as JSON instead of plain text.
+    /// When enabled, trace output (printf, aggregations, etc.) will be formatted
+    /// as JSON instead of plain text. This uses DTrace's native `oformat` option.
+    ///
     /// Call this before `start()`.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// var session = try DScriptSession.create()
+    /// try session.enableJSONOutput()
+    ///
+    /// let buffer = DTraceOutputBuffer()
+    /// session.output(to: .buffer(buffer))
+    ///
+    /// session.add {
+    ///     Probe("syscall:::entry") { Count(by: "probefunc") }
+    /// }
+    ///
+    /// try session.start()
+    /// // ... run trace ...
+    /// try session.printAggregations()
+    ///
+    /// let json = buffer.contents  // JSON-formatted aggregation data
+    /// ```
+    ///
+    /// - Throws: `DTraceCoreError.setOptFailed` if JSON mode cannot be enabled.
+    ///
+    /// - Note: This is different from `DScript.jsonString` which outputs the
+    ///   script's AST as JSON. This method formats the actual trace output as JSON.
     public mutating func enableJSONOutput() throws {
         try handle.enableStructuredOutput()
     }
 
     /// Whether JSON structured output is enabled.
+    ///
+    /// Returns `true` if `enableJSONOutput()` was called and JSON mode is active.
     public var isJSONOutputEnabled: Bool {
         handle.isStructuredOutputEnabled
     }
 
-    /// Disables JSON structured output.
+    /// Disables JSON structured output, returning to plain text mode.
+    ///
+    /// Call this after `stop()` if you want to switch back to text output.
     public mutating func disableJSONOutput() {
         handle.disableStructuredOutput()
     }
