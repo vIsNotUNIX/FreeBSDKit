@@ -1,0 +1,41 @@
+{
+  "name": "myapp",
+  "stability": "Evolving",
+  "probes": [
+    {
+      "name": "request_start",
+      "docs": "Fires when HTTP request begins processing",
+      "args": [
+        { "name": "path", "type": "String" },
+        { "name": "method", "type": "Int32" }
+      ]
+    },
+    {
+      "name": "request_done",
+      "docs": "Fires when HTTP request completes",
+      "args": [
+        { "name": "path", "type": "String" },
+        { "name": "status", "type": "Int32" },
+        { "name": "latency_ns", "type": "UInt64" }
+      ]
+    },
+    {
+      "name": "cache_hit",
+      "docs": "Cache lookup succeeded",
+      "args": [
+        { "name": "key", "type": "String" }
+      ]
+    },
+    {
+      "name": "cache_miss",
+      "docs": "Cache lookup failed",
+      "args": [
+        { "name": "key", "type": "String" }
+      ]
+    },
+    {
+      "name": "startup",
+      "docs": "Application started"
+    }
+  ]
+}

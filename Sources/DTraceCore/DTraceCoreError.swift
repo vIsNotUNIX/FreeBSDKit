@@ -42,6 +42,9 @@ public enum DTraceCoreError: Error, Sendable {
     /// Failed to grab/attach to process.
     case procGrabFailed(pid: Int32, message: String)
 
+    /// Failed to create/launch process.
+    case procCreateFailed(path: String, message: String)
+
     /// Failed to consume trace data.
     case consumeFailed(message: String)
 

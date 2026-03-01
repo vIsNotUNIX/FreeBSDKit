@@ -5,6 +5,7 @@
  */
 
 import CDTrace
+import Foundation
 import Glibc
 
 /// A handle to an open DTrace session.
@@ -26,7 +27,7 @@ import Glibc
 /// try handle.exec(program)
 /// try handle.go()
 ///
-/// while handle.work() == .okay {
+/// while handle.poll() == .okay {
 ///     handle.sleep()
 /// }
 /// ```
@@ -56,6 +57,8 @@ public struct DTraceHandle: ~Copyable {
 
     deinit {
         if let h = _handle {
+            // Clean up any registered handlers before closing
+            HandlerStorage.shared.removeHandlers(for: h)
             cdtrace_close(h)
         }
     }
@@ -234,19 +237,43 @@ public struct DTraceHandle: ~Copyable {
 
     /// Processes available trace data, writing to stdout.
     ///
-    /// - Returns: The work status indicating whether to continue processing.
-    public func work() -> DTraceWorkStatus {
-        work(to: Glibc.stdout)
+    /// Call this repeatedly in a loop until it returns `.done` or `.error`.
+    /// Each call processes whatever data is currently available in the kernel
+    /// buffers and writes it to the output destination.
+    ///
+    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
+    ///
+    /// ## Example
+    /// ```swift
+    /// try handle.go()
+    /// while handle.poll() == .okay {
+    ///     handle.sleep()  // Wait for more data
+    /// }
+    /// ```
+    public func poll() -> DTraceWorkStatus {
+        poll(to: Glibc.stdout)
     }
 
     /// Processes available trace data with a custom output file.
     ///
     /// - Parameter file: The FILE pointer to write output to.
-    /// - Returns: The work status indicating whether to continue processing.
-    public func work(to file: UnsafeMutablePointer<FILE>) -> DTraceWorkStatus {
+    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
+    public func poll(to file: UnsafeMutablePointer<FILE>) -> DTraceWorkStatus {
         guard let h = _handle else { return .error }
         let status = cdtrace_work(h, file, nil, nil, nil)
         return DTraceWorkStatus(from: status)
+    }
+
+    /// Deprecated: Use `poll()` instead.
+    @available(*, deprecated, renamed: "poll()")
+    public func work() -> DTraceWorkStatus {
+        poll()
+    }
+
+    /// Deprecated: Use `poll(to:)` instead.
+    @available(*, deprecated, renamed: "poll(to:)")
+    public func work(to file: UnsafeMutablePointer<FILE>) -> DTraceWorkStatus {
+        poll(to: file)
     }
 
     /// Consume result for record callbacks.
@@ -464,10 +491,12 @@ public struct DTraceHandle: ~Copyable {
     public func onError(_ handler: @escaping (ErrorInfo) -> Bool) throws {
         guard let h = _handle else { throw DTraceCoreError.invalidHandle }
 
-        // Store callback in global storage for C callback access
-        _errorHandler = handler
+        // Store callback in per-handle storage
+        HandlerStorage.shared.setErrorHandler(for: h, handler)
 
-        let result = cdtrace_handle_err(h, errorHandlerCallback, nil)
+        // Pass handle value directly as arg (cast to void* for C interop)
+        // The callback will cast it back to look up the handler
+        let result = cdtrace_handle_err(h, errorHandlerCallback, UnsafeMutableRawPointer(h))
         if result != 0 {
             throw DTraceCoreError.handlerFailed(message: lastErrorMessage)
         }
@@ -480,9 +509,12 @@ public struct DTraceHandle: ~Copyable {
     public func onDrop(_ handler: @escaping (DropInfo) -> Bool) throws {
         guard let h = _handle else { throw DTraceCoreError.invalidHandle }
 
-        _dropHandler = handler
+        // Store callback in per-handle storage
+        HandlerStorage.shared.setDropHandler(for: h, handler)
 
-        let result = cdtrace_handle_drop(h, dropHandlerCallback, nil)
+        // Pass handle value directly as arg (cast to void* for C interop)
+        // The callback will cast it back to look up the handler
+        let result = cdtrace_handle_drop(h, dropHandlerCallback, UnsafeMutableRawPointer(h))
         if result != 0 {
             throw DTraceCoreError.handlerFailed(message: lastErrorMessage)
         }
@@ -524,11 +556,81 @@ public struct DTraceHandle: ~Copyable {
     ///   - flags: Flags for process grabbing.
     /// - Returns: A process handle for the attached process.
     /// - Throws: `DTraceCoreError.procGrabFailed` if the process cannot be attached.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let handle = try DTraceHandle.open()
+    /// let proc = try handle.grabProcess(pid: 1234)
+    ///
+    /// // Compile script that uses $target
+    /// let program = try handle.compile("""
+    ///     syscall:::entry /pid == $target/ {
+    ///         @[probefunc] = count();
+    ///     }
+    ///     """)
+    /// try handle.exec(program)
+    /// proc.continue()  // Resume the stopped process
+    /// try handle.go()
+    /// ```
     public func grabProcess(pid: pid_t, flags: Int32 = 0) throws -> ProcessHandle {
         guard let h = _handle else { throw DTraceCoreError.invalidHandle }
 
         guard let proc = cdtrace_proc_grab(h, pid, flags) else {
             throw DTraceCoreError.procGrabFailed(pid: pid, message: lastErrorMessage)
+        }
+
+        return ProcessHandle(proc: proc, dtrace: h)
+    }
+
+    /// Creates and launches a new process under DTrace control.
+    ///
+    /// The process is created in a stopped state. Use `$target` in D scripts
+    /// to reference the process, then call `continue()` on the handle to start it.
+    ///
+    /// - Parameters:
+    ///   - path: The path to the executable.
+    ///   - arguments: Command-line arguments (including argv[0]).
+    /// - Returns: A process handle for the created process.
+    /// - Throws: `DTraceCoreError.procCreateFailed` if the process cannot be created.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let handle = try DTraceHandle.open()
+    /// let proc = try handle.createProcess(
+    ///     path: "/usr/bin/myapp",
+    ///     arguments: ["myapp", "--verbose"]
+    /// )
+    ///
+    /// let program = try handle.compile("""
+    ///     syscall:::entry /pid == $target/ {
+    ///         @[probefunc] = count();
+    ///     }
+    ///     """)
+    /// try handle.exec(program)
+    /// try handle.go()
+    /// proc.continue()  // Start the process
+    /// ```
+    public func createProcess(
+        path: String,
+        arguments: [String] = []
+    ) throws -> ProcessHandle {
+        guard let h = _handle else { throw DTraceCoreError.invalidHandle }
+
+        // Build argv array for C
+        let args = arguments.isEmpty ? [path] : arguments
+        var cStrings = args.map { strdup($0) }
+        cStrings.append(nil)
+
+        defer {
+            for ptr in cStrings where ptr != nil {
+                free(ptr)
+            }
+        }
+
+        guard let proc = path.withCString({ pathPtr in
+            cdtrace_proc_create(h, pathPtr, &cStrings, nil, nil)
+        }) else {
+            throw DTraceCoreError.procCreateFailed(path: path, message: lastErrorMessage)
         }
 
         return ProcessHandle(proc: proc, dtrace: h)
@@ -645,17 +747,61 @@ private func aggregateWalkCallback(
 
 // MARK: - Handler Internals
 
-// Global storage for handlers (required for C callbacks)
-// Note: These are marked nonisolated(unsafe) because C callbacks cannot use Swift actors.
-// The handlers are only set from the main thread before tracing starts.
-nonisolated(unsafe) private var _errorHandler: ((DTraceHandle.ErrorInfo) -> Bool)?
-nonisolated(unsafe) private var _dropHandler: ((DTraceHandle.DropInfo) -> Bool)?
+/// Storage for per-handle callbacks, keyed by handle pointer.
+/// This allows multiple DTraceHandle instances to have independent handlers.
+private final class HandlerStorage: @unchecked Sendable {
+    static let shared = HandlerStorage()
+
+    private let lock = NSLock()
+    private var errorHandlers: [UnsafeRawPointer: (DTraceHandle.ErrorInfo) -> Bool] = [:]
+    private var dropHandlers: [UnsafeRawPointer: (DTraceHandle.DropInfo) -> Bool] = [:]
+
+    private init() {}
+
+    func setErrorHandler(for handle: OpaquePointer, _ handler: @escaping (DTraceHandle.ErrorInfo) -> Bool) {
+        lock.lock()
+        errorHandlers[UnsafeRawPointer(handle)] = handler
+        lock.unlock()
+    }
+
+    func setDropHandler(for handle: OpaquePointer, _ handler: @escaping (DTraceHandle.DropInfo) -> Bool) {
+        lock.lock()
+        dropHandlers[UnsafeRawPointer(handle)] = handler
+        lock.unlock()
+    }
+
+    func errorHandler(for handle: OpaquePointer) -> ((DTraceHandle.ErrorInfo) -> Bool)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return errorHandlers[UnsafeRawPointer(handle)]
+    }
+
+    func dropHandler(for handle: OpaquePointer) -> ((DTraceHandle.DropInfo) -> Bool)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return dropHandlers[UnsafeRawPointer(handle)]
+    }
+
+    func removeHandlers(for handle: OpaquePointer) {
+        lock.lock()
+        errorHandlers.removeValue(forKey: UnsafeRawPointer(handle))
+        dropHandlers.removeValue(forKey: UnsafeRawPointer(handle))
+        lock.unlock()
+    }
+}
 
 private func errorHandlerCallback(
     _ data: UnsafePointer<dtrace_errdata_t>?,
     _ arg: UnsafeMutableRawPointer?
 ) -> Int32 {
-    guard let data = data, let handler = _errorHandler else {
+    guard let data = data,
+          let arg = arg else {
+        return DTRACE_HANDLE_OK
+    }
+
+    // arg is the dtrace handle pointer cast to void*
+    let handlePtr = OpaquePointer(arg)
+    guard let handler = HandlerStorage.shared.errorHandler(for: handlePtr) else {
         return DTRACE_HANDLE_OK
     }
 
@@ -671,7 +817,14 @@ private func dropHandlerCallback(
     _ data: UnsafePointer<dtrace_dropdata_t>?,
     _ arg: UnsafeMutableRawPointer?
 ) -> Int32 {
-    guard let data = data, let handler = _dropHandler else {
+    guard let data = data,
+          let arg = arg else {
+        return DTRACE_HANDLE_OK
+    }
+
+    // arg is the dtrace handle pointer cast to void*
+    let handlePtr = OpaquePointer(arg)
+    guard let handler = HandlerStorage.shared.dropHandler(for: handlePtr) else {
         return DTRACE_HANDLE_OK
     }
 

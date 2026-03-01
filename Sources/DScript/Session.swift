@@ -26,7 +26,7 @@ import Glibc
 /// session.add(script)
 /// try session.start()
 ///
-/// while session.work() == .okay {
+/// while session.poll() == .okay {
 ///     session.sleep()
 /// }
 ///
@@ -45,7 +45,7 @@ import Glibc
 /// try session.start()
 ///
 /// // Output will now be JSON formatted
-/// while session.work() == .okay { session.sleep() }
+/// while session.poll() == .okay { session.sleep() }
 /// try session.printAggregations()
 ///
 /// session.disableJSONOutput()  // Back to text mode
@@ -270,21 +270,45 @@ public struct DScriptSession: ~Copyable {
 
     /// Processes available trace data.
     ///
-    /// - Returns: The work status indicating whether to continue processing.
-    public func work() -> DTraceWorkStatus {
+    /// Call this repeatedly in a loop until it returns `.done` or `.error`.
+    /// Each call processes whatever data is currently available and writes
+    /// it to the configured output destination.
+    ///
+    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
+    ///
+    /// ## Example
+    /// ```swift
+    /// try session.start()
+    /// while session.poll() == .okay {
+    ///     session.sleep()
+    /// }
+    /// ```
+    public func poll() -> DTraceWorkStatus {
         outputDestination.withFilePointer { fp in
-            handle.work(to: fp)
+            handle.poll(to: fp)
         }
     }
 
     /// Processes available trace data to a specific output.
     ///
     /// - Parameter output: Where to write the output.
-    /// - Returns: The work status indicating whether to continue processing.
-    public func work(to output: DTraceOutput) -> DTraceWorkStatus {
+    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
+    public func poll(to output: DTraceOutput) -> DTraceWorkStatus {
         output.withFilePointer { fp in
-            handle.work(to: fp)
+            handle.poll(to: fp)
         }
+    }
+
+    /// Deprecated: Use `poll()` instead.
+    @available(*, deprecated, renamed: "poll()")
+    public func work() -> DTraceWorkStatus {
+        poll()
+    }
+
+    /// Deprecated: Use `poll(to:)` instead.
+    @available(*, deprecated, renamed: "poll(to:)")
+    public func work(to output: DTraceOutput) -> DTraceWorkStatus {
+        poll(to: output)
     }
 
     /// Waits for data to be available.
@@ -402,6 +426,76 @@ public struct DScriptSession: ~Copyable {
     /// Call this after `stop()` if you want to switch back to text output.
     public mutating func disableJSONOutput() {
         handle.disableStructuredOutput()
+    }
+
+    // MARK: - Process Targeting
+
+    /// Attaches to an existing process for tracing.
+    ///
+    /// This allows you to use `$target` and `.pid($target)` in scripts.
+    /// The process is stopped when attached; call `continue()` to resume it.
+    ///
+    /// ## Example
+    /// ```swift
+    /// var session = try DScriptSession.create()
+    /// let proc = try session.attach(to: 1234)
+    ///
+    /// session.add {
+    ///     Probe("syscall:::entry") {
+    ///         Target(.pid("$target"))  // Only trace attached process
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    ///
+    /// try session.start()
+    /// proc.continue()  // Resume the stopped process
+    ///
+    /// while session.poll() == .okay { session.sleep() }
+    /// ```
+    ///
+    /// - Parameter pid: The process ID to attach to.
+    /// - Returns: A process handle for controlling the attached process.
+    /// - Throws: `DTraceCoreError.procGrabFailed` if attachment fails.
+    public func attach(to pid: pid_t) throws -> DTraceHandle.ProcessHandle {
+        try handle.grabProcess(pid: pid)
+    }
+
+    /// Creates and launches a new process under DTrace control.
+    ///
+    /// The process is created in a stopped state. Use `$target` in scripts,
+    /// then call `continue()` on the returned handle to start the process.
+    ///
+    /// ## Example
+    /// ```swift
+    /// var session = try DScriptSession.create()
+    /// let proc = try session.spawn(
+    ///     path: "/usr/local/bin/myapp",
+    ///     arguments: ["myapp", "--verbose"]
+    /// )
+    ///
+    /// session.add {
+    ///     Probe("syscall:::entry") {
+    ///         Target(.pid("$target"))
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    ///
+    /// try session.start()
+    /// proc.continue()  // Start the process
+    ///
+    /// while session.poll() == .okay { session.sleep() }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - path: Path to the executable.
+    ///   - arguments: Command-line arguments (including argv[0]).
+    /// - Returns: A process handle for controlling the spawned process.
+    /// - Throws: `DTraceCoreError.procCreateFailed` if spawn fails.
+    public func spawn(
+        path: String,
+        arguments: [String] = []
+    ) throws -> DTraceHandle.ProcessHandle {
+        try handle.createProcess(path: path, arguments: arguments)
     }
 
     // MARK: - Introspection

@@ -21,7 +21,7 @@ import CDTrace
 /// try handle.exec(program)
 /// try handle.go()
 ///
-/// while handle.work() == .okay {
+/// while handle.poll() == .okay {
 ///     handle.sleep()
 /// }
 /// ```
