@@ -198,8 +198,8 @@ enum Generator {
     private static func toCamelCase(_ name: String) -> String {
         let parts = name.split(separator: "_")
         guard let first = parts.first else { return name }
-        let rest = parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }
-        return String(first) + rest.joined()
+        let rest = parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+        return first.lowercased() + rest.joined()
     }
 
     private static func swiftTypeToCType(_ swiftType: String) -> String {

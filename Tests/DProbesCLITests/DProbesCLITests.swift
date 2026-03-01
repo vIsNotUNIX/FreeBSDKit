@@ -671,6 +671,17 @@ struct GeneratorTests {
         #expect(code.contains("func requestStart()"))
     }
 
+    @Test("Normalizes uppercase probe name to camelCase")
+    func testSwiftCamelCaseUppercase() {
+        let provider = ProviderDefinition(
+            name: "demo",
+            stability: nil,
+            probes: [ProbeDefinition(name: "REQUEST_START", args: nil, docs: nil)]
+        )
+        let code = Generator.generateSwift(for: provider)
+        #expect(code.contains("func requestStart()"))
+    }
+
     @Test("Generates IS-ENABLED guard")
     func testSwiftIsEnabled() {
         let provider = ProviderDefinition(
