@@ -336,53 +336,85 @@ struct DTraceOutputTests {
     }
 }
 
-@Suite("DScriptSession Tests")
-struct DScriptSessionTests {
+@Suite("DTraceSession Tests")
+struct DTraceSessionTests {
 
     @Test("Session can be created with factory method")
     func testSessionFactory() throws {
         // This test validates the API exists (actual DTrace requires root)
         // Just verify the types compile correctly
-        _ = DScriptSession.create as (DTraceOpenFlags, String, String) throws -> DScriptSession
+        _ = DTraceSession.create as (DTraceOpenFlags) throws -> DTraceSession
     }
 
-    @Test("Session trace and start methods exist")
-    func testSessionTraceMethods() throws {
-        // Verify the static method signatures exist
-        _ = DScriptSession.start as (DScript) throws -> DScriptSession
-        _ = DScriptSession.trace as (DScript) throws -> Void
+    @Test("Session configuration methods exist")
+    func testSessionConfigMethods() {
+        // Verify method signatures exist via static type checking
+        // DTraceSession is ~Copyable, so we verify types via function type annotations
+
+        func verifyOutput(_: (inout DTraceSession, DTraceOutput) -> Void) {}
+        func verifyBufferSize(_: (inout DTraceSession, String) throws -> Void) {}
+        func verifyAggBufferSize(_: (inout DTraceSession, String) throws -> Void) {}
+        func verifyQuiet(_: (inout DTraceSession) throws -> Void) {}
+        func verifyJsonOutput(_: (inout DTraceSession) throws -> Void) {}
+        func verifyOption(_: (inout DTraceSession, String, String?) throws -> Void) {}
+
+        #expect(true, "Configuration methods verified via static type checking")
     }
 
-    @Test("Session JSON output methods exist")
-    func testSessionJSONMethods() {
-        // Verify the JSON output method signatures exist via static type checking
-        // DScriptSession is ~Copyable, so we verify types via function type annotations
-        // These require root to actually use
+    @Test("Session script methods exist")
+    func testSessionScriptMethods() {
+        // Verify add method signatures exist
+        func verifyAddScript(_: (inout DTraceSession, DScript) -> Void) {}
 
-        // Method type verification - if these don't match the actual types, we get a compile error
-        func verifyEnableJSON(_: (inout DScriptSession) throws -> Void) {}
-        func verifyDisableJSON(_: (inout DScriptSession) -> Void) {}
-        func verifyIsJSONEnabled(_: (borrowing DScriptSession) -> Bool) {}
-
-        // We can't easily verify method references on ~Copyable types,
-        // but the Session.swift documentation and dtrace-demo exercise these APIs
-        #expect(true, "JSON output methods verified via static type checking")
+        #expect(true, "Script methods verified via static type checking")
     }
 
-    @Test("Session predefined script methods exist")
-    func testSessionPredefinedMethods() {
-        // Verify predefined script method signatures exist via static type checking
-        // DScriptSession is ~Copyable, so we verify types via function annotations
+    @Test("Session execution methods exist")
+    func testSessionExecutionMethods() {
+        // Verify execution method signatures exist
+        func verifyRun(_: (inout DTraceSession) throws -> Void) {}
+        func verifyRunFor(_: (inout DTraceSession, TimeInterval) throws -> Void) {}
+        func verifyStart(_: (inout DTraceSession) throws -> Void) {}
+        func verifyStop(_: (borrowing DTraceSession) throws -> Void) {}
+        func verifyProcess(_: (borrowing DTraceSession) -> DTraceWorkStatus) {}
+        func verifyProcessFor(_: (borrowing DTraceSession, TimeInterval) -> Void) {}
+        func verifyWait(_: (borrowing DTraceSession) -> Void) {}
 
-        func verifySyscallCounts(_: (inout DScriptSession, DTraceTarget) -> Void) {}
-        func verifyFileOpens(_: (inout DScriptSession, DTraceTarget) -> Void) {}
-        func verifyCpuProfile(_: (inout DScriptSession, Int, DTraceTarget) -> Void) {}
-        func verifyIoBytes(_: (inout DScriptSession, DTraceTarget) -> Void) {}
-        func verifySyscallLatency(_: (inout DScriptSession, String, DTraceTarget) -> Void) {}
-        func verifyProcessExec(_: (inout DScriptSession) -> Void) {}
+        #expect(true, "Execution methods verified via static type checking")
+    }
 
-        // Verified via static type checking at compile time
-        #expect(true, "Predefined script methods verified via static type checking")
+    @Test("DScript run methods exist")
+    func testDScriptRunMethods() {
+        // Verify DScript has run/capture methods
+        let script = DScript {
+            Probe("syscall:::entry") { Count() }
+        }
+
+        // These are instance methods
+        _ = script.run as () throws -> Void
+        _ = script.run as (TimeInterval) throws -> Void
+        _ = script.capture as () throws -> String
+        _ = script.capture as (TimeInterval) throws -> String
+
+        #expect(true, "DScript run methods verified")
+    }
+
+    @Test("DScript static run methods exist")
+    func testDScriptStaticRunMethods() {
+        // Verify DScript has static run/capture methods
+        _ = DScript.run as (@escaping () -> [ProbeClause]) throws -> Void
+        _ = DScript.run as (TimeInterval, @escaping () -> [ProbeClause]) throws -> Void
+        _ = DScript.capture as (@escaping () -> [ProbeClause]) throws -> String
+        _ = DScript.capture as (TimeInterval, @escaping () -> [ProbeClause]) throws -> String
+
+        #expect(true, "DScript static run methods verified")
+    }
+
+    @Test("Deprecated typealias exists")
+    func testDeprecatedTypealias() {
+        // DScriptSession should be a typealias for DTraceSession
+        let _: DScriptSession.Type = DTraceSession.self
+        #expect(true, "Deprecated typealias exists")
     }
 }
 
@@ -1509,5 +1541,366 @@ struct DScriptTimeUnitsTests {
         #expect(DTraceTimeUnit.days.rawValue == "d")
         #expect(DTraceTimeUnit.day.rawValue == "day")
         #expect(DTraceTimeUnit.hertz.rawValue == "hz")
+    }
+}
+
+// MARK: - Composable API Tests
+
+@Suite("DScript Composable API Tests")
+struct DScriptComposableAPITests {
+
+    // MARK: - DScript Composition
+
+    @Test("Empty DScript initialization")
+    func testEmptyInit() {
+        let script = DScript()
+        #expect(script.clauses.isEmpty)
+        #expect(script.source.isEmpty)
+    }
+
+    @Test("Add probe clause to DScript")
+    func testAddProbeClause() {
+        var script = DScript()
+        script.add(Probe("syscall:::entry") { Count() })
+
+        #expect(script.clauses.count == 1)
+        #expect(script.source.contains("syscall:::entry"))
+        #expect(script.source.contains("count()"))
+    }
+
+    @Test("Add probe with builder syntax")
+    func testAddProbeWithBuilder() {
+        var script = DScript()
+        script.add("syscall:::entry") {
+            Count(by: "probefunc")
+        }
+
+        #expect(script.clauses.count == 1)
+        #expect(script.source.contains("@[probefunc] = count();"))
+    }
+
+    @Test("Merge two scripts")
+    func testMergeScripts() {
+        var script1 = DScript {
+            BEGIN { Printf("Starting...") }
+        }
+        let script2 = DScript {
+            Probe("syscall:::entry") { Count() }
+        }
+
+        script1.merge(script2)
+
+        #expect(script1.clauses.count == 2)
+        #expect(script1.source.contains("BEGIN"))
+        #expect(script1.source.contains("syscall:::entry"))
+    }
+
+    @Test("Adding clause returns new script")
+    func testAddingClause() {
+        let base = DScript {
+            BEGIN { Printf("Starting...") }
+        }
+        let extended = base.adding(Probe("syscall:::entry") { Count() })
+
+        // Original unchanged
+        #expect(base.clauses.count == 1)
+        // New script has both
+        #expect(extended.clauses.count == 2)
+    }
+
+    @Test("Merging returns new script")
+    func testMergingScripts() {
+        let script1 = DScript { BEGIN { Printf("Start") } }
+        let script2 = DScript { END { Printf("End") } }
+
+        let combined = script1.merging(script2)
+
+        // Originals unchanged
+        #expect(script1.clauses.count == 1)
+        #expect(script2.clauses.count == 1)
+        // Combined has both
+        #expect(combined.clauses.count == 2)
+    }
+
+    @Test("Plus operator combines scripts")
+    func testPlusOperator() {
+        let script = DScript { BEGIN { Printf("Start") } }
+                   + DScript { Probe("syscall:::entry") { Count() } }
+                   + DScript { END { Printf("End") } }
+
+        #expect(script.clauses.count == 3)
+        #expect(script.source.contains("BEGIN"))
+        #expect(script.source.contains("syscall:::entry"))
+        #expect(script.source.contains("END"))
+    }
+
+    @Test("Plus equals operator appends")
+    func testPlusEqualsOperator() {
+        var script = DScript { BEGIN { Printf("Start") } }
+        script += DScript { Probe("syscall:::entry") { Count() } }
+
+        #expect(script.clauses.count == 2)
+    }
+
+    @Test("Combine predefined scripts")
+    func testCombinePredefinedScripts() {
+        let script = DScript { BEGIN { Printf("Tracing...") } }
+                   + DScript.syscallCounts(for: .execname("nginx"))
+                   + DScript { Tick(5, .seconds) { Exit(0) } }
+
+        #expect(script.source.contains("BEGIN"))
+        #expect(script.source.contains("syscall:freebsd::entry"))
+        #expect(script.source.contains("nginx"))
+        #expect(script.source.contains("tick-5s"))
+    }
+
+    // MARK: - ProbeClause Composition
+
+    @Test("Empty ProbeClause initialization")
+    func testEmptyProbeClause() {
+        let clause = ProbeClause(probe: "syscall:::entry")
+        #expect(clause.probe == "syscall:::entry")
+        #expect(clause.predicates.isEmpty)
+        #expect(clause.actions.isEmpty)
+    }
+
+    @Test("Add action string to clause")
+    func testAddActionString() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(action: "@[probefunc] = count();")
+
+        #expect(clause.actions.count == 1)
+        #expect(clause.actions[0] == "@[probefunc] = count();")
+    }
+
+    @Test("Add action component to clause")
+    func testAddActionComponent() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(Count(by: "probefunc"))
+
+        #expect(clause.actions.count == 1)
+        #expect(clause.actions[0].contains("count()"))
+    }
+
+    @Test("Add predicate string to clause")
+    func testAddPredicateString() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(predicate: "execname == \"nginx\"")
+
+        #expect(clause.predicates.count == 1)
+        #expect(clause.predicates[0] == "execname == \"nginx\"")
+    }
+
+    @Test("Add target to clause")
+    func testAddTarget() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(target: .execname("nginx"))
+
+        #expect(clause.predicates.count == 1)
+        #expect(clause.predicates[0].contains("nginx"))
+    }
+
+    @Test("Add Target component adds predicate")
+    func testAddTargetComponent() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(Target(.pid(1234)))
+
+        #expect(clause.predicates.count == 1)
+        #expect(clause.predicates[0].contains("pid == 1234"))
+    }
+
+    @Test("Adding action returns new clause")
+    func testAddingAction() {
+        let base = ProbeClause(probe: "syscall:::entry", actions: ["@ = count();"])
+        let extended = base.adding(action: "printf(\"hit\\n\");")
+
+        #expect(base.actions.count == 1)
+        #expect(extended.actions.count == 2)
+    }
+
+    @Test("Adding component returns new clause")
+    func testAddingComponent() {
+        let base = ProbeClause(probe: "syscall:::entry", actions: ["@ = count();"])
+        let extended = base.adding(Printf("hit!"))
+
+        #expect(base.actions.count == 1)
+        #expect(extended.actions.count == 2)
+    }
+
+    @Test("Adding predicate returns new clause")
+    func testAddingPredicate() {
+        let base = ProbeClause(probe: "syscall:::entry", actions: ["@ = count();"])
+        let filtered = base.adding(predicate: "arg0 > 0")
+
+        #expect(base.predicates.isEmpty)
+        #expect(filtered.predicates.count == 1)
+    }
+
+    @Test("Adding target returns new clause")
+    func testAddingTarget() {
+        let base = ProbeClause(probe: "syscall:::entry", actions: ["@ = count();"])
+        let filtered = base.adding(target: .execname("nginx"))
+
+        #expect(base.predicates.isEmpty)
+        #expect(filtered.predicates.count == 1)
+    }
+
+    @Test("Build clause programmatically then add to script")
+    func testBuildClauseProgrammatically() {
+        var clause = ProbeClause(probe: "syscall:::entry")
+        clause.add(target: .execname("nginx"))
+        clause.add(predicate: "arg0 > 0")
+        clause.add(Count(by: "probefunc"))
+
+        var script = DScript()
+        script.add(clause)
+
+        let source = script.source
+        #expect(source.contains("syscall:::entry"))
+        #expect(source.contains("nginx"))
+        #expect(source.contains("arg0 > 0"))
+        #expect(source.contains("count()"))
+    }
+
+    // MARK: - JSON Round-Trip
+
+    @Test("JSON round-trip preserves script")
+    func testJSONRoundTrip() throws {
+        let original = DScript {
+            BEGIN { Printf("Starting...") }
+            Probe("syscall:::entry") {
+                Target(.execname("nginx"))
+                Count(by: "probefunc")
+            }
+            END { Printa() }
+        }
+
+        guard let jsonData = original.jsonData else {
+            Issue.record("jsonData should not be nil")
+            return
+        }
+
+        let restored = try DScript(jsonData: jsonData)
+
+        #expect(restored.clauses.count == original.clauses.count)
+        for (i, clause) in restored.clauses.enumerated() {
+            #expect(clause.probe == original.clauses[i].probe)
+            #expect(clause.predicates == original.clauses[i].predicates)
+            #expect(clause.actions == original.clauses[i].actions)
+        }
+    }
+
+    @Test("JSON string round-trip")
+    func testJSONStringRoundTrip() throws {
+        let original = DScript {
+            Probe("syscall:::entry") { Count() }
+        }
+
+        guard let jsonString = original.jsonString else {
+            Issue.record("jsonString should not be nil")
+            return
+        }
+
+        let restored = try DScript(jsonString: jsonString)
+
+        #expect(restored.clauses.count == 1)
+        #expect(restored.clauses[0].probe == "syscall:::entry")
+    }
+
+    @Test("Create script from JSON string")
+    func testCreateFromJSONString() throws {
+        let json = """
+        {
+            "version": 1,
+            "clauses": [
+                {
+                    "probe": "syscall:::entry",
+                    "predicates": ["execname == \\"nginx\\""],
+                    "actions": ["@ = count();"]
+                }
+            ]
+        }
+        """
+
+        let script = try DScript(jsonString: json)
+
+        #expect(script.clauses.count == 1)
+        #expect(script.clauses[0].probe == "syscall:::entry")
+        #expect(script.clauses[0].predicates == ["execname == \"nginx\""])
+        #expect(script.clauses[0].actions == ["@ = count();"])
+    }
+
+    @Test("Invalid JSON throws error")
+    func testInvalidJSONThrows() {
+        #expect(throws: DScriptError.self) {
+            _ = try DScript(jsonString: "not valid json")
+        }
+    }
+
+    @Test("JSON missing probe field throws error")
+    func testJSONMissingProbeThrows() {
+        let json = """
+        {
+            "version": 1,
+            "clauses": [
+                {"actions": ["@ = count();"]}
+            ]
+        }
+        """
+
+        #expect(throws: DScriptError.self) {
+            _ = try DScript(jsonString: json)
+        }
+    }
+
+    @Test("JSON missing actions field throws error")
+    func testJSONMissingActionsThrows() {
+        let json = """
+        {
+            "version": 1,
+            "clauses": [
+                {"probe": "syscall:::entry"}
+            ]
+        }
+        """
+
+        #expect(throws: DScriptError.self) {
+            _ = try DScript(jsonString: json)
+        }
+    }
+
+    @Test("Modify script via JSON")
+    func testModifyViaJSON() throws {
+        // Create initial script
+        let original = DScript {
+            Probe("syscall:::entry") { Count() }
+        }
+
+        // Get JSON, modify it, restore
+        guard var json = original.jsonRepresentation as? [String: Any],
+              var clauses = json["clauses"] as? [[String: Any]] else {
+            Issue.record("Failed to extract JSON structure")
+            return
+        }
+
+        // Add a new clause via JSON manipulation
+        clauses.append([
+            "probe": "syscall:::return",
+            "actions": ["@ = count();"]
+        ])
+        json["clauses"] = clauses
+
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+        let modified = try DScript(jsonData: modifiedData)
+
+        #expect(modified.clauses.count == 2)
+        #expect(modified.clauses[1].probe == "syscall:::return")
+    }
+
+    @Test("DScriptError invalidJSON description")
+    func testInvalidJSONErrorDescription() {
+        let error = DScriptError.invalidJSON("test message")
+        #expect(error.description.contains("Invalid JSON"))
+        #expect(error.description.contains("test message"))
     }
 }

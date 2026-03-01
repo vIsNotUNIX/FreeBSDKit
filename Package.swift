@@ -74,10 +74,6 @@ let package = Package(
             targets: ["maclabel"]
         ),
         .executable(
-            name: "dtrace-demo",
-            targets: ["dtrace-demo"]
-        ),
-        .executable(
             name: "acl-demo",
             targets: ["acl-demo"]
         ),
@@ -340,11 +336,6 @@ let package = Package(
             exclude: ["README.md"]
         ),
         .executableTarget(
-            name: "dtrace-demo",
-            dependencies: ["DScript"],
-            path: "Examples/DTrace"
-        ),
-        .executableTarget(
             name: "acl-demo",
             dependencies: ["ACL"],
             path: "Examples/ACLDemo"
@@ -355,6 +346,11 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/dprobes-cli"
+        ),
+        .executableTarget(
+            name: "dscript-examples",
+            dependencies: ["DScript"],
+            path: "Examples/DScriptExamples"
         ),
         .testTarget(
             name: "DProbesCLITests",
