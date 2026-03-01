@@ -300,11 +300,21 @@ public struct DScript: Sendable, CustomStringConvertible {
         try source.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    // MARK: - JSON Representation
+    // MARK: - JSON Serialization
 
-    /// A JSON-serializable representation of the script structure.
-    public var jsonRepresentation: [String: Any] {
-        [
+    /// The script structure as JSON data.
+    ///
+    /// This represents the script's structure, not the D source code.
+    /// Useful for serialization, storage, or transmission.
+    ///
+    /// ```swift
+    /// let script = DScript { Probe("syscall:::entry") { Count() } }
+    /// let data = try script.jsonData()
+    /// // ... store or transmit ...
+    /// let restored = try DScript(jsonData: data)
+    /// ```
+    public func jsonData() throws -> Data {
+        let representation: [String: Any] = [
             "version": 1,
             "clauses": clauses.map { clause in
                 var dict: [String: Any] = [
@@ -317,14 +327,7 @@ public struct DScript: Sendable, CustomStringConvertible {
                 return dict
             }
         ]
-    }
-
-    /// The script structure as JSON data.
-    ///
-    /// This represents the script's AST, not the D source code.
-    /// Useful for serialization, storage, or sending to other tools.
-    public var jsonData: Data? {
-        try? JSONSerialization.data(withJSONObject: jsonRepresentation, options: [.prettyPrinted, .sortedKeys])
+        return try JSONSerialization.data(withJSONObject: representation, options: [.prettyPrinted, .sortedKeys])
     }
 
     /// Creates a script from JSON data.
@@ -365,31 +368,6 @@ public struct DScript: Sendable, CustomStringConvertible {
         self.clauses = clauses
     }
 
-    /// Creates a script from a JSON string.
-    ///
-    /// ```swift
-    /// let json = """
-    /// {
-    ///   "version": 1,
-    ///   "clauses": [
-    ///     {"probe": "syscall:::entry", "actions": ["@ = count();"]}
-    ///   ]
-    /// }
-    /// """
-    /// let script = try DScript(jsonString: json)
-    /// ```
-    public init(jsonString: String) throws {
-        guard let data = jsonString.data(using: .utf8) else {
-            throw DScriptError.invalidJSON("Invalid UTF-8 string")
-        }
-        try self.init(jsonData: data)
-    }
-
-    /// The script structure as a JSON string.
-    public var jsonString: String? {
-        guard let data = jsonData else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
 
     // MARK: - Validation
 
@@ -459,15 +437,6 @@ public struct DScript: Sendable, CustomStringConvertible {
                 error: message
             )
         }
-    }
-
-    /// Checks if the script compiles without throwing.
-    ///
-    /// - Returns: `true` if compilation succeeds, `false` otherwise.
-    ///
-    /// - Note: Requires appropriate privileges (typically root) to open DTrace.
-    public var isValid: Bool {
-        (try? compile()) ?? false
     }
 
     // MARK: - Execution

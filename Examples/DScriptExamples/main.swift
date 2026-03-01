@@ -341,7 +341,8 @@ func example12_json() {
     }
 
     print("JSON representation:")
-    if let json = script.jsonString {
+    if let jsonData = try? script.jsonData(),
+       let json = String(data: jsonData, encoding: .utf8) {
         print(json)
     }
     print()

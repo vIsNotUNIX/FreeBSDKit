@@ -520,23 +520,6 @@ struct DScriptValidationTests {
         // Verify the method signature exists
         // Actually calling compile() requires root
         _ = script.compile as () throws -> Bool
-        _ = script.isValid as Bool
-    }
-
-    @Test("Script isValid returns false without root")
-    func testIsValidWithoutRoot() {
-        // When not root, isValid should return false (can't open DTrace)
-        let script = DScript {
-            Probe("syscall:::entry") {
-                Count()
-            }
-        }
-
-        // If we're not root, isValid should be false
-        // If we are root, it could be true
-        if getuid() != 0 {
-            #expect(script.isValid == false)
-        }
     }
 
     @Test("Valid script with action passes validation")
@@ -599,8 +582,8 @@ struct DScriptValidationTests {
         #expect(data.count == script.source.utf8.count + 1)
     }
 
-    @Test("Script JSON representation works")
-    func testScriptJSONRepresentation() throws {
+    @Test("Script JSON data is valid JSON")
+    func testScriptJSONDataValid() throws {
         let script = DScript {
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
@@ -608,51 +591,19 @@ struct DScriptValidationTests {
             }
         }
 
-        let json = script.jsonRepresentation
-        #expect(json["version"] as? Int == 1)
+        let jsonData = try script.jsonData()
 
-        let clauses = json["clauses"] as? [[String: Any]]
+        // Verify it's valid JSON
+        let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+        #expect(parsed?["version"] as? Int == 1)
+
+        let clauses = parsed?["clauses"] as? [[String: Any]]
         #expect(clauses?.count == 1)
 
         let firstClause = clauses?[0]
         #expect(firstClause?["probe"] as? String == "syscall:::entry")
         #expect((firstClause?["predicates"] as? [String])?.count == 1)
         #expect((firstClause?["actions"] as? [String])?.count == 1)
-    }
-
-    @Test("Script JSON data is valid JSON")
-    func testScriptJSONDataValid() throws {
-        let script = DScript {
-            Probe("syscall:::entry") {
-                Count()
-            }
-        }
-
-        guard let jsonData = script.jsonData else {
-            Issue.record("jsonData should not be nil")
-            return
-        }
-
-        // Verify it's valid JSON
-        let parsed = try JSONSerialization.jsonObject(with: jsonData)
-        #expect(parsed is [String: Any])
-    }
-
-    @Test("Script JSON string is valid")
-    func testScriptJSONString() {
-        let script = DScript {
-            Probe("syscall:::entry") {
-                Count()
-            }
-        }
-
-        guard let jsonString = script.jsonString else {
-            Issue.record("jsonString should not be nil")
-            return
-        }
-
-        #expect(jsonString.contains("\"version\""))
-        #expect(jsonString.contains("\"clauses\""))
     }
 
     @Test("Script write to file works")
@@ -1775,11 +1726,7 @@ struct DScriptComposableAPITests {
             END { Printa() }
         }
 
-        guard let jsonData = original.jsonData else {
-            Issue.record("jsonData should not be nil")
-            return
-        }
-
+        let jsonData = try original.jsonData()
         let restored = try DScript(jsonData: jsonData)
 
         #expect(restored.clauses.count == original.clauses.count)
@@ -1790,25 +1737,8 @@ struct DScriptComposableAPITests {
         }
     }
 
-    @Test("JSON string round-trip")
-    func testJSONStringRoundTrip() throws {
-        let original = DScript {
-            Probe("syscall:::entry") { Count() }
-        }
-
-        guard let jsonString = original.jsonString else {
-            Issue.record("jsonString should not be nil")
-            return
-        }
-
-        let restored = try DScript(jsonString: jsonString)
-
-        #expect(restored.clauses.count == 1)
-        #expect(restored.clauses[0].probe == "syscall:::entry")
-    }
-
-    @Test("Create script from JSON string")
-    func testCreateFromJSONString() throws {
+    @Test("Create script from JSON data")
+    func testCreateFromJSONData() throws {
         let json = """
         {
             "version": 1,
@@ -1822,7 +1752,7 @@ struct DScriptComposableAPITests {
         }
         """
 
-        let script = try DScript(jsonString: json)
+        let script = try DScript(jsonData: json.data(using: .utf8)!)
 
         #expect(script.clauses.count == 1)
         #expect(script.clauses[0].probe == "syscall:::entry")
@@ -1833,7 +1763,7 @@ struct DScriptComposableAPITests {
     @Test("Invalid JSON throws error")
     func testInvalidJSONThrows() {
         #expect(throws: DScriptError.self) {
-            _ = try DScript(jsonString: "not valid json")
+            _ = try DScript(jsonData: "not valid json".data(using: .utf8)!)
         }
     }
 
@@ -1849,7 +1779,7 @@ struct DScriptComposableAPITests {
         """
 
         #expect(throws: DScriptError.self) {
-            _ = try DScript(jsonString: json)
+            _ = try DScript(jsonData: json.data(using: .utf8)!)
         }
     }
 
@@ -1865,7 +1795,7 @@ struct DScriptComposableAPITests {
         """
 
         #expect(throws: DScriptError.self) {
-            _ = try DScript(jsonString: json)
+            _ = try DScript(jsonData: json.data(using: .utf8)!)
         }
     }
 
@@ -1877,7 +1807,8 @@ struct DScriptComposableAPITests {
         }
 
         // Get JSON, modify it, restore
-        guard var json = original.jsonRepresentation as? [String: Any],
+        let jsonData = try original.jsonData()
+        guard var json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
               var clauses = json["clauses"] as? [[String: Any]] else {
             Issue.record("Failed to extract JSON structure")
             return
