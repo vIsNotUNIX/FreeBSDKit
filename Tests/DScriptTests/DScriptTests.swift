@@ -1762,7 +1762,7 @@ struct DScriptComposableAPITests {
 
     @Test("Invalid JSON throws error")
     func testInvalidJSONThrows() {
-        #expect(throws: DScriptError.self) {
+        #expect(throws: DecodingError.self) {
             _ = try DScript(jsonData: "not valid json".data(using: .utf8)!)
         }
     }
@@ -1778,7 +1778,7 @@ struct DScriptComposableAPITests {
         }
         """
 
-        #expect(throws: DScriptError.self) {
+        #expect(throws: DecodingError.self) {
             _ = try DScript(jsonData: json.data(using: .utf8)!)
         }
     }
@@ -1794,7 +1794,7 @@ struct DScriptComposableAPITests {
         }
         """
 
-        #expect(throws: DScriptError.self) {
+        #expect(throws: DecodingError.self) {
             _ = try DScript(jsonData: json.data(using: .utf8)!)
         }
     }

@@ -153,8 +153,29 @@ public struct DScriptBuilder {
 ///     }
 /// }
 /// ```
-public struct DScript: Sendable, CustomStringConvertible {
+public struct DScript: Sendable, Codable, CustomStringConvertible {
+    /// Version of the serialization format for forward compatibility.
+    private static let serializationVersion = 1
+
     public private(set) var clauses: [ProbeClause]
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case clauses
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Version is optional for forward compatibility - we can read older formats
+        _ = try container.decodeIfPresent(Int.self, forKey: .version)
+        self.clauses = try container.decode([ProbeClause].self, forKey: .clauses)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.serializationVersion, forKey: .version)
+        try container.encode(clauses, forKey: .clauses)
+    }
 
     public init(@DScriptBuilder _ builder: () -> [ProbeClause]) {
         self.clauses = builder()
@@ -314,20 +335,9 @@ public struct DScript: Sendable, CustomStringConvertible {
     /// let restored = try DScript(jsonData: data)
     /// ```
     public func jsonData() throws -> Data {
-        let representation: [String: Any] = [
-            "version": 1,
-            "clauses": clauses.map { clause in
-                var dict: [String: Any] = [
-                    "probe": clause.probe,
-                    "actions": clause.actions
-                ]
-                if !clause.predicates.isEmpty {
-                    dict["predicates"] = clause.predicates
-                }
-                return dict
-            }
-        ]
-        return try JSONSerialization.data(withJSONObject: representation, options: [.prettyPrinted, .sortedKeys])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(self)
     }
 
     /// Creates a script from JSON data.
@@ -338,34 +348,16 @@ public struct DScript: Sendable, CustomStringConvertible {
     /// ```swift
     /// // Modify a script via JSON
     /// var script = DScript { Probe("syscall:::entry") { Count() } }
-    /// let data = script.jsonData!
+    /// let data = try script.jsonData()
     ///
     /// // Later, reconstruct it
     /// let restored = try DScript(jsonData: data)
     /// ```
     ///
     /// - Parameter data: JSON data representing a script.
-    /// - Throws: `DScriptError.invalidJSON` if parsing fails.
+    /// - Throws: `DecodingError` if parsing fails.
     public init(jsonData data: Data) throws {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let clausesArray = json["clauses"] as? [[String: Any]] else {
-            throw DScriptError.invalidJSON("Failed to parse JSON structure")
-        }
-
-        var clauses: [ProbeClause] = []
-        for (index, clauseDict) in clausesArray.enumerated() {
-            guard let probe = clauseDict["probe"] as? String else {
-                throw DScriptError.invalidJSON("Clause \(index) missing 'probe' field")
-            }
-            guard let actions = clauseDict["actions"] as? [String] else {
-                throw DScriptError.invalidJSON("Clause \(index) missing 'actions' field")
-            }
-            let predicates = clauseDict["predicates"] as? [String] ?? []
-
-            clauses.append(ProbeClause(probe: probe, predicates: predicates, actions: actions))
-        }
-
-        self.clauses = clauses
+        self = try JSONDecoder().decode(DScript.self, from: data)
     }
 
 

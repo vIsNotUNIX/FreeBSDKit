@@ -54,10 +54,32 @@ public struct ProbeClauseBuilder {
 /// clause.add(When("arg0 > 0"))
 /// clause.add(Count(by: "probefunc"))
 /// ```
-public struct ProbeClause: Sendable {
+public struct ProbeClause: Sendable, Codable {
     public let probe: String
     public private(set) var predicates: [String]
     public private(set) var actions: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case probe
+        case predicates
+        case actions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.probe = try container.decode(String.self, forKey: .probe)
+        self.predicates = try container.decodeIfPresent([String].self, forKey: .predicates) ?? []
+        self.actions = try container.decode([String].self, forKey: .actions)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(probe, forKey: .probe)
+        if !predicates.isEmpty {
+            try container.encode(predicates, forKey: .predicates)
+        }
+        try container.encode(actions, forKey: .actions)
+    }
 
     public init(_ probe: String, @ProbeClauseBuilder _ builder: () -> [ProbeComponent]) {
         self.probe = probe
