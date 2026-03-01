@@ -279,6 +279,47 @@ struct DTraceHandleTypesTests {
         #expect(structured.rawValue == 1)
     }
 
+    @Test("BufferPolicy enum values")
+    func testBufferPolicy() {
+        let switchPolicy = DTraceHandle.BufferPolicy.switch
+        let fill = DTraceHandle.BufferPolicy.fill
+        let ring = DTraceHandle.BufferPolicy.ring
+
+        #expect(switchPolicy.rawValue == "switch")
+        #expect(fill.rawValue == "fill")
+        #expect(ring.rawValue == "ring")
+    }
+
+    @Test("BufferedOutputFlags option set")
+    func testBufferedOutputFlags() {
+        let aggKey = DTraceHandle.BufferedOutputFlags.aggregationKey
+        let aggVal = DTraceHandle.BufferedOutputFlags.aggregationValue
+        let aggFormat = DTraceHandle.BufferedOutputFlags.aggregationFormat
+        let aggLast = DTraceHandle.BufferedOutputFlags.aggregationLast
+
+        // Flags should be distinct
+        #expect(aggKey.rawValue != aggVal.rawValue)
+        #expect(aggVal.rawValue != aggFormat.rawValue)
+        #expect(aggFormat.rawValue != aggLast.rawValue)
+
+        // Test OptionSet conformance
+        let combined: DTraceHandle.BufferedOutputFlags = [.aggregationKey, .aggregationValue]
+        #expect(combined.contains(.aggregationKey))
+        #expect(combined.contains(.aggregationValue))
+        #expect(!combined.contains(.aggregationFormat))
+    }
+
+    @Test("BufferedOutput is Sendable")
+    func testBufferedOutputSendable() {
+        func useSendable<T: Sendable>(_ value: T) -> T { value }
+        let flags: DTraceHandle.BufferedOutputFlags = [.aggregationKey]
+        let output = DTraceHandle.BufferedOutput(output: "test", flags: flags)
+        let result = useSendable(output)
+        #expect(result.output == "test")
+        #expect(result.isAggregationKey == true)
+        #expect(result.isAggregationValue == false)
+    }
+
     @Test("DropInfo is Sendable")
     func testDropInfoSendable() {
         func useSendable<T: Sendable>(_ value: T) -> T { value }
@@ -399,7 +440,7 @@ struct DTraceHandleIntegrationTests {
         try handle.go()
 
         // Wait for completion
-        while handle.work() == .okay {
+        while handle.poll() == .okay {
             handle.sleep()
         }
 

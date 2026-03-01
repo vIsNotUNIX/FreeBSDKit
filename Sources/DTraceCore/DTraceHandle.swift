@@ -143,6 +143,80 @@ public struct DTraceHandle: ~Copyable {
         return value
     }
 
+    // MARK: - Buffer Configuration
+
+    /// Buffer policy for trace data.
+    public enum BufferPolicy: String, Sendable {
+        /// Switch buffers when full (default). Data is copied to user space on switch.
+        case `switch` = "switch"
+
+        /// Fill buffer and stop tracing when full.
+        case fill = "fill"
+
+        /// Ring buffer - oldest data is overwritten when full.
+        case ring = "ring"
+    }
+
+    /// Sets the buffer policy for trace data.
+    ///
+    /// - Parameter policy: The buffer policy to use.
+    /// - Throws: `DTraceCoreError.setOptFailed` if the policy cannot be set.
+    ///
+    /// ## Policies
+    /// - `.switch`: Default. Buffers are switched when full; no data loss but may block.
+    /// - `.fill`: Tracing stops when buffer fills. Good for capturing initial activity.
+    /// - `.ring`: Circular buffer; oldest data overwritten. Good for "last N events" capture.
+    public func setBufferPolicy(_ policy: BufferPolicy) throws {
+        try setOption("bufpolicy", value: policy.rawValue)
+    }
+
+    /// Sets the trace buffer size.
+    ///
+    /// - Parameter size: Size string (e.g., "4m", "1g", "65536").
+    /// - Throws: `DTraceCoreError.setOptFailed` if the size cannot be set.
+    public func setBufferSize(_ size: String) throws {
+        try setOption("bufsize", value: size)
+    }
+
+    /// Sets the aggregation buffer size.
+    ///
+    /// - Parameter size: Size string (e.g., "4m", "1g", "65536").
+    /// - Throws: `DTraceCoreError.setOptFailed` if the size cannot be set.
+    public func setAggregationBufferSize(_ size: String) throws {
+        try setOption("aggsize", value: size)
+    }
+
+    /// Sets the speculation buffer size.
+    ///
+    /// - Parameter size: Size string (e.g., "4m", "1g", "65536").
+    /// - Throws: `DTraceCoreError.setOptFailed` if the size cannot be set.
+    public func setSpeculationBufferSize(_ size: String) throws {
+        try setOption("specsize", value: size)
+    }
+
+    /// Enables destructive actions (system(), panic(), breakpoint(), etc.).
+    ///
+    /// - Warning: Destructive actions can crash the system. Use with caution.
+    /// - Throws: `DTraceCoreError.setOptFailed` if the option cannot be set.
+    public func enableDestructiveActions() throws {
+        try setOption("destructive")
+    }
+
+    /// Enables quiet mode (suppresses column headers and other metadata).
+    ///
+    /// - Throws: `DTraceCoreError.setOptFailed` if the option cannot be set.
+    public func setQuiet() throws {
+        try setOption("quiet")
+    }
+
+    /// Sets the rate at which buffers are switched/read (in Hz or time).
+    ///
+    /// - Parameter rate: Rate string (e.g., "1hz", "100ms", "1s").
+    /// - Throws: `DTraceCoreError.setOptFailed` if the rate cannot be set.
+    public func setSwitchRate(_ rate: String) throws {
+        try setOption("switchrate", value: rate)
+    }
+
     // MARK: - Program Compilation
 
     /// Compiles a D program from a string.
@@ -170,6 +244,39 @@ public struct DTraceHandle: ~Copyable {
         }
 
         guard let prog = program else {
+            throw DTraceCoreError.compileFailed(message: lastErrorMessage)
+        }
+
+        return DTraceProgram(program: prog)
+    }
+
+    /// Compiles a D program from a file.
+    ///
+    /// - Parameters:
+    ///   - path: Path to the `.d` script file.
+    ///   - flags: Compilation flags.
+    /// - Returns: A compiled program that can be executed.
+    /// - Throws: `DTraceCoreError.compileFailed` if compilation fails.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let handle = try DTraceHandle.open()
+    /// let program = try handle.compileFile("/path/to/script.d")
+    /// try handle.exec(program)
+    /// try handle.go()
+    /// ```
+    public func compileFile(
+        _ path: String,
+        flags: DTraceCompileFlags = []
+    ) throws -> DTraceProgram {
+        guard let h = _handle else { throw DTraceCoreError.invalidHandle }
+
+        guard let fp = fopen(path, "r") else {
+            throw DTraceCoreError.compileFailed(message: "Cannot open file: \(path)")
+        }
+        defer { fclose(fp) }
+
+        guard let prog = cdtrace_program_fcompile(h, fp, flags.rawValue, 0, nil) else {
             throw DTraceCoreError.compileFailed(message: lastErrorMessage)
         }
 
@@ -520,6 +627,83 @@ public struct DTraceHandle: ~Copyable {
         }
     }
 
+    /// Information about buffered output.
+    public struct BufferedOutput: Sendable {
+        /// The formatted output string from DTrace.
+        public let output: String
+
+        /// Flags indicating what type of output this is.
+        public let flags: BufferedOutputFlags
+
+        /// Whether this is aggregation key data.
+        public var isAggregationKey: Bool { flags.contains(.aggregationKey) }
+
+        /// Whether this is aggregation value data.
+        public var isAggregationValue: Bool { flags.contains(.aggregationValue) }
+
+        /// Whether this is aggregation format data.
+        public var isAggregationFormat: Bool { flags.contains(.aggregationFormat) }
+
+        /// Whether this is the last aggregation record in a group.
+        public var isAggregationLast: Bool { flags.contains(.aggregationLast) }
+    }
+
+    /// Flags for buffered output types.
+    public struct BufferedOutputFlags: OptionSet, Sendable {
+        public let rawValue: UInt32
+
+        public init(rawValue: UInt32) {
+            self.rawValue = rawValue
+        }
+
+        /// Output is aggregation key.
+        public static let aggregationKey = BufferedOutputFlags(rawValue: UInt32(CDTRACE_BUFDATA_AGGKEY.rawValue))
+
+        /// Output is aggregation value.
+        public static let aggregationValue = BufferedOutputFlags(rawValue: UInt32(CDTRACE_BUFDATA_AGGVAL.rawValue))
+
+        /// Output is aggregation format string.
+        public static let aggregationFormat = BufferedOutputFlags(rawValue: UInt32(CDTRACE_BUFDATA_AGGFORMAT.rawValue))
+
+        /// This is the last record in an aggregation group.
+        public static let aggregationLast = BufferedOutputFlags(rawValue: UInt32(CDTRACE_BUFDATA_AGGLAST.rawValue))
+    }
+
+    /// Sets a handler for buffered output.
+    ///
+    /// This allows capturing DTrace output (printf, aggregations, etc.) directly
+    /// in Swift without needing a FILE* pointer. Each time DTrace produces output,
+    /// your handler is called with the formatted string.
+    ///
+    /// - Parameter handler: Called for each output fragment. Return `true` to continue, `false` to abort.
+    /// - Throws: `DTraceCoreError.handlerFailed` if the handler cannot be set.
+    ///
+    /// ## Example
+    /// ```swift
+    /// var output = ""
+    /// try handle.onBufferedOutput { data in
+    ///     output += data.output
+    ///     return true
+    /// }
+    ///
+    /// // Now poll() won't write to stdout - you capture everything
+    /// while handle.poll() == .okay {
+    ///     handle.sleep()
+    /// }
+    /// print("Captured: \(output)")
+    /// ```
+    public func onBufferedOutput(_ handler: @escaping (BufferedOutput) -> Bool) throws {
+        guard let h = _handle else { throw DTraceCoreError.invalidHandle }
+
+        // Store callback in per-handle storage
+        HandlerStorage.shared.setBufferedHandler(for: h, handler)
+
+        let result = cdtrace_handle_buffered(h, bufferedHandlerCallback, UnsafeMutableRawPointer(h))
+        if result != 0 {
+            throw DTraceCoreError.handlerFailed(message: lastErrorMessage)
+        }
+    }
+
     // MARK: - Process Control
 
     /// A handle to a process being traced.
@@ -755,6 +939,7 @@ private final class HandlerStorage: @unchecked Sendable {
     private let lock = NSLock()
     private var errorHandlers: [UnsafeRawPointer: (DTraceHandle.ErrorInfo) -> Bool] = [:]
     private var dropHandlers: [UnsafeRawPointer: (DTraceHandle.DropInfo) -> Bool] = [:]
+    private var bufferedHandlers: [UnsafeRawPointer: (DTraceHandle.BufferedOutput) -> Bool] = [:]
 
     private init() {}
 
@@ -770,6 +955,12 @@ private final class HandlerStorage: @unchecked Sendable {
         lock.unlock()
     }
 
+    func setBufferedHandler(for handle: OpaquePointer, _ handler: @escaping (DTraceHandle.BufferedOutput) -> Bool) {
+        lock.lock()
+        bufferedHandlers[UnsafeRawPointer(handle)] = handler
+        lock.unlock()
+    }
+
     func errorHandler(for handle: OpaquePointer) -> ((DTraceHandle.ErrorInfo) -> Bool)? {
         lock.lock()
         defer { lock.unlock() }
@@ -782,10 +973,17 @@ private final class HandlerStorage: @unchecked Sendable {
         return dropHandlers[UnsafeRawPointer(handle)]
     }
 
+    func bufferedHandler(for handle: OpaquePointer) -> ((DTraceHandle.BufferedOutput) -> Bool)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return bufferedHandlers[UnsafeRawPointer(handle)]
+    }
+
     func removeHandlers(for handle: OpaquePointer) {
         lock.lock()
         errorHandlers.removeValue(forKey: UnsafeRawPointer(handle))
         dropHandlers.removeValue(forKey: UnsafeRawPointer(handle))
+        bufferedHandlers.removeValue(forKey: UnsafeRawPointer(handle))
         lock.unlock()
     }
 }
@@ -834,6 +1032,34 @@ private func dropHandlerCallback(
     let msg = String(cString: cdtrace_dropdata_msg(data))
 
     let info = DTraceHandle.DropInfo(kind: kind, drops: drops, message: msg)
+
+    return handler(info) ? DTRACE_HANDLE_OK : DTRACE_HANDLE_ABORT
+}
+
+private func bufferedHandlerCallback(
+    _ data: UnsafePointer<dtrace_bufdata_t>?,
+    _ arg: UnsafeMutableRawPointer?
+) -> Int32 {
+    guard let data = data,
+          let arg = arg else {
+        return DTRACE_HANDLE_OK
+    }
+
+    // arg is the dtrace handle pointer cast to void*
+    let handlePtr = OpaquePointer(arg)
+    guard let handler = HandlerStorage.shared.bufferedHandler(for: handlePtr) else {
+        return DTRACE_HANDLE_OK
+    }
+
+    // Get the buffered output string
+    guard let bufferedPtr = cdtrace_bufdata_buffered(data) else {
+        return DTRACE_HANDLE_OK
+    }
+
+    let output = String(cString: bufferedPtr)
+    let flags = DTraceHandle.BufferedOutputFlags(rawValue: cdtrace_bufdata_flags(data))
+
+    let info = DTraceHandle.BufferedOutput(output: output, flags: flags)
 
     return handler(info) ? DTRACE_HANDLE_OK : DTRACE_HANDLE_ABORT
 }

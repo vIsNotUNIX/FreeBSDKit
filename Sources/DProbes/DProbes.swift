@@ -5,24 +5,21 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-// MARK: - Module Info
-
-/// DProbes provides Swift USDT probe support for FreeBSD.
+/// DProbes provides Swift USDT (Userland Statically Defined Tracing) probe
+/// support for FreeBSD.
 ///
 /// ## Overview
 ///
-/// DProbes allows Swift developers to instrument their applications with
-/// statically defined tracing probes that can be observed using DTrace.
-/// The probes have zero overhead when not being traced.
+/// USDT probes allow instrumenting applications with tracing points that can be
+/// observed using DTrace. Probes have near-zero overhead (~2-5ns) when not traced.
 ///
 /// ## Quick Start
 ///
-/// 1. Define probes in a `.dprobes` file (JSON format):
+/// ### 1. Define probes in JSON (.dprobes file):
 ///
 /// ```json
 /// {
 ///   "name": "myapp",
-///   "stability": "Evolving",
 ///   "probes": [
 ///     {
 ///       "name": "request",
@@ -35,68 +32,61 @@
 /// }
 /// ```
 ///
-/// 2. Generate Swift code:
+/// ### 2. Generate code:
 ///
 /// ```bash
 /// swift run dprobes-gen myapp.dprobes --output-dir .
 /// ```
 ///
-/// 3. Use probes in your code:
+/// ### 3. Use probes:
 ///
 /// ```swift
 /// Myapp.request(path: "/api/users", status: 200)
 /// ```
 ///
-/// 4. Trace with DTrace:
+/// ### 4. Build:
 ///
 /// ```bash
-/// sudo dtrace -n 'myapp:::request { printf("%s: %d\n", copyinstr(arg0), arg1); }'
+/// swiftc -c *.swift -module-name MyApp
+/// dtrace -G -s myapp_provider.d *.o -o myapp_provider.o
+/// swiftc *.o myapp_provider.o -o myapp
 /// ```
 ///
-/// ## Features
+/// ### 5. Trace:
 ///
-/// - Zero overhead when not tracing (IS-ENABLED check before arg evaluation)
-/// - Code generation from YAML probe definitions
-/// - Support for Int8-64, UInt8-64, String, Bool, and pointers
-/// - Custom type translation via `DTraceConvertible` protocol
+/// ```bash
+/// # Provider name includes PID at runtime (myapp1234), use wildcard
+/// sudo dtrace -n 'myapp*:::* { printf("%s\n", probename); }' -Z -c ./myapp
+/// ```
 ///
-/// ## Requirements
+/// ## Supported Types
 ///
-/// - FreeBSD 13+ with DTrace USDT support
-/// - Swift 5.9+
+/// | Swift      | C Type    | DTrace Access     |
+/// |------------|-----------|-------------------|
+/// | Int8-64    | int*_t    | arg0              |
+/// | UInt8-64   | uint*_t   | arg0              |
+/// | Bool       | int32_t   | arg0              |
+/// | String     | char *    | copyinstr(arg0)   |
 ///
-/// ## Implementation Note
+/// ## Probe Metadata
 ///
-/// Swift macros require SPM macro target support, which is not yet available
-/// in FreeBSD's Swift Package Manager. DProbes uses code generation instead:
+/// DTrace probes have four components: `provider:module:function:name`
 ///
-/// 1. Define probes in a `.dprobes` file (YAML format)
-/// 2. Run: `swift run dprobes-gen <input.dprobes> --output-dir <dir>`
-/// 3. The generator creates Swift code with IS-ENABLED checks
-/// 4. For full DTrace support: `dtrace -h -s provider.d && dtrace -G -s provider.d`
-/// 5. Link the `provider.o` file with your binary
+/// - **provider**: Defined in .dprobes file (gets PID suffix at runtime)
+/// - **module**: Automatically derived from binary name
+/// - **function**: Automatically derived from Swift function (mangled name)
+/// - **name**: Defined in .dprobes file
 ///
-/// When SPM macro support becomes available on FreeBSD, we may add
-/// `#DTraceProvider` and `#probe` macros for compile-time validation.
+/// Module and function cannot be customized for USDT probes - they are
+/// determined by the object file structure. Use wildcards when tracing:
+/// `myapp*:::request` matches any module/function.
 ///
-/// - SeeAlso: ``DTraceConvertible``
-/// - SeeAlso: ``DTraceConstraints``
-/// - SeeAlso: ``ProbeStability``
+/// ## Performance
+///
+/// - **Not tracing**: ~2-5ns (IS-ENABLED branch check)
+/// - **Tracing**: ~600ns (kernel trap + argument copy)
+///
+/// Arguments use `@autoclosure` so they're only evaluated when tracing.
 public enum DProbes {
-    /// Current version of the DProbes module.
     public static let version = "0.1.0"
 }
-
-// MARK: - Module Exports
-
-// Strategy.swift exports:
-// - DTraceConvertible (protocol)
-// - DTraceConstraints (enum)
-// - ProbeStability (enum)
-
-// Testing.swift exports:
-// - ProbeRecorder (class)
-// - DTraceTestHelpers (enum)
-// - DTraceTestError (enum)
-// - ProbeAssertions (enum)
-// - MockClock (struct)

@@ -434,4 +434,46 @@ static inline dtrace_probedesc_t *cdtrace_probedata_pdesc(const dtrace_probedata
     return data->dtpda_pdesc;
 }
 
+/*
+ * Compile from file
+ */
+
+static inline dtrace_prog_t *cdtrace_program_fcompile(
+    dtrace_hdl_t *dtp,
+    FILE *fp,
+    uint_t cflags,
+    int argc,
+    char *const argv[])
+{
+    return dtrace_program_fcompile(dtp, fp, cflags, argc, argv);
+}
+
+/*
+ * Buffered output data helpers
+ */
+
+static inline const char *cdtrace_bufdata_buffered(const dtrace_bufdata_t *data) {
+    return data->dtbda_buffered;
+}
+
+static inline uint32_t cdtrace_bufdata_flags(const dtrace_bufdata_t *data) {
+    return data->dtbda_flags;
+}
+
+static inline dtrace_probedata_t *cdtrace_bufdata_probe(const dtrace_bufdata_t *data) {
+    return data->dtbda_probe;
+}
+
+static inline const dtrace_aggdata_t *cdtrace_bufdata_aggdata(const dtrace_bufdata_t *data) {
+    return data->dtbda_aggdata;
+}
+
+/* Buffered output flags */
+typedef enum {
+    CDTRACE_BUFDATA_AGGKEY    = DTRACE_BUFDATA_AGGKEY,
+    CDTRACE_BUFDATA_AGGVAL    = DTRACE_BUFDATA_AGGVAL,
+    CDTRACE_BUFDATA_AGGFORMAT = DTRACE_BUFDATA_AGGFORMAT,
+    CDTRACE_BUFDATA_AGGLAST   = DTRACE_BUFDATA_AGGLAST
+} cdtrace_bufdata_flag_t;
+
 #endif /* CDTRACE_H */

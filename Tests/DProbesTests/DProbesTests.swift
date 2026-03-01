@@ -132,27 +132,66 @@ struct DTraceConvertibleTests {
 
     @Test("Integer types are DTraceConvertible")
     func testIntegerTypes() {
-        // These will be compile-time verified once macros are implemented
-        // For now, document expected behavior
+        // All integer types should be self-representing
+        let i8: Int8 = 42
+        let i16: Int16 = 1000
+        let i32: Int32 = 100000
+        let i64: Int64 = 10000000000
 
-        // Int8, Int16, Int32, Int64 → direct cast
-        // UInt8, UInt16, UInt32, UInt64 → direct cast
-        #expect(Bool(true))  // Placeholder
+        #expect(i8.dtraceValue == 42)
+        #expect(i16.dtraceValue == 1000)
+        #expect(i32.dtraceValue == 100000)
+        #expect(i64.dtraceValue == 10000000000)
+
+        let u8: UInt8 = 255
+        let u16: UInt16 = 65535
+        let u32: UInt32 = 4000000000
+        let u64: UInt64 = 18000000000000000000
+
+        #expect(u8.dtraceValue == 255)
+        #expect(u16.dtraceValue == 65535)
+        #expect(u32.dtraceValue == 4000000000)
+        #expect(u64.dtraceValue == 18000000000000000000)
     }
 
-    @Test("String conversion is documented")
+    @Test("Bool converts to Int32")
+    func testBoolConversion() {
+        #expect(true.dtraceValue == 1)
+        #expect(false.dtraceValue == 0)
+    }
+
+    @Test("String uses withDTracePointer")
     func testStringConversion() {
-        // String → withCString { ptr } → UInt(bitPattern: ptr)
-        // String lives on stack during probe call
-        // Freed immediately after probe returns
-        #expect(Bool(true))  // Placeholder
+        let s = "hello"
+        var capturedPtr: UInt = 0
+
+        s.withDTracePointer { ptr in
+            capturedPtr = ptr
+        }
+
+        // Pointer should be non-zero
+        #expect(capturedPtr != 0)
     }
 
-    @Test("Optional String becomes NULL when nil")
+    @Test("Optional String handles nil")
     func testOptionalString() {
-        // nil → NULL pointer (0)
-        // Some(s) → normal string conversion
-        #expect(Bool(true))  // Placeholder
+        let none: String? = nil
+        let some: String? = "test"
+
+        none.withDTracePointer { ptr in
+            #expect(ptr == 0)  // nil → NULL
+        }
+
+        some.withDTracePointer { ptr in
+            #expect(ptr != 0)  // Some → valid pointer
+        }
+    }
+
+    @Test("StaticString is zero-copy")
+    func testStaticString() {
+        let s: StaticString = "constant"
+        let ptr = s.dtraceValue
+        #expect(ptr != 0)
     }
 }
 

@@ -2,7 +2,7 @@
  * dprobes-gen - DProbes Code Generator
  *
  * Generates Swift probe code and DTrace provider definitions from
- * a YAML probe specification file.
+ * a JSON probe specification file (.dprobes).
  *
  * Usage:
  *   dprobes-gen <input.dprobes> [--output-dir <dir>]
@@ -303,6 +303,7 @@ enum GeneratorError: Error, CustomStringConvertible {
     case missingProviderName
     case invalidInput(String)
     case fileNotFound(String)
+    case validationFailed(String)
 
     var description: String {
         switch self {
@@ -312,6 +313,69 @@ enum GeneratorError: Error, CustomStringConvertible {
             return "Invalid input: \(msg)"
         case .fileNotFound(let path):
             return "File not found: \(path)"
+        case .validationFailed(let msg):
+            return "Validation failed: \(msg)"
+        }
+    }
+}
+
+// MARK: - Validation
+
+let maxProviderNameLength = 64
+let maxProbeNameLength = 64
+let maxArguments = 10
+let validTypes = Set([
+    "Int8", "Int16", "Int32", "Int64", "Int",
+    "UInt8", "UInt16", "UInt32", "UInt64", "UInt",
+    "Bool", "String"
+])
+
+func validateProvider(_ provider: ProviderDefinition) throws {
+    // Validate provider name
+    if provider.name.count > maxProviderNameLength {
+        throw GeneratorError.validationFailed(
+            "Provider name '\(provider.name)' exceeds \(maxProviderNameLength) character limit"
+        )
+    }
+
+    if provider.name.contains(where: { !$0.isLetter && !$0.isNumber && $0 != "_" }) {
+        throw GeneratorError.validationFailed(
+            "Provider name '\(provider.name)' contains invalid characters (use letters, numbers, underscore)"
+        )
+    }
+
+    // Validate each probe
+    for probe in provider.probes {
+        // Probe name length
+        if probe.name.count > maxProbeNameLength {
+            throw GeneratorError.validationFailed(
+                "Probe name '\(probe.name)' exceeds \(maxProbeNameLength) character limit"
+            )
+        }
+
+        // Probe name characters
+        if probe.name.contains(where: { !$0.isLetter && !$0.isNumber && $0 != "_" }) {
+            throw GeneratorError.validationFailed(
+                "Probe name '\(probe.name)' contains invalid characters (use letters, numbers, underscore)"
+            )
+        }
+
+        // Argument count
+        let argCount = probe.args?.count ?? 0
+        if argCount > maxArguments {
+            throw GeneratorError.validationFailed(
+                "Probe '\(probe.name)' has \(argCount) arguments (maximum is \(maxArguments))"
+            )
+        }
+
+        // Validate argument types
+        for arg in probe.args ?? [] {
+            if !validTypes.contains(arg.type) {
+                throw GeneratorError.validationFailed(
+                    "Probe '\(probe.name)' argument '\(arg.name)' has unsupported type '\(arg.type)'. " +
+                    "Supported: \(validTypes.sorted().joined(separator: ", "))"
+                )
+            }
         }
     }
 }
@@ -377,6 +441,9 @@ func main() throws {
 
     // Parse JSON
     let provider = try parseJSON(content)
+
+    // Validate provider
+    try validateProvider(provider)
 
     // Generate Swift code
     let swiftCode = generateSwiftCode(provider: provider)
