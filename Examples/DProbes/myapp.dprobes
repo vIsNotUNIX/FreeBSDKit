@@ -16,7 +16,7 @@
       "args": [
         { "name": "path", "type": "String" },
         { "name": "status", "type": "Int32" },
-        { "name": "latency_ns", "type": "UInt64" }
+        { "name": "latencyNs", "type": "UInt64" }
       ]
     },
     {

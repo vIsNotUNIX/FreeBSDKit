@@ -69,10 +69,6 @@ let package = Package(
             name: "DScript",
             targets: ["DScript"]
         ),
-        .library(
-            name: "DProbes",
-            targets: ["DProbes"]
-        ),
         .executable(
             name: "maclabel",
             targets: ["maclabel"]
@@ -90,8 +86,8 @@ let package = Package(
             targets: ["fpc-demo"]
         ),
         .executable(
-            name: "dprobes-gen",
-            targets: ["dprobes-gen"]
+            name: "dprobes",
+            targets: ["dprobes-cli"]
         )
     ],
     dependencies: [
@@ -328,14 +324,6 @@ let package = Package(
             name: "DScriptTests",
             dependencies: ["DScript", "Descriptors", "Capabilities"]
         ),
-        .target(
-            name: "DProbes",
-            dependencies: ["FreeBSDKit"]
-        ),
-        .testTarget(
-            name: "DProbesTests",
-            dependencies: ["DProbes"]
-        ),
         .executableTarget(
             name: "maclabel",
             dependencies: [
@@ -362,9 +350,15 @@ let package = Package(
             path: "Examples/ACLDemo"
         ),
         .executableTarget(
-            name: "dprobes-gen",
-            dependencies: [],
-            path: "Sources/dprobes-gen"
+            name: "dprobes-cli",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "Sources/dprobes-cli"
+        ),
+        .testTarget(
+            name: "DProbesCLITests",
+            dependencies: ["dprobes-cli"]
         ),
     ]
 )

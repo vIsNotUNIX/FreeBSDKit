@@ -311,9 +311,9 @@ func showScripts() {
     print("  session.syscallLatency(\"read\", for: target)")
     print()
     print("Execution:")
-    print("  try session.start()                // Compile and start tracing")
-    print("  session.work()                     // Process data (returns .okay/.done/.error)")
-    print("  session.sleep()                    // Wait for data")
+    print("  try session.enable()                // Compile and start tracing")
+    print("  session.process()                     // Process data (returns .okay/.done/.error)")
+    print("  session.wait()                    // Wait for data")
     print("  try session.stop()                 // Stop tracing")
     print()
     print("Aggregations:")
@@ -381,7 +381,7 @@ func runTrace(duration: Int = 3) {
             }
         }
 
-        let session = try DScriptSession.run(script)
+        let session = try DScriptSession.start(script)
 
         print("Starting CPU profile (sampling at 997Hz)...")
         print("Duration: \(duration) seconds")
@@ -397,11 +397,11 @@ func runTrace(duration: Int = 3) {
             print("  Collecting... \(i)/\(duration)s")
             let endTime = Date().addingTimeInterval(1)
             while Date() < endTime {
-                let status = session.work()
+                let status = session.process()
                 if status == .done || status == .error {
                     break
                 }
-                session.sleep()
+                session.wait()
             }
         }
 
@@ -438,17 +438,17 @@ func traceProcess(_ pidStr: String) {
         print("Tracing syscalls for PID \(pid) for 5 seconds...")
         print()
 
-        try session.start()
+        try session.enable()
 
         for i in 1...5 {
             print("  Collecting... \(i)/5s")
             let endTime = Date().addingTimeInterval(1)
             while Date() < endTime {
-                let status = session.work()
+                let status = session.process()
                 if status == .done || status == .error {
                     break
                 }
-                session.sleep()
+                session.wait()
             }
         }
 
@@ -487,13 +487,13 @@ func captureToBuffer() {
         }
 
         print("Capturing CPU profile to buffer for 1 second...")
-        try session.start()
+        try session.enable()
 
         let endTime = Date().addingTimeInterval(1)
         while Date() < endTime {
-            let status = session.work()
+            let status = session.process()
             if status == .done || status == .error { break }
-            session.sleep()
+            session.wait()
         }
 
         try session.stop()
@@ -568,7 +568,7 @@ func lowLevelDemo() {
         print("Collecting for 1 second...")
         let endTime = Date().addingTimeInterval(1)
         while Date() < endTime {
-            let workStatus = handle.work()
+            let workStatus = handle.poll()
             if workStatus == .done || workStatus == .error { break }
             handle.sleep()
         }
@@ -662,7 +662,7 @@ func aggregateWalkDemo() {
 
         let endTime = Date().addingTimeInterval(1)
         while Date() < endTime {
-            let workStatus = handle.work()
+            let workStatus = handle.poll()
             if workStatus == .done || workStatus == .error { break }
             handle.sleep()
         }
@@ -744,13 +744,13 @@ func jsonOutputDemo() {
         }
 
         print("Starting trace for 1 second...")
-        try session.start()
+        try session.enable()
 
         let endTime = Date().addingTimeInterval(1)
         while Date() < endTime {
-            let status = session.work()
+            let status = session.process()
             if status == .done || status == .error { break }
-            session.sleep()
+            session.wait()
         }
 
         try session.stop()
@@ -795,7 +795,7 @@ func jsonOutputDemo() {
 
         let endTime = Date().addingTimeInterval(1)
         while Date() < endTime {
-            let workStatus = handle.work()
+            let workStatus = handle.poll()
             if workStatus == .done || workStatus == .error { break }
             handle.sleep()
         }

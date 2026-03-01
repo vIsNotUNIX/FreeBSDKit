@@ -33,7 +33,7 @@ Create a `.dprobes` file with your provider definition (JSON format):
       "args": [
         { "name": "path", "type": "String" },
         { "name": "status", "type": "Int32" },
-        { "name": "latency_ns", "type": "UInt64" }
+        { "name": "latencyNs", "type": "UInt64" }
       ]
     }
   ]
@@ -43,85 +43,87 @@ Create a `.dprobes` file with your provider definition (JSON format):
 ### 2. Generate Swift Code
 
 ```bash
-swift run dprobes-gen myapp.dprobes --output-dir .
+dprobes myapp.dprobes -o .
 ```
 
 This generates:
 - `myapp_probes.swift` - Swift probe functions with IS-ENABLED checks
 - `myapp_provider.d` - DTrace provider definition
 
+Options:
+- `--swift-only` - Generate only Swift code
+- `--dtrace-only` - Generate only DTrace provider
+- `--version` - Show version
+
 ### 3. Use Probes in Your Code
 
 ```swift
-import Foundation
-
 // Fire probes with zero overhead when not tracing
-Myapp.requestStart(path: req.path, method: 1)
+MyappProbes.requestStart(path: req.path, method: 1)
 
 // Arguments are only evaluated when DTrace is active
-Myapp.requestDone(
+MyappProbes.requestDone(
     path: req.path,
     status: 200,
-    latency_ns: calculateLatency()  // Not called when not tracing
+    latencyNs: calculateLatency()  // Not called when not tracing
 )
 ```
 
-### 4. Build Options
+### 4. Build with DTrace Support
 
-**Option A: Development/Stubs (No DTrace)**
-
-Build with stub implementations for development:
-```bash
-swift build --product dprobes-demo
-```
-
-The stubs return false for IS-ENABLED checks, so probes have zero overhead.
-
-**Option B: Production (With DTrace)**
-
-1. Compile the provider header and object:
+1. Compile your Swift code to object files
+2. Compile the provider:
    ```bash
-   dtrace -h -s myapp_provider.d  # Generates myapp_provider.h
-   dtrace -G -s myapp_provider.d -o myapp_provider.o  # Requires object files
+   dtrace -G -s myapp_provider.d your_code.o -o myapp_provider.o
    ```
-
-2. Link the provider with your binary (requires custom build setup)
+3. Link everything together:
+   ```bash
+   swiftc your_code.o myapp_provider.o -o myapp
+   ```
 
 ## Tracing
 
 Once running with full DTrace support:
 
 ```bash
+# List available probes (provider gets PID suffix)
+sudo dtrace -l -n 'myapp*:::'
+
 # Trace all request probes
-sudo dtrace -n 'myapp:::request* { printf("%s\n", copyinstr(arg0)); }'
+sudo dtrace -n 'myapp*:::request* { printf("%s\n", copyinstr(arg0)); }'
 
 # Trace with timing
-sudo dtrace -n 'myapp:::request_done {
+sudo dtrace -n 'myapp*:::request__done {
     printf("%s status=%d latency=%dms\n",
            copyinstr(arg0), arg1, arg2/1000000);
 }'
 
 # Count cache hits vs misses
-sudo dtrace -n 'myapp:::cache* { @[probename] = count(); }'
+sudo dtrace -n 'myapp*:::cache* { @[probename] = count(); }'
 ```
+
+Note: USDT provider names get a PID suffix at runtime (e.g., `myapp1234`), so use `myapp*` wildcards.
 
 ## Supported Types
 
 | Swift Type | DTrace Type | Notes |
 |------------|-------------|-------|
-| Int8-64    | int8-64_t   | Direct conversion |
-| UInt8-64   | uint8-64_t  | Direct conversion |
+| Int8       | int8_t      | Direct conversion |
+| Int16      | int16_t     | Direct conversion |
+| Int32      | int32_t     | Direct conversion |
+| Int64, Int | int64_t     | Direct conversion |
+| UInt8      | uint8_t     | Direct conversion |
+| UInt16     | uint16_t    | Direct conversion |
+| UInt32     | uint32_t    | Direct conversion |
+| UInt64, UInt | uint64_t  | Direct conversion |
 | Bool       | int32_t     | 0 or 1 |
 | String     | char *      | Passed via withCString |
-| UnsafePointer | uintptr_t | Pointer address |
 
-## Files
+## Constraints
 
-- `myapp.dprobes` - Probe definition file (input)
-- `myapp_probes.swift` - Generated Swift code
-- `myapp_provider.d` - Generated DTrace provider definition
-- `main.swift` - Example application
-- `stubs.c` - Stub implementations for building without DTrace
+- Provider/probe names: letters, numbers, underscore; max 64 chars
+- Arguments: max 10 per probe
+- Argument names: cannot be Swift keywords
 
 ## Performance
 
@@ -132,7 +134,11 @@ The generated probe functions use:
 
 This means:
 ```swift
-Myapp.requestStart(path: expensiveStringOperation(), method: 1)
+MyappProbes.requestStart(path: expensiveStringOperation(), method: 1)
 ```
 
 The `expensiveStringOperation()` is **never called** unless DTrace is actively tracing the probe.
+
+## Files
+
+- `myapp.dprobes` - Example probe definition

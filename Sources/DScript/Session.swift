@@ -5,6 +5,7 @@
  */
 
 import DTraceCore
+import Foundation
 import Glibc
 
 /// A high-level interface for DTrace sessions using the DScript result builder.
@@ -12,58 +13,60 @@ import Glibc
 /// `DScriptSession` wraps `DTraceHandle` and provides a guided experience
 /// for building and running D programs using the type-safe `DScript` API.
 ///
-/// ## Basic Example
+/// ## Quick Start
+///
+/// For most use cases, use the static convenience methods:
 ///
 /// ```swift
-/// let script = DScript {
+/// // Trace for 10 seconds, print results
+/// try DScriptSession.trace(for: 10) {
 ///     Probe("syscall:::entry") {
-///         Target(.execname("nginx"))
 ///         Count(by: "probefunc")
 ///     }
 /// }
 ///
-/// var session = try DScriptSession.create()
-/// session.add(script)
-/// try session.start()
+/// // Capture output as a string
+/// let output = try DScriptSession.capture(for: 5) {
+///     Probe("syscall:::entry") {
+///         Printf("%s: %s", "execname", "probefunc")
+///     }
+/// }
+/// ```
 ///
-/// while session.poll() == .okay {
-///     session.sleep()
+/// ## Manual Control
+///
+/// For custom processing loops, use `start()`:
+///
+/// ```swift
+/// var session = try DScriptSession.start {
+///     Probe("syscall:::entry") {
+///         Count(by: "probefunc")
+///     }
 /// }
 ///
+/// // Custom loop with progress reporting
+/// for i in 1...10 {
+///     print("Second \(i)...")
+///     let deadline = Date().addingTimeInterval(1)
+///     while Date() < deadline && session.isRunning {
+///         _ = session.process()
+///         session.wait()
+///     }
+/// }
+///
+/// try session.stop()
 /// try session.printAggregations()
 /// ```
 ///
 /// ## JSON Output
 ///
-/// DTrace supports native JSON output for aggregations and trace data:
-///
 /// ```swift
 /// var session = try DScriptSession.create()
-/// try session.enableJSONOutput()  // Enable JSON mode
-///
-/// session.add(script)
-/// try session.start()
-///
-/// // Output will now be JSON formatted
-/// while session.poll() == .okay { session.sleep() }
-/// try session.printAggregations()
-///
-/// session.disableJSONOutput()  // Back to text mode
-/// ```
-///
-/// ## Output Capture
-///
-/// Capture output to a buffer for programmatic processing:
-///
-/// ```swift
-/// let buffer = DTraceOutputBuffer()
-/// session.output(to: .buffer(buffer))
-///
-/// try session.start()
-/// // ... trace ...
-/// try session.printAggregations()
-///
-/// let output = buffer.contents  // Get captured text/JSON
+/// try session.enableJSONOutput()
+/// session.add { Probe("syscall:::entry") { Count(by: "probefunc") } }
+/// try session.enable()
+/// // ... process loop ...
+/// try session.printAggregations()  // JSON formatted
 /// ```
 public struct DScriptSession: ~Copyable {
     private var handle: DTraceHandle
@@ -73,18 +76,10 @@ public struct DScriptSession: ~Copyable {
 
     // MARK: - Initialization
 
-    /// Creates a new DTrace session.
-    ///
-    /// - Parameter flags: Flags controlling how the session is opened.
-    /// - Throws: `DTraceCoreError.openFailed` if the session cannot be created.
-    public init(flags: DTraceOpenFlags = []) throws {
-        self.handle = try DTraceHandle.open(flags: flags)
-    }
-
     /// Creates a new DTrace session with configurable buffer sizes.
     ///
-    /// This is the recommended way to create a session. The default buffer sizes
-    /// of 4MB are appropriate for most tracing scenarios (libdtrace defaults are too small).
+    /// The default buffer sizes of 4MB are appropriate for most tracing scenarios
+    /// (libdtrace defaults are too small).
     ///
     /// - Parameters:
     ///   - flags: Flags controlling how the session is opened.
@@ -96,65 +91,188 @@ public struct DScriptSession: ~Copyable {
         traceBufferSize: String = "4m",
         aggBufferSize: String = "4m"
     ) throws -> DScriptSession {
-        var session = try DScriptSession(flags: flags)
+        var session = DScriptSession(handle: try DTraceHandle.open(flags: flags))
         try session.handle.setOption("bufsize", value: traceBufferSize)
         try session.handle.setOption("aggsize", value: aggBufferSize)
         return session
     }
 
-    /// Creates a session and runs the provided DScript.
+    private init(handle: consuming DTraceHandle) {
+        self.handle = handle
+    }
+
+    /// Traces using the provided script until it exits, printing all output.
     ///
-    /// A convenience initializer for running a single DScript.
+    /// This is the simplest way to run a DTrace script. It handles everything:
+    /// creating the session, enabling probes, processing output, and printing
+    /// aggregations when done.
     ///
     /// ```swift
     /// let script = DScript {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
+    ///     Tick(5, .seconds) { Exit(0) }
     /// }
     ///
-    /// var session = try DScriptSession.run(script)
-    /// // Session is already started
+    /// try DScriptSession.trace(script)  // That's it!
     /// ```
-    public static func run(
-        _ script: DScript,
-        flags: DTraceOpenFlags = [],
-        traceBufferSize: String = "4m",
-        aggBufferSize: String = "4m"
-    ) throws -> DScriptSession {
-        var session = try create(
-            flags: flags,
-            traceBufferSize: traceBufferSize,
-            aggBufferSize: aggBufferSize
-        )
+    public static func trace(_ script: DScript) throws {
+        var session = try create()
         session.add(script)
-        try session.start()
-        return session
+        try session.enable()
+        while session.process() == .okay {
+            session.wait()
+        }
+        try session.printAggregations()
     }
 
-    /// Creates a session using a result builder and starts it.
+    /// Traces using a script builder until it exits, printing all output.
     ///
     /// ```swift
-    /// var session = try DScriptSession.run {
+    /// try DScriptSession.trace {
     ///     Probe("syscall:::entry") {
-    ///         Target(.execname("nginx"))
+    ///         Count(by: "probefunc")
+    ///     }
+    ///     Tick(10, .seconds) { Exit(0) }
+    /// }
+    /// ```
+    public static func trace(@DScriptBuilder _ builder: () -> [ProbeClause]) throws {
+        try trace(DScript(builder))
+    }
+
+    /// Traces for a specific duration, printing all output.
+    ///
+    /// ```swift
+    /// try DScriptSession.trace(for: 30) {
+    ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
     /// }
     /// ```
-    public static func run(
-        flags: DTraceOpenFlags = [],
-        traceBufferSize: String = "4m",
-        aggBufferSize: String = "4m",
+    public static func trace(
+        for seconds: TimeInterval,
+        @DScriptBuilder _ builder: () -> [ProbeClause]
+    ) throws {
+        try trace(DScript(builder), for: seconds)
+    }
+
+    /// Traces a script for a specific duration, printing all output.
+    public static func trace(_ script: DScript, for seconds: TimeInterval) throws {
+        var session = try create()
+        session.add(script)
+        try session.enable()
+
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if session.process() != .okay { break }
+            session.wait()
+        }
+        try session.stop()
+        try session.printAggregations()
+    }
+
+    /// Traces and captures all output as a string.
+    ///
+    /// ```swift
+    /// let output = try DScriptSession.capture {
+    ///     Probe("syscall:::entry") {
+    ///         Count(by: "probefunc")
+    ///     }
+    ///     Tick(5, .seconds) { Exit(0) }
+    /// }
+    /// print(output)
+    /// ```
+    public static func capture(
+        @DScriptBuilder _ builder: () -> [ProbeClause]
+    ) throws -> String {
+        try capture(DScript(builder))
+    }
+
+    /// Traces a script and captures all output as a string.
+    public static func capture(_ script: DScript) throws -> String {
+        let buffer = DTraceOutputBuffer()
+        var session = try create()
+        session.output(to: .buffer(buffer))
+        session.add(script)
+        try session.enable()
+
+        while session.process() == .okay {
+            session.wait()
+        }
+        try session.printAggregations()
+        return buffer.contents
+    }
+
+    /// Traces for a duration and captures all output as a string.
+    ///
+    /// ```swift
+    /// let output = try DScriptSession.capture(for: 30) {
+    ///     Probe("syscall:::entry") {
+    ///         Count(by: "probefunc")
+    ///     }
+    /// }
+    /// ```
+    public static func capture(
+        for seconds: TimeInterval,
+        @DScriptBuilder _ builder: () -> [ProbeClause]
+    ) throws -> String {
+        try capture(DScript(builder), for: seconds)
+    }
+
+    /// Traces a script for a duration and captures all output as a string.
+    public static func capture(_ script: DScript, for seconds: TimeInterval) throws -> String {
+        let buffer = DTraceOutputBuffer()
+        var session = try create()
+        session.output(to: .buffer(buffer))
+        session.add(script)
+        try session.enable()
+
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if session.process() != .okay { break }
+            session.wait()
+        }
+        try session.stop()
+        try session.printAggregations()
+        return buffer.contents
+    }
+
+    // MARK: - Manual Session Creation (Advanced)
+
+    /// Creates a session with the script added and enabled, ready for manual control.
+    ///
+    /// Use this when you need custom control over the processing loop.
+    /// For simple cases, prefer `trace()` or `capture()`.
+    ///
+    /// ```swift
+    /// var session = try DScriptSession.start(script)
+    ///
+    /// // Custom processing loop
+    /// for i in 1...10 {
+    ///     print("Second \(i)...")
+    ///     let deadline = Date().addingTimeInterval(1)
+    ///     while Date() < deadline {
+    ///         if session.process() != .okay { break }
+    ///         session.wait()
+    ///     }
+    /// }
+    ///
+    /// try session.stop()
+    /// try session.printAggregations()
+    /// ```
+    public static func start(_ script: DScript) throws -> DScriptSession {
+        var session = try create()
+        session.add(script)
+        try session.enable()
+        return session
+    }
+
+    /// Creates a session with a script builder, added and enabled.
+    public static func start(
         @DScriptBuilder _ builder: () -> [ProbeClause]
     ) throws -> DScriptSession {
-        let script = DScript(builder)
-        return try run(
-            script,
-            flags: flags,
-            traceBufferSize: traceBufferSize,
-            aggBufferSize: aggBufferSize
-        )
+        try start(DScript(builder))
     }
 
     // MARK: - Configuration
@@ -254,10 +372,14 @@ public struct DScriptSession: ~Copyable {
 
     // MARK: - Execution
 
-    /// Compiles and starts the tracing session.
+    /// Compiles and enables the tracing session.
+    ///
+    /// This compiles all added scripts and enables the probes in the kernel.
+    /// After calling this, probes will fire and data will accumulate.
+    /// Use `process()` in a loop to consume data.
     ///
     /// - Throws: Any compilation or execution errors.
-    public mutating func start() throws {
+    public mutating func enable() throws {
         for script in scripts {
             let source = script.source
             let program = try handle.compile(source)
@@ -268,62 +390,51 @@ public struct DScriptSession: ~Copyable {
         isStarted = true
     }
 
-    /// Processes available trace data.
+
+    /// Stops tracing and disables all probes.
     ///
-    /// Call this repeatedly in a loop until it returns `.done` or `.error`.
-    /// Each call processes whatever data is currently available and writes
-    /// it to the configured output destination.
+    /// Most users don't need to call this directly - `runToCompletion()` and
+    /// `runFor(seconds:)` handle stopping automatically.
+    public func stop() throws {
+        try handle.stop()
+    }
+
+    /// The current session status.
+    public var status: DTraceStatus {
+        handle.status
+    }
+
+    /// Whether tracing is still running.
     ///
-    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
+    /// Returns `false` when the script has exited (via `Exit()` action) or been stopped.
+    public var isRunning: Bool {
+        isStarted && status != .stopped
+    }
+
+    // MARK: - Low-Level Methods (For Custom Control)
+
+    /// Processes available trace data without blocking.
     ///
-    /// ## Example
-    /// ```swift
-    /// try session.start()
-    /// while session.poll() == .okay {
-    ///     session.sleep()
-    /// }
-    /// ```
-    public func poll() -> DTraceWorkStatus {
+    /// **Most users should use `runToCompletion()` or `runFor(seconds:)` instead.**
+    ///
+    /// This is for advanced use cases requiring custom control flow.
+    /// Returns the current status:
+    /// - `.okay` - Data processed, call again
+    /// - `.done` - Script exited (via `Exit()` action)
+    /// - `.error` - An error occurred
+    public func process() -> DTraceWorkStatus {
         outputDestination.withFilePointer { fp in
             handle.poll(to: fp)
         }
     }
 
-    /// Processes available trace data to a specific output.
+    /// Blocks until the kernel has trace data available.
     ///
-    /// - Parameter output: Where to write the output.
-    /// - Returns: `.okay` to continue polling, `.done` when tracing finished, `.error` on failure.
-    public func poll(to output: DTraceOutput) -> DTraceWorkStatus {
-        output.withFilePointer { fp in
-            handle.poll(to: fp)
-        }
-    }
-
-    /// Deprecated: Use `poll()` instead.
-    @available(*, deprecated, renamed: "poll()")
-    public func work() -> DTraceWorkStatus {
-        poll()
-    }
-
-    /// Deprecated: Use `poll(to:)` instead.
-    @available(*, deprecated, renamed: "poll(to:)")
-    public func work(to output: DTraceOutput) -> DTraceWorkStatus {
-        poll(to: output)
-    }
-
-    /// Waits for data to be available.
-    public func sleep() {
+    /// **Most users should use `runToCompletion()` or `runFor(seconds:)` instead.**
+    ///
+    /// Use between `process()` calls for efficient waiting.
+    public func wait() {
         handle.sleep()
-    }
-
-    /// Stops tracing.
-    public func stop() throws {
-        try handle.stop()
-    }
-
-    /// Gets the current session status.
-    public var status: DTraceStatus {
-        handle.status
     }
 
     // MARK: - Aggregations

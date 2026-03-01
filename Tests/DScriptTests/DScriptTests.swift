@@ -346,10 +346,11 @@ struct DScriptSessionTests {
         _ = DScriptSession.create as (DTraceOpenFlags, String, String) throws -> DScriptSession
     }
 
-    @Test("Session run methods exist")
-    func testSessionRunMethods() throws {
-        // Verify the run method signatures exist
-        _ = DScriptSession.run as (DScript, DTraceOpenFlags, String, String) throws -> DScriptSession
+    @Test("Session trace and start methods exist")
+    func testSessionTraceMethods() throws {
+        // Verify the static method signatures exist
+        _ = DScriptSession.start as (DScript) throws -> DScriptSession
+        _ = DScriptSession.trace as (DScript) throws -> Void
     }
 
     @Test("Session JSON output methods exist")
@@ -1027,5 +1028,486 @@ struct DScriptResultBuilderTests {
         for line in actionLines {
             #expect(line.hasPrefix("    "), "Action lines should be indented")
         }
+    }
+}
+
+// MARK: - New DScript Features Tests
+
+@Suite("DScript Special Clauses Tests")
+struct DScriptSpecialClausesTests {
+
+    @Test("BEGIN clause generates correct syntax")
+    func testBEGINClause() {
+        let script = DScript {
+            BEGIN {
+                Printf("Starting trace...")
+            }
+            Probe("syscall:::entry") {
+                Count()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("BEGIN"))
+        #expect(source.contains("printf"))
+        #expect(source.contains("Starting trace..."))
+    }
+
+    @Test("END clause generates correct syntax")
+    func testENDClause() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Count()
+            }
+            END {
+                Printf("Trace complete")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("END"))
+        #expect(source.contains("printf"))
+        #expect(source.contains("Trace complete"))
+    }
+
+    @Test("ERROR clause generates correct syntax")
+    func testERRORClause() {
+        let script = DScript {
+            ERROR {
+                Printf("Error occurred")
+            }
+            Probe("syscall:::entry") {
+                Count()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("ERROR"))
+    }
+
+    @Test("Tick clause with seconds")
+    func testTickSeconds() {
+        let script = DScript {
+            Tick(1, .seconds) {
+                Printa()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("tick-1s"))
+        #expect(source.contains("printa(@);"))
+    }
+
+    @Test("Tick clause with hz")
+    func testTickHz() {
+        let script = DScript {
+            Tick(hz: 100) {
+                Count()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("tick-100hz"))
+    }
+
+    @Test("Tick clause with various time units")
+    func testTickTimeUnits() {
+        let ns = DScript { Tick(1000, .nanoseconds) { Count() } }
+        let us = DScript { Tick(100, .microseconds) { Count() } }
+        let ms = DScript { Tick(10, .milliseconds) { Count() } }
+        let sec = DScript { Tick(1, .seconds) { Count() } }
+        let min = DScript { Tick(1, .minutes) { Count() } }
+        let hr = DScript { Tick(1, .hours) { Count() } }
+        let day = DScript { Tick(1, .days) { Count() } }
+
+        #expect(ns.source.contains("tick-1000ns"))
+        #expect(us.source.contains("tick-100us"))
+        #expect(ms.source.contains("tick-10ms"))
+        #expect(sec.source.contains("tick-1s"))
+        #expect(min.source.contains("tick-1m"))
+        #expect(hr.source.contains("tick-1h"))
+        #expect(day.source.contains("tick-1d"))
+    }
+
+    @Test("Profile clause generates correct syntax")
+    func testProfileClause() {
+        let script = DScript {
+            Profile(hz: 997) {
+                When("arg0")
+                Count(by: "stack()")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("profile-997hz"))
+    }
+
+    @Test("Profile clause with seconds")
+    func testProfileSeconds() {
+        let script = DScript {
+            Profile(seconds: 1) {
+                Count()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("profile-1s"))
+    }
+
+    @Test("Combined BEGIN, probes, Tick, and END")
+    func testCombinedClauses() {
+        let script = DScript {
+            BEGIN {
+                Printf("Started")
+            }
+            Probe("syscall:::entry") {
+                Count(by: "probefunc", into: "calls")
+            }
+            Tick(1, .seconds) {
+                Printa("calls")
+                Clear("calls")
+            }
+            END {
+                Printf("Done")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("BEGIN"))
+        #expect(source.contains("syscall:::entry"))
+        #expect(source.contains("tick-1s"))
+        #expect(source.contains("END"))
+        #expect(source.contains("@calls"))
+        #expect(source.contains("printa(@calls);"))
+        #expect(source.contains("clear(@calls);"))
+    }
+}
+
+@Suite("DScript Named and Multi-Key Aggregations Tests")
+struct DScriptAggregationTests {
+
+    @Test("Named aggregation with into:")
+    func testNamedAggregation() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Count(by: "probefunc", into: "syscalls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@syscalls[probefunc] = count();"))
+    }
+
+    @Test("Multi-key aggregation")
+    func testMultiKeyAggregation() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Count(by: ["execname", "probefunc"])
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@[execname, probefunc] = count();"))
+    }
+
+    @Test("Named multi-key aggregation")
+    func testNamedMultiKeyAggregation() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Count(by: ["execname", "probefunc"], into: "calls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@calls[execname, probefunc] = count();"))
+    }
+
+    @Test("Sum with named and multi-key")
+    func testSumNamedMultiKey() {
+        let script = DScript {
+            Probe("syscall::read:return") {
+                Sum("arg0", by: ["execname", "probefunc"], into: "bytes")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@bytes[execname, probefunc] = sum(arg0);"))
+    }
+
+    @Test("All aggregation types with into:")
+    func testAllAggregationsWithInto() {
+        let script = DScript {
+            Probe("test:::probe") {
+                Count(by: "k", into: "cnt")
+            }
+            Probe("test:::probe") {
+                Sum("v", by: "k", into: "total")
+            }
+            Probe("test:::probe") {
+                Min("v", by: "k", into: "minimum")
+            }
+            Probe("test:::probe") {
+                Max("v", by: "k", into: "maximum")
+            }
+            Probe("test:::probe") {
+                Avg("v", by: "k", into: "average")
+            }
+            Probe("test:::probe") {
+                Quantize("v", by: "k", into: "dist")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@cnt[k] = count();"))
+        #expect(source.contains("@total[k] = sum(v);"))
+        #expect(source.contains("@minimum[k] = min(v);"))
+        #expect(source.contains("@maximum[k] = max(v);"))
+        #expect(source.contains("@average[k] = avg(v);"))
+        #expect(source.contains("@dist[k] = quantize(v);"))
+    }
+
+    @Test("Simple count without keys")
+    func testSimpleCount() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Count()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("@ = count();"))
+    }
+}
+
+@Suite("DScript Variables Tests")
+struct DScriptVariablesTests {
+
+    @Test("Thread-local variable")
+    func testThreadLocalVariable() {
+        let script = DScript {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("self->ts = timestamp;"))
+    }
+
+    @Test("Clause-local variable")
+    func testClauseLocalVariable() {
+        let script = DScript {
+            Probe("syscall:::entry") {
+                Assign(.clause("start"), to: "vtimestamp")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("this->start = vtimestamp;"))
+    }
+
+    @Test("Global variable")
+    func testGlobalVariable() {
+        let script = DScript {
+            BEGIN {
+                Assign(.global("total"), to: "0")
+            }
+            Probe("syscall:::entry") {
+                Assign(.global("total"), to: "total + 1")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("total = 0;"))
+        #expect(source.contains("total = total + 1;"))
+    }
+
+    @Test("Var expression property")
+    func testVarExpression() {
+        let thread = Var.thread("myvar")
+        let clause = Var.clause("temp")
+        let global = Var.global("counter")
+
+        #expect(thread.expression == "self->myvar")
+        #expect(clause.expression == "this->temp")
+        #expect(global.expression == "counter")
+    }
+}
+
+@Suite("DScript Control Actions Tests")
+struct DScriptControlActionsTests {
+
+    @Test("Exit action")
+    func testExitAction() {
+        let script = DScript {
+            Tick(60, .seconds) {
+                Exit(0)
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("exit(0);"))
+    }
+
+    @Test("Exit with custom status")
+    func testExitWithStatus() {
+        let script = DScript {
+            ERROR {
+                Exit(1)
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("exit(1);"))
+    }
+
+    @Test("Stop action")
+    func testStopAction() {
+        let script = DScript {
+            Probe("syscall::exit:entry") {
+                Stop()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("stop();"))
+    }
+}
+
+@Suite("DScript Aggregation Operations Tests")
+struct DScriptAggregationOperationsTests {
+
+    @Test("Printa all aggregations")
+    func testPrintaAll() {
+        let script = DScript {
+            END {
+                Printa()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("printa(@);"))
+    }
+
+    @Test("Printa named aggregation")
+    func testPrintaNamed() {
+        let script = DScript {
+            Tick(1, .seconds) {
+                Printa("calls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("printa(@calls);"))
+    }
+
+    @Test("Printa with format")
+    func testPrintaWithFormat() {
+        let script = DScript {
+            END {
+                Printa("%s: %@count\\n", "calls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("printa(\"%s: %@count\\n\", @calls);"))
+    }
+
+    @Test("Clear all aggregations")
+    func testClearAll() {
+        let script = DScript {
+            Tick(1, .seconds) {
+                Printa()
+                Clear()
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("clear(@);"))
+    }
+
+    @Test("Clear named aggregation")
+    func testClearNamed() {
+        let script = DScript {
+            Tick(1, .seconds) {
+                Clear("calls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("clear(@calls);"))
+    }
+
+    @Test("Trunc aggregation")
+    func testTrunc() {
+        let script = DScript {
+            END {
+                Trunc("calls", 10)
+                Printa("calls")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("trunc(@calls, 10);"))
+    }
+
+    @Test("Trunc all to N")
+    func testTruncAllToN() {
+        let script = DScript {
+            END {
+                Trunc(5)
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("trunc(@, 5);"))
+    }
+
+    @Test("Normalize aggregation")
+    func testNormalize() {
+        let script = DScript {
+            END {
+                Normalize("latency", 1_000_000)
+                Printa("latency")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("normalize(@latency, 1000000);"))
+    }
+
+    @Test("Denormalize aggregation")
+    func testDenormalize() {
+        let script = DScript {
+            END {
+                Denormalize("latency")
+            }
+        }
+
+        let source = script.source
+        #expect(source.contains("denormalize(@latency);"))
+    }
+}
+
+@Suite("DScript Time Units Tests")
+struct DScriptTimeUnitsTests {
+
+    @Test("All time unit raw values")
+    func testTimeUnitRawValues() {
+        #expect(DTraceTimeUnit.nanoseconds.rawValue == "ns")
+        #expect(DTraceTimeUnit.nanosec.rawValue == "nsec")
+        #expect(DTraceTimeUnit.microseconds.rawValue == "us")
+        #expect(DTraceTimeUnit.microsec.rawValue == "usec")
+        #expect(DTraceTimeUnit.milliseconds.rawValue == "ms")
+        #expect(DTraceTimeUnit.millisec.rawValue == "msec")
+        #expect(DTraceTimeUnit.seconds.rawValue == "s")
+        #expect(DTraceTimeUnit.sec.rawValue == "sec")
+        #expect(DTraceTimeUnit.minutes.rawValue == "m")
+        #expect(DTraceTimeUnit.min.rawValue == "min")
+        #expect(DTraceTimeUnit.hours.rawValue == "h")
+        #expect(DTraceTimeUnit.hour.rawValue == "hour")
+        #expect(DTraceTimeUnit.days.rawValue == "d")
+        #expect(DTraceTimeUnit.day.rawValue == "day")
+        #expect(DTraceTimeUnit.hertz.rawValue == "hz")
     }
 }
