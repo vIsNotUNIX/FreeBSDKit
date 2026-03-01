@@ -1691,22 +1691,22 @@ struct DScriptComposableAPITests {
         #expect(clause.predicates[0] == "execname == \"nginx\"")
     }
 
-    @Test("Add target to clause")
-    func testAddTarget() {
+    @Test("Add Target component to clause")
+    func testAddTargetComponent() {
         var clause = ProbeClause(probe: "syscall:::entry")
-        clause.add(target: .execname("nginx"))
+        clause.add(Target(.execname("nginx")))
 
         #expect(clause.predicates.count == 1)
         #expect(clause.predicates[0].contains("nginx"))
     }
 
-    @Test("Add Target component adds predicate")
-    func testAddTargetComponent() {
+    @Test("Add When component to clause")
+    func testAddWhenComponent() {
         var clause = ProbeClause(probe: "syscall:::entry")
-        clause.add(Target(.pid(1234)))
+        clause.add(When("arg0 > 0"))
 
         #expect(clause.predicates.count == 1)
-        #expect(clause.predicates[0].contains("pid == 1234"))
+        #expect(clause.predicates[0] == "arg0 > 0")
     }
 
     @Test("Adding action returns new clause")
@@ -1737,9 +1737,9 @@ struct DScriptComposableAPITests {
     }
 
     @Test("Adding target returns new clause")
-    func testAddingTarget() {
+    func testAddingTargetComponent() {
         let base = ProbeClause(probe: "syscall:::entry", actions: ["@ = count();"])
-        let filtered = base.adding(target: .execname("nginx"))
+        let filtered = base.adding(Target(.execname("nginx")))
 
         #expect(base.predicates.isEmpty)
         #expect(filtered.predicates.count == 1)
@@ -1748,8 +1748,8 @@ struct DScriptComposableAPITests {
     @Test("Build clause programmatically then add to script")
     func testBuildClauseProgrammatically() {
         var clause = ProbeClause(probe: "syscall:::entry")
-        clause.add(target: .execname("nginx"))
-        clause.add(predicate: "arg0 > 0")
+        clause.add(Target(.execname("nginx")))
+        clause.add(When("arg0 > 0"))
         clause.add(Count(by: "probefunc"))
 
         var script = DScript()

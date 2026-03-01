@@ -50,8 +50,9 @@ public struct ProbeClauseBuilder {
 /// Or build programmatically:
 /// ```swift
 /// var clause = ProbeClause(probe: "syscall:::entry")
-/// clause.add(action: "@ = count();")
-/// clause.add(predicate: "execname == \"nginx\"")
+/// clause.add(Target(.execname("nginx")))
+/// clause.add(When("arg0 > 0"))
+/// clause.add(Count(by: "probefunc"))
 /// ```
 public struct ProbeClause: Sendable {
     public let probe: String
@@ -87,21 +88,17 @@ public struct ProbeClause: Sendable {
 
     // MARK: - Composing Clauses
 
-    /// Adds a raw action string to this clause.
+    /// Adds a component (action or predicate) to this clause.
+    ///
+    /// This accepts the same types used in the result builder syntax:
+    /// `Target`, `When`, `Count`, `Sum`, `Printf`, `Action`, etc.
     ///
     /// ```swift
     /// var clause = ProbeClause(probe: "syscall:::entry")
-    /// clause.add(action: "@[probefunc] = count();")
-    /// ```
-    public mutating func add(action: String) {
-        actions.append(action)
-    }
-
-    /// Adds an action component to this clause.
-    ///
-    /// ```swift
-    /// var clause = ProbeClause(probe: "syscall:::entry")
+    /// clause.add(Target(.execname("nginx")))
+    /// clause.add(When("arg0 > 0"))
     /// clause.add(Count(by: "probefunc"))
+    /// clause.add(Printf("%s", "execname"))
     /// ```
     public mutating func add<T: ProbeComponentConvertible>(_ component: T) {
         let probeComponent = component.asProbeComponent()
@@ -113,43 +110,36 @@ public struct ProbeClause: Sendable {
         }
     }
 
-    /// Adds a raw predicate string to this clause.
+    /// Adds a raw D action string to this clause.
+    ///
+    /// Use this for actions not covered by the built-in helpers.
     ///
     /// ```swift
     /// var clause = ProbeClause(probe: "syscall:::entry")
-    /// clause.add(predicate: "execname == \"nginx\"")
+    /// clause.add(action: "self->ts = timestamp;")
+    /// ```
+    public mutating func add(action: String) {
+        actions.append(action)
+    }
+
+    /// Adds a raw D predicate string to this clause.
+    ///
+    /// Use this for predicates not covered by `Target` or `When`.
+    ///
+    /// ```swift
+    /// var clause = ProbeClause(probe: "syscall:::entry")
+    /// clause.add(predicate: "curthread->td_proc->p_flag & P_SYSTEM")
     /// ```
     public mutating func add(predicate: String) {
         predicates.append(predicate)
-    }
-
-    /// Adds a target predicate to this clause.
-    ///
-    /// ```swift
-    /// var clause = ProbeClause(probe: "syscall:::entry")
-    /// clause.add(target: .execname("nginx"))
-    /// ```
-    public mutating func add(target: DTraceTarget) {
-        if !target.predicate.isEmpty {
-            predicates.append(target.predicate)
-        }
-    }
-
-    /// Returns a new clause with the given action added.
-    ///
-    /// ```swift
-    /// let clause = Probe("syscall:::entry") { Count() }
-    /// let extended = clause.adding(action: "printf(\"hit\\n\");")
-    /// ```
-    public func adding(action: String) -> ProbeClause {
-        ProbeClause(probe: probe, predicates: predicates, actions: actions + [action])
     }
 
     /// Returns a new clause with the given component added.
     ///
     /// ```swift
     /// let clause = Probe("syscall:::entry") { Count() }
-    /// let extended = clause.adding(Printf("fired!"))
+    /// let extended = clause.adding(Printf("hit!"))
+    /// let filtered = clause.adding(Target(.execname("nginx")))
     /// ```
     public func adding<T: ProbeComponentConvertible>(_ component: T) -> ProbeClause {
         var copy = self
@@ -157,7 +147,17 @@ public struct ProbeClause: Sendable {
         return copy
     }
 
-    /// Returns a new clause with the given predicate added.
+    /// Returns a new clause with the given raw action added.
+    ///
+    /// ```swift
+    /// let clause = Probe("syscall:::entry") { Count() }
+    /// let extended = clause.adding(action: "self->ts = timestamp;")
+    /// ```
+    public func adding(action: String) -> ProbeClause {
+        ProbeClause(probe: probe, predicates: predicates, actions: actions + [action])
+    }
+
+    /// Returns a new clause with the given raw predicate added.
     ///
     /// ```swift
     /// let clause = Probe("syscall:::entry") { Count() }
@@ -165,19 +165,6 @@ public struct ProbeClause: Sendable {
     /// ```
     public func adding(predicate: String) -> ProbeClause {
         ProbeClause(probe: probe, predicates: predicates + [predicate], actions: actions)
-    }
-
-    /// Returns a new clause with the given target added.
-    ///
-    /// ```swift
-    /// let clause = Probe("syscall:::entry") { Count() }
-    /// let filtered = clause.adding(target: .execname("nginx"))
-    /// ```
-    public func adding(target: DTraceTarget) -> ProbeClause {
-        if target.predicate.isEmpty {
-            return self
-        }
-        return ProbeClause(probe: probe, predicates: predicates + [target.predicate], actions: actions)
     }
 
     func render() -> String {
