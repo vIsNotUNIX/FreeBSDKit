@@ -12,6 +12,7 @@ import FPC
 import Capsicum
 import Casper
 import Audit
+import FreeBSDKit
 
 // MARK: - Audit Event
 
@@ -52,6 +53,10 @@ struct AgeCtl: AsyncParsableCommand {
               agectl query -u 1001             # Query another user (privileged)
               agectl set -u 1001 -b 2010-06-15 # Set birthdate (requires root)
               agectl remove -u 1001            # Remove birthdate (requires root)
+
+            During installation (when the daemon is not running):
+              agectl set -u 1001 -b 2010-06-15 --direct
+              agectl remove -u 1001 --direct
             """,
         subcommands: [Query.self, Set.self, Remove.self]
     )
@@ -138,6 +143,96 @@ private func usernameForUID(_ uid: UInt32) -> String? {
         return nil
     }
     return String(cString: pwd.pointee.pw_name)
+}
+
+// MARK: - Direct Storage
+
+/// Writes a birthdate directly to the database, bypassing the daemon.
+///
+/// Used during installation or when the daemon is not running.
+///
+/// - Parameters:
+///   - uid: The user ID
+///   - birthdate: The birthdate to set
+///   - databasePath: Path to the database directory
+private func directSetBirthdate(
+    uid: UInt32,
+    birthdate: Birthdate,
+    databasePath: String
+) throws {
+    // Ensure database directory exists
+    var st = stat()
+    if stat(databasePath, &st) != 0 {
+        if mkdir(databasePath, 0o700) != 0 {
+            throw AgeSignalError.storageError("Failed to create \(databasePath): \(String(cString: strerror(errno)))")
+        }
+    }
+
+    // Ensure proper permissions on directory
+    if chmod(databasePath, 0o700) != 0 {
+        throw AgeSignalError.storageError("Failed to set permissions on \(databasePath)")
+    }
+
+    // Create or open the file for this UID
+    let filePath = "\(databasePath)/\(uid)"
+    let fd = open(filePath, O_WRONLY | O_CREAT | O_CLOEXEC, 0o600)
+    guard fd >= 0 else {
+        throw AgeSignalError.storageError("Failed to open \(filePath): \(String(cString: strerror(errno)))")
+    }
+    defer { close(fd) }
+
+    // Write the birthdate as an extended attribute
+    let data = birthdate.serialize()
+    try data.withUnsafeBytes { buffer in
+        let result = extattr_set_fd(
+            fd,
+            EXTATTR_NAMESPACE_USER,
+            AgeSignalProtocol.birthdateAttribute,
+            buffer.baseAddress,
+            buffer.count
+        )
+        if result < 0 {
+            throw AgeSignalError.storageError("Failed to set birthdate attribute: \(String(cString: strerror(errno)))")
+        }
+    }
+}
+
+/// Removes a birthdate directly from the database, bypassing the daemon.
+///
+/// - Parameters:
+///   - uid: The user ID
+///   - databasePath: Path to the database directory
+private func directRemoveBirthdate(
+    uid: UInt32,
+    databasePath: String
+) throws {
+    let filePath = "\(databasePath)/\(uid)"
+
+    // Check if file exists
+    var st = stat()
+    guard stat(filePath, &st) == 0 else {
+        // File doesn't exist - nothing to remove
+        return
+    }
+
+    // Open the file
+    let fd = open(filePath, O_WRONLY | O_CLOEXEC)
+    guard fd >= 0 else {
+        throw AgeSignalError.storageError("Failed to open \(filePath): \(String(cString: strerror(errno)))")
+    }
+
+    // Delete the attribute (ignore ENOATTR - attribute might not exist)
+    let result = extattr_delete_fd(fd, EXTATTR_NAMESPACE_USER, AgeSignalProtocol.birthdateAttribute)
+    close(fd)
+
+    if result < 0 && errno != ENOATTR {
+        throw AgeSignalError.storageError("Failed to delete birthdate attribute: \(String(cString: strerror(errno)))")
+    }
+
+    // Remove the file
+    if unlink(filePath) != 0 && errno != ENOENT {
+        throw AgeSignalError.storageError("Failed to remove \(filePath): \(String(cString: strerror(errno)))")
+    }
 }
 
 // MARK: - Query Command
@@ -309,8 +404,14 @@ extension AgeCtl {
         @Option(name: .shortAndLong, help: "Socket path")
         var socket: String = AgeSignalProtocol.defaultSocketPath
 
+        @Option(name: .shortAndLong, help: "Database directory (for --direct mode)")
+        var database: String = AgeSignalProtocol.databasePath
+
         @Flag(name: .shortAndLong, help: "Output as JSON")
         var json: Bool = false
+
+        @Flag(name: .long, help: "Write directly to database, bypassing daemon (for installation)")
+        var direct: Bool = false
 
         func validate() throws {
             if user == nil && username == nil {
@@ -346,16 +447,48 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
-            // Phase 3: Connect to daemon
+            let userDesc = targetUsername ?? "UID \(targetUID)"
+
+            // Direct mode: write to database directly
+            if direct {
+                do {
+                    try directSetBirthdate(uid: targetUID, birthdate: bd, databasePath: database)
+                } catch {
+                    let message = "agectl: SET_BIRTHDATE (direct) failed for \(userDesc): \(error)"
+                    securityContext?.logAuth(message)
+                    securityContext?.audit(message: message, success: false, error: EPERM)
+
+                    fputs("Error: Failed to set birthdate: \(error)\n", stderr)
+                    throw ExitCode.failure
+                }
+
+                let bracket = bd.currentBracket()
+                let message = "agectl: SET_BIRTHDATE (direct) for \(userDesc) (bracket=\(bracket))"
+                securityContext?.logAuth(message)
+                securityContext?.audit(message: message, success: true)
+
+                if json {
+                    print("""
+                    {"status":"ok","uid":\(targetUID),"bracket":"\(bracket.description)","bracket_code":\(bracket.rawValue),"direct":true}
+                    """)
+                } else {
+                    print("Birthdate set for \(userDesc) (direct mode)")
+                    print("Current age bracket: \(bracket.humanReadable)")
+                }
+                return
+            }
+
+            // Normal mode: connect to daemon
             let client = AgeSignalClient()
             do {
                 try await client.connect(socketPath: socket)
             } catch {
                 fputs("Error: Failed to connect to aged daemon: \(error)\n", stderr)
+                fputs("Is the aged daemon running? Use --direct to write directly.\n", stderr)
                 throw ExitCode.failure
             }
 
-            // Phase 4: Enter sandbox
+            // Enter sandbox
             enterSandbox()
 
             defer {
@@ -364,9 +497,7 @@ extension AgeCtl {
                 }
             }
 
-            // Phase 5: Perform operation (sandboxed)
-            let userDesc = targetUsername ?? "UID \(targetUID)"
-
+            // Perform operation (sandboxed)
             do {
                 try await client.setBirthdate(bd, for: targetUID)
             } catch {
@@ -379,7 +510,7 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
-            // Phase 6: Log success and output results
+            // Log success and output results
             let bracket = bd.currentBracket()
             let message = "agectl: SET_BIRTHDATE for \(userDesc) (bracket=\(bracket))"
             securityContext?.logAuth(message)
@@ -414,8 +545,14 @@ extension AgeCtl {
         @Option(name: .shortAndLong, help: "Socket path")
         var socket: String = AgeSignalProtocol.defaultSocketPath
 
+        @Option(name: .shortAndLong, help: "Database directory (for --direct mode)")
+        var database: String = AgeSignalProtocol.databasePath
+
         @Flag(name: .shortAndLong, help: "Output as JSON")
         var json: Bool = false
+
+        @Flag(name: .long, help: "Write directly to database, bypassing daemon (for installation)")
+        var direct: Bool = false
 
         func validate() throws {
             if user == nil && username == nil {
@@ -441,17 +578,46 @@ extension AgeCtl {
 
             // Get username for output and logging (before sandbox)
             let targetUsername = usernameForUID(targetUID)
+            let userDesc = targetUsername ?? "UID \(targetUID)"
 
-            // Phase 3: Connect to daemon
+            // Direct mode: write to database directly
+            if direct {
+                do {
+                    try directRemoveBirthdate(uid: targetUID, databasePath: database)
+                } catch {
+                    let message = "agectl: REMOVE_BIRTHDATE (direct) failed for \(userDesc): \(error)"
+                    securityContext?.logAuth(message)
+                    securityContext?.audit(message: message, success: false, error: EPERM)
+
+                    fputs("Error: Failed to remove birthdate: \(error)\n", stderr)
+                    throw ExitCode.failure
+                }
+
+                let message = "agectl: REMOVE_BIRTHDATE (direct) for \(userDesc)"
+                securityContext?.logAuth(message)
+                securityContext?.audit(message: message, success: true)
+
+                if json {
+                    print("""
+                    {"status":"ok","uid":\(targetUID),"direct":true}
+                    """)
+                } else {
+                    print("Birthdate removed for \(userDesc) (direct mode)")
+                }
+                return
+            }
+
+            // Normal mode: connect to daemon
             let client = AgeSignalClient()
             do {
                 try await client.connect(socketPath: socket)
             } catch {
                 fputs("Error: Failed to connect to aged daemon: \(error)\n", stderr)
+                fputs("Is the aged daemon running? Use --direct to write directly.\n", stderr)
                 throw ExitCode.failure
             }
 
-            // Phase 4: Enter sandbox
+            // Enter sandbox
             enterSandbox()
 
             defer {
@@ -460,9 +626,7 @@ extension AgeCtl {
                 }
             }
 
-            // Phase 5: Perform operation (sandboxed)
-            let userDesc = targetUsername ?? "UID \(targetUID)"
-
+            // Perform operation (sandboxed)
             do {
                 try await client.removeBirthdate(for: targetUID)
             } catch {
@@ -475,7 +639,7 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
-            // Phase 6: Log success and output results
+            // Log success and output results
             let message = "agectl: REMOVE_BIRTHDATE for \(userDesc)"
             securityContext?.logAuth(message)
             securityContext?.audit(message: message, success: true)
