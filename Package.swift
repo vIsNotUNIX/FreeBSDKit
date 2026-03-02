@@ -387,6 +387,7 @@ let package = Package(
                 "Capabilities",
                 "Descriptors",
                 "Audit",
+                "SignalDispatchers",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/aged"

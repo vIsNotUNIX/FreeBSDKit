@@ -14,6 +14,31 @@ import Casper
 import Capabilities
 import Descriptors
 import Audit
+import SignalDispatchers
+import FreeBSDKit
+
+// MARK: - SignalLogger
+
+/// Wrapper to allow capturing CasperSyslog in signal handler closures.
+///
+/// Since `CasperSyslog` is `~Copyable`, it can't be captured directly in
+/// the `@Sendable` closures used by `GCDSignalHandler`. This class wraps
+/// the syslog service to enable capture.
+private final class SignalLogger: @unchecked Sendable {
+    private var syslog: CasperSyslog
+
+    init(syslog: consuming CasperSyslog) {
+        self.syslog = syslog
+    }
+
+    func info(_ message: String) {
+        syslog.info(message)
+    }
+
+    func notice(_ message: String) {
+        syslog.notice(message)
+    }
+}
 
 // MARK: - AgedDaemon
 
@@ -86,12 +111,14 @@ struct AgedDaemon: AsyncParsableCommand {
         // Initialize Casper channel (must be done before cap_enter)
         let casper = try createCasperChannel()
 
-        // Create syslog service and pwd service
+        // Create syslog services (one for request handler, one for signal handler)
         let syslogService = try CasperSyslog(casper: try casper.clone())
+        let signalLogService = try CasperSyslog(casper: try casper.clone())
         let pwdService = try createPwdService(casper: casper)
 
         // Open syslog before sandbox
         syslogService.openlog(ident: "aged", options: [.pid, .ndelay], facility: .daemon)
+        signalLogService.openlog(ident: "aged", options: [.pid, .ndelay], facility: .daemon)
 
         // Log startup (before services are transferred to handler)
         syslogService.info("aged daemon initializing")
@@ -162,8 +189,12 @@ struct AgedDaemon: AsyncParsableCommand {
         // Start listener
         await listener.start()
 
-        // Handle signals
-        setupSignalHandlers(listener: listener)
+        // Set up signal handlers for graceful shutdown
+        let signalHandler = try setupSignalHandlers(
+            listener: listener,
+            logger: signalLogService,
+            verbose: verbose || foreground
+        )
 
         if verbose || foreground {
             print("Accepting connections...")
@@ -189,6 +220,7 @@ struct AgedDaemon: AsyncParsableCommand {
         }
 
         // Cleanup
+        signalHandler.cancel()
         await listener.stop()
         // Note: Can't unlink(socket) in capability mode - socket will be cleaned up on next start
         if verbose || foreground {
@@ -317,11 +349,53 @@ struct AgedDaemon: AsyncParsableCommand {
     }
 
     /// Sets up signal handlers for graceful shutdown.
-    private func setupSignalHandlers(listener: FPCListener) {
-        // Ignore SIGPIPE (handled by socket options)
-        signal(SIGPIPE, SIG_IGN)
+    ///
+    /// Uses `GCDSignalHandler` to handle SIGTERM, SIGINT, and SIGHUP.
+    /// When a termination signal is received, the listener is stopped
+    /// which causes the connection loop to exit gracefully.
+    ///
+    /// - Parameters:
+    ///   - listener: The FPC listener to stop on shutdown
+    ///   - logger: Syslog service for logging signal events (consumed)
+    ///   - verbose: Whether to print to stdout
+    /// - Returns: The signal handler (caller should call `cancel()` on cleanup)
+    private func setupSignalHandlers(
+        listener: FPCListener,
+        logger: consuming CasperSyslog,
+        verbose: Bool
+    ) throws -> GCDSignalHandler {
+        let handler = try GCDSignalHandler(signals: [.term, .int, .hup])
 
-        // TODO: Handle SIGTERM/SIGINT for graceful shutdown
-        // This would require a more sophisticated approach with signalfd or kqueue
+        // Wrap logger for capture in closures
+        let log = SignalLogger(syslog: logger)
+
+        handler.on(.term) {
+            log.notice("Received SIGTERM, initiating shutdown")
+            if verbose {
+                print("Received SIGTERM, shutting down...")
+            }
+            Task {
+                await listener.stop()
+            }
+        }
+
+        handler.on(.int) {
+            log.notice("Received SIGINT, initiating shutdown")
+            if verbose {
+                print("Received SIGINT, shutting down...")
+            }
+            Task {
+                await listener.stop()
+            }
+        }
+
+        handler.on(.hup) {
+            log.info("Received SIGHUP (ignored, no config to reload)")
+            if verbose {
+                print("Received SIGHUP (ignored)")
+            }
+        }
+
+        return handler
     }
 }
