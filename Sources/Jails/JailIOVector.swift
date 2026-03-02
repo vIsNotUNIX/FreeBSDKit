@@ -195,6 +195,90 @@ public final class JailIOVector {
         }
     }
 
+    /// Adds an output buffer for receiving string values from `jail_get(2)`.
+    ///
+    /// This is used when querying jail parameters. The buffer will be filled
+    /// with the parameter's value after calling `jail_get(2)`.
+    ///
+    /// - Parameters:
+    ///   - name: The jail parameter name to query.
+    ///   - buffer: A pre-allocated buffer to receive the value.
+    ///   - size: The size of the buffer in bytes.
+    ///
+    /// - Note: The caller owns the buffer and must keep it alive until after
+    ///   the `jail_get(2)` call completes.
+    public func addOutputBuffer(
+        _ name: String,
+        buffer: UnsafeMutablePointer<CChar>,
+        size: Int
+    ) throws {
+        let key: UnsafeMutablePointer<CChar> = try name.withCString { cName in
+            guard let p = strdup(cName) else {
+                try BSDError.throwErrno()
+            }
+            return p
+        }
+
+        storage.append(UnsafeMutableRawPointer(key))
+        // Note: buffer is NOT added to storage - caller owns it
+
+        iovecs.append(iovec(iov_base: UnsafeMutableRawPointer(key), iov_len: size_t(strlen(key) + 1)))
+        iovecs.append(iovec(iov_base: UnsafeMutableRawPointer(buffer), iov_len: size_t(size)))
+
+        assert(
+            iovecs.count % 2 == 0,
+            "iovecs must contain key/value pairs"
+        )
+    }
+
+    /// Adds an output buffer for receiving integer values from `jail_get(2)`.
+    ///
+    /// - Parameters:
+    ///   - name: The jail parameter name to query.
+    ///   - buffer: A pre-allocated buffer to receive the value.
+    public func addOutputBuffer<T: FixedWidthInteger>(
+        _ name: String,
+        buffer: UnsafeMutablePointer<T>
+    ) throws {
+        let key: UnsafeMutablePointer<CChar> = try name.withCString { cName in
+            guard let p = strdup(cName) else {
+                try BSDError.throwErrno()
+            }
+            return p
+        }
+
+        storage.append(UnsafeMutableRawPointer(key))
+
+        iovecs.append(iovec(iov_base: UnsafeMutableRawPointer(key), iov_len: size_t(strlen(key) + 1)))
+        iovecs.append(iovec(iov_base: UnsafeMutableRawPointer(buffer), iov_len: size_t(MemoryLayout<T>.size)))
+
+        assert(
+            iovecs.count % 2 == 0,
+            "iovecs must contain key/value pairs"
+        )
+    }
+
+    /// Adds a descriptor output buffer for receiving a jail descriptor from
+    /// `jail_get(2)` or `jail_set(2)` when using `JAIL_GET_DESC` or `JAIL_OWN_DESC`.
+    ///
+    /// The jail descriptor will be returned as an Int32 file descriptor in this buffer.
+    ///
+    /// - Parameter buffer: A pre-allocated buffer to receive the descriptor.
+    ///
+    /// - Note: Use this with `JailGetFlags.getDesc` or `JailGetFlags.ownDesc`.
+    public func addDescriptorOutput(
+        buffer: UnsafeMutablePointer<Int32>
+    ) throws {
+        try addOutputBuffer("desc", buffer: buffer)
+    }
+
+    /// Adds a descriptor parameter for use with `JAIL_USE_DESC` or `JAIL_AT_DESC`.
+    ///
+    /// - Parameter fd: The jail descriptor file descriptor.
+    public func addDescriptor(_ fd: Int32) throws {
+        try addInt32("desc", fd)
+    }
+
     @inline(__always)
     private func appendPair(
         key: UnsafeMutableRawPointer,

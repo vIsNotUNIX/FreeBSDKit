@@ -1,13 +1,7 @@
 /*
  * Copyright (c) 2026 Kory Heard
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 import CJails
@@ -44,12 +38,17 @@ public struct JailDescriptorInfo: ~Copyable {
 
 /// A capability handle to a FreeBSD jail.
 public protocol JailDescriptor: Descriptor, ~Copyable {
+    /// Attaches the current process to this jail.
     func attach() throws
+
+    /// Removes the jail this descriptor refers to.
     func remove() throws
-    static 
-    func set(iov: inout JailIOVector, flags: JailSetFlags) throws -> Self
-    static
-    func get(iov: inout JailIOVector, flags: JailGetFlags) throws -> Self
+
+    /// Creates or updates a jail and returns a descriptor.
+    static func set(iov: inout JailIOVector, flags: JailSetFlags) throws -> Self
+
+    /// Looks up a jail and returns a descriptor.
+    static func get(iov: inout JailIOVector, flags: JailGetFlags) throws -> Self
 }
 
 public extension JailDescriptor where Self: ~Copyable {
@@ -102,6 +101,15 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
     }
 
     /// Lookup a jail and return a descriptor.
+    ///
+    /// The caller must have added a descriptor output buffer to the iov using
+    /// `addDescriptorOutput()` and include `getDesc` or `ownDesc` in the flags.
+    ///
+    /// - Parameters:
+    ///   - iov: The jail I/O vector containing query parameters and a desc output buffer.
+    ///   - flags: Flags controlling the operation. Must include `.getDesc` or `.ownDesc`.
+    /// - Returns: A jail descriptor.
+    /// - Throws: `BSDError` if the jail doesn't exist or descriptor creation fails.
     public static func get(
         iov: inout JailIOVector,
         flags: JailGetFlags
@@ -119,8 +127,90 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
         return SystemJailDescriptor(fd)
     }
 
+    /// Opens a jail descriptor for an existing jail by name.
+    ///
+    /// - Parameters:
+    ///   - name: The jail name.
+    ///   - owning: If true, return an owning descriptor that will remove the jail when closed.
+    /// - Returns: A jail descriptor.
+    /// - Throws: `BSDError` if the jail doesn't exist.
+    public static func open(name: String, owning: Bool = false) throws -> SystemJailDescriptor {
+        let iov = JailIOVector()
+        try iov.addCString("name", value: name)
+
+        let descBuf = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+        defer { descBuf.deallocate() }
+        descBuf.pointee = -1
+
+        try iov.addDescriptorOutput(buffer: descBuf)
+
+        var flags: JailGetFlags = [.getDesc]
+        if owning {
+            flags.insert(.ownDesc)
+        }
+
+        let jid = iov.withUnsafeMutableIOVecs { buf in
+            jail_get(buf.baseAddress, UInt32(buf.count), flags.rawValue)
+        }
+
+        guard jid >= 0 else {
+            try BSDError.throwErrno(errno)
+        }
+
+        guard descBuf.pointee >= 0 else {
+            throw POSIXError(.EBADF)
+        }
+
+        return SystemJailDescriptor(descBuf.pointee)
+    }
+
+    /// Opens a jail descriptor for an existing jail by JID.
+    ///
+    /// - Parameters:
+    ///   - jid: The jail ID.
+    ///   - owning: If true, return an owning descriptor that will remove the jail when closed.
+    /// - Returns: A jail descriptor.
+    /// - Throws: `BSDError` if the jail doesn't exist.
+    public static func open(jid: Int32, owning: Bool = false) throws -> SystemJailDescriptor {
+        let iov = JailIOVector()
+        try iov.addInt32("jid", jid)
+
+        let descBuf = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+        defer { descBuf.deallocate() }
+        descBuf.pointee = -1
+
+        try iov.addDescriptorOutput(buffer: descBuf)
+
+        var flags: JailGetFlags = [.getDesc]
+        if owning {
+            flags.insert(.ownDesc)
+        }
+
+        let result = iov.withUnsafeMutableIOVecs { buf in
+            jail_get(buf.baseAddress, UInt32(buf.count), flags.rawValue)
+        }
+
+        guard result >= 0 else {
+            try BSDError.throwErrno(errno)
+        }
+
+        guard descBuf.pointee >= 0 else {
+            throw POSIXError(.EBADF)
+        }
+
+        return SystemJailDescriptor(descBuf.pointee)
+    }
 
     /// Create or update a jail and return a descriptor.
+    ///
+    /// The caller must have added a descriptor output buffer to the iov using
+    /// `addDescriptorOutput()` and include `getDesc` or `ownDesc` in the flags.
+    ///
+    /// - Parameters:
+    ///   - iov: The jail I/O vector containing jail parameters and a desc output buffer.
+    ///   - flags: Flags controlling the operation. Must include `.getDesc` or `.ownDesc`.
+    /// - Returns: A jail descriptor for the created/updated jail.
+    /// - Throws: `BSDError` if jail creation fails.
     public static func set(
         iov: inout JailIOVector,
         flags: JailSetFlags
@@ -138,6 +228,91 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
         return SystemJailDescriptor(fd)
     }
 
+    /// Creates a new jail and returns an owning descriptor.
+    ///
+    /// - Parameters:
+    ///   - config: The jail configuration.
+    ///   - shouldAttach: If true, attach the calling process to the jail.
+    /// - Returns: An owning jail descriptor that will remove the jail when closed.
+    /// - Throws: `BSDError` if jail creation fails.
+    public static func create(
+        _ config: JailConfiguration,
+        attach shouldAttach: Bool = false
+    ) throws -> SystemJailDescriptor {
+        let iov = JailIOVector()
+        try config.populate(into: iov)
+
+        let descBuf = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+        defer { descBuf.deallocate() }
+        descBuf.pointee = -1
+
+        try iov.addDescriptorOutput(buffer: descBuf)
+
+        var flags: JailSetFlags = [.create, .getDesc, .ownDesc]
+        if shouldAttach {
+            flags.insert(.attach)
+        }
+
+        let jid = iov.withUnsafeMutableIOVecs { buf in
+            jail_set(buf.baseAddress, UInt32(buf.count), flags.rawValue)
+        }
+
+        guard jid >= 0 else {
+            try BSDError.throwErrno(errno)
+        }
+
+        guard descBuf.pointee >= 0 else {
+            throw POSIXError(.EBADF)
+        }
+
+        return SystemJailDescriptor(descBuf.pointee)
+    }
+
+    /// Gets information about the jail this descriptor refers to.
+    ///
+    /// - Returns: Jail info, or nil if the jail has been removed.
+    public func info() throws -> JailInfo? {
+        let iov = JailIOVector()
+
+        try iov.addInt32("desc", fd)
+
+        let nameBuf = UnsafeMutablePointer<CChar>.allocate(capacity: 256)
+        defer { nameBuf.deallocate() }
+        nameBuf.initialize(repeating: 0, count: 256)
+
+        let pathBuf = UnsafeMutablePointer<CChar>.allocate(capacity: 1024)
+        defer { pathBuf.deallocate() }
+        pathBuf.initialize(repeating: 0, count: 1024)
+
+        let hostnameBuf = UnsafeMutablePointer<CChar>.allocate(capacity: 256)
+        defer { hostnameBuf.deallocate() }
+        hostnameBuf.initialize(repeating: 0, count: 256)
+
+        try iov.addOutputBuffer("name", buffer: nameBuf, size: 256)
+        try iov.addOutputBuffer("path", buffer: pathBuf, size: 1024)
+        try iov.addOutputBuffer("host.hostname", buffer: hostnameBuf, size: 256)
+
+        let flags: JailGetFlags = [.useDesc]
+
+        let jid = iov.withUnsafeMutableIOVecs { buf in
+            jail_get(buf.baseAddress, UInt32(buf.count), flags.rawValue)
+        }
+
+        if jid < 0 {
+            if errno == ENOENT {
+                return nil
+            }
+            try BSDError.throwErrno(errno)
+        }
+
+        return JailInfo(
+            jid: jid,
+            name: String(cString: nameBuf),
+            path: String(cString: pathBuf),
+            hostname: String(cString: hostnameBuf)
+        )
+    }
+
 
     private static func extractDescFD(from iov: inout JailIOVector) throws -> RawDesc {
         try iov.withUnsafeMutableIOVecs { buf in
@@ -153,12 +328,12 @@ public struct SystemJailDescriptor: JailDescriptor, ~Copyable {
                 guard let keyBase = keyIOV.iov_base else { i += 2; continue }
                 let key = keyBase.assumingMemoryBound(to: CChar.self)
 
-                if strcmp(key, "jid") == 0 {
+                // Jail descriptors are returned in the "desc" parameter
+                if strcmp(key, "desc") == 0 {
                     guard valIOV.iov_len == MemoryLayout<RawDesc>.size,
                         let valBase = valIOV.iov_base
                     else { throw POSIXError(.EINVAL) }
 
-                    // Alignment is OK because you allocated scalars via malloc().
                     let fd = valBase.load(as: RawDesc.self)
                     guard fd >= 0 else { throw POSIXError(.EBADF) }
                     return fd

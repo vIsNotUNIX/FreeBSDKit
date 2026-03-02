@@ -96,6 +96,10 @@ let package = Package(
         .executable(
             name: "agectl",
             targets: ["agectl"]
+        ),
+        .executable(
+            name: "jails-demo",
+            targets: ["jails-demo"]
         )
     ],
     dependencies: [
@@ -130,8 +134,10 @@ let package = Package(
         .target(
             name: "Jails",
             dependencies: ["CJails", "FreeBSDKit"],
-            path: "Sources/Jails"
-
+            path: "Sources/Jails",
+            linkerSettings: [
+                .linkedLibrary("jail")
+            ]
         ),
         .target(
             name: "CEventDescriptor",
@@ -403,6 +409,11 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/agectl"
+        ),
+        .executableTarget(
+            name: "jails-demo",
+            dependencies: ["Jails", "Descriptors"],
+            path: "Examples/JailsDemo"
         ),
     ]
 )
