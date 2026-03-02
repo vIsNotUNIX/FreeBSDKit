@@ -34,7 +34,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Rctl", package: "FreeBSDKit"),
         .product(name: "Cpuset", package: "FreeBSDKit"),
         .product(name: "DTraceCore", package: "FreeBSDKit"),
-        .product(name: "DScript", package: "FreeBSDKit"),
+        .product(name: "DBlocks", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -1116,7 +1116,7 @@ try Cpuset.setJailAffinity(5, to: CPUSet(cpus: [0, 1]))
 
 ---
 
-### DTraceCore & DScript
+### DTraceCore & DBlocks
 
 Swift interface to FreeBSD's DTrace dynamic tracing framework.
 
@@ -1126,7 +1126,7 @@ Swift interface to FreeBSD's DTrace dynamic tracing framework.
 import DTraceCore
 
 // Open DTrace handle
-let handle = try DTraceHandle.open()
+var handle = try DTraceHandle.open()
 
 // Set buffer sizes
 try handle.setOption("bufsize", value: "4m")
@@ -1157,124 +1157,224 @@ try handle.aggregatePrint()
 try handle.stop()
 ```
 
-**Error and Drop Handlers:**
+**DBlocks** provides a type-safe Swift DSL for building DTrace scripts:
 
 ```swift
-// Register error handler
-try handle.onError { error in
-    print("DTrace error: \(error.message)")
-    return true  // Continue execution
-}
+import DBlocks
 
-// Register drop handler (buffer overflow notifications)
-try handle.onDrop { drop in
-    print("Dropped \(drop.drops) records: \(drop.message)")
-    return true
+// Simple one-liner: count syscalls for 5 seconds
+try DBlocks.run(for: 5) {
+    Probe("syscall:::entry") {
+        Count(by: "probefunc")
+    }
 }
 ```
 
-**Programmatic Aggregation Access:**
+**Result Builder DSL:**
 
 ```swift
-// Walk aggregations programmatically instead of printing
-try handle.aggregateWalk(sorted: true) { data, size in
-    // Process raw aggregation data
-    print("Record: \(size) bytes")
-    return .next  // Continue walking
-}
-```
+// Build complete scripts with Swift syntax
+let script = DBlocks {
+    BEGIN {
+        Printf("Starting trace...")
+    }
 
-**Structured JSON Output:**
-
-```swift
-// Enable JSON output format
-try handle.enableStructuredOutput()
-print("JSON enabled: \(handle.isStructuredOutputEnabled)")
-
-// Output will now be in JSON format
-try handle.aggregatePrint()
-
-handle.disableStructuredOutput()
-```
-
-**DScript** provides a type-safe result builder API for constructing D scripts:
-
-```swift
-import DScript
-
-// Build scripts with the DScript result builder
-let script = DScript {
     Probe("syscall::read:entry") {
-        Target(.pid(1234))
-        When("arg0 > 0")
+        Target(.execname("nginx"))
         Timestamp()
     }
+
     Probe("syscall::read:return") {
-        Target(.pid(1234))
+        Target(.execname("nginx"))
         When("self->ts")
         Latency(by: "execname")
     }
+
+    Tick(10, .seconds) {
+        Exit(0)
+    }
+
+    END {
+        Printf("Trace complete")
+    }
 }
 
-// Run it in a session
-var session = try DScriptSession.run(script)
-
-for _ in 1...5 {
-    let status = session.work()
-    if status == .done { break }
-    session.sleep()
-}
-
-try session.stop()
-try session.printAggregations()
+print(script.source)  // View generated D code
+try script.run()      // Execute (requires root)
 ```
 
-**Predefined Templates:**
+**Aggregations:**
 
 ```swift
-// Use predefined scripts directly
-let script = DScript.syscallCounts(for: .execname("postgres"))
-let script = DScript.fileOpens(for: .uid(0))
-let script = DScript.cpuProfile(hz: 997, for: .processNameContains("http"))
-let script = DScript.ioBytes()
-let script = DScript.syscallLatency("read", for: .pid(1234))
+DBlocks {
+    Probe("syscall:::entry") {
+        // Simple count
+        Count()
 
-// Or add them to a session
-var session = try DScriptSession.create()
-session.syscallCounts(for: .execname("nginx"))
-session.cpuProfile(hz: 997)
-try session.start()
+        // Count by key
+        Count(by: "probefunc")
+
+        // Named aggregation with multi-key
+        Count(by: ["execname", "probefunc"], into: "calls")
+
+        // Other aggregation functions
+        Sum("arg0", by: "execname", into: "bytes")
+        Min("arg0", by: "execname")
+        Max("arg0", by: "execname")
+        Avg("arg0", by: "execname")
+        Quantize("arg0", by: "execname")              // Power-of-2 histogram
+        Lquantize("arg0", low: 0, high: 100, step: 10, by: "execname")
+    }
+
+    END {
+        Printa("calls")      // Print specific aggregation
+        Clear("calls")       // Clear aggregation
+        Trunc("calls", 10)   // Keep top 10
+        Normalize("calls", 1_000_000)  // Convert units
+    }
+}
+```
+
+**Variables:**
+
+```swift
+DBlocks {
+    BEGIN {
+        Assign(.global("total"), to: "0")     // Global: total
+    }
+
+    Probe("syscall::read:entry") {
+        Assign(.thread("ts"), to: "timestamp")  // Thread-local: self->ts
+        Assign(.clause("temp"), to: "arg0")     // Clause-local: this->temp
+    }
+
+    Probe("syscall::read:return") {
+        When("self->ts")
+        Assign(.global("total"), to: "total + 1")
+    }
+}
 ```
 
 **Target Predicates:**
 
 ```swift
-let target: DTraceTarget = .execname("nginx") && !.uid(0)
-let target: DTraceTarget = .pid(1234) || .pid(5678)
-let target: DTraceTarget = (.execname("postgres") || .execname("mysql")) && .jail(5)
+// Filter by process attributes
+Target(.pid(1234))
+Target(.execname("nginx"))
+Target(.uid(0))
+Target(.gid(100))
+Target(.jail(5))
+Target(.processNameContains("http"))
+
+// Combine with operators
+Target(.execname("nginx") || .execname("apache"))
+Target(.execname("postgres") && .uid(70))
+Target(!.uid(0))  // Not root
+
+// Custom D predicate
+Target(.custom("arg0 > 1024"))
+When("arg0 > 0")  // Additional predicate
 ```
 
-**Output Capture:**
+**Special Clauses:**
 
 ```swift
-// Capture output to a buffer for programmatic access
-let buffer = DTraceOutputBuffer()
-session.output(to: .buffer(buffer))
+DBlocks {
+    BEGIN { Printf("Start") }           // Runs once at start
+    END { Printa() }                    // Runs once at end
+    ERROR { Printf("Error!") }          // On DTrace errors
 
+    Tick(1, .seconds) { Printa() }      // Every second
+    Tick(hz: 100) { Count() }           // 100 Hz
+    Profile(hz: 997) { Count(by: "execname") }  // CPU sampling
+}
+```
+
+**Output Actions:**
+
+```swift
+Probe("syscall::open:entry") {
+    Printf("%s[%d]: %s", "execname", "pid", "copyinstr(arg0)")
+    Trace("arg0")
+    Stack()                    // Kernel stack trace
+    Stack(userland: true)      // User stack trace
+}
+```
+
+**Predefined Scripts:**
+
+```swift
+// Ready-to-use scripts
+let script = DBlocks.syscallCounts(for: .execname("postgres"))
+let script = DBlocks.fileOpens(for: .uid(0))
+let script = DBlocks.cpuProfile(hz: 997)
+let script = DBlocks.ioBytes(for: .execname("nginx"))
+let script = DBlocks.syscallLatency("read", for: .pid(1234))
+```
+
+**Composable Scripts:**
+
+```swift
+// Build scripts incrementally
+var script = DBlocks()
+script.add("syscall:::entry") {
+    Count(by: "probefunc")
+}
+script.merge(DBlocks.syscallCounts())
+
+// Combine scripts with operators
+let combined = DBlocks { BEGIN { Printf("Start") } }
+             + DBlocks.syscallCounts(for: .execname("nginx"))
+             + DBlocks { Tick(5, .seconds) { Exit(0) } }
+```
+
+**Session API:**
+
+```swift
+// Full control over execution
+var session = try DTraceSession.create()
+session.output(to: .buffer(buffer))
+try session.bufferSize("8m")
+try session.jsonOutput()
+
+session.add {
+    Probe("syscall:::entry") { Count(by: "probefunc") }
+}
+
+try session.run(for: 10)  // Run for 10 seconds
+
+// Or manual control
 try session.start()
-// ... trace ...
+while session.isRunning {
+    _ = session.process()
+    session.wait()
+}
 try session.stop()
 try session.printAggregations()
+```
 
-let output = buffer.contents  // Get captured text
+**Output Destinations:**
+
+```swift
+session.output(to: .stdout)
+session.output(to: .stderr)
+session.output(to: .file("/tmp/trace.log"))
+session.output(to: .null)
+
+let buffer = DTraceOutputBuffer()
+session.output(to: .buffer(buffer))
+// ... run trace ...
+let output = buffer.contents
 ```
 
 **Key Types:**
 - `DTraceHandle` - Low-level libdtrace handle (~Copyable)
-- `DScriptSession` - High-level session manager
-- `DScript` - Type-safe D script builder (result builder)
+- `DTraceSession` - High-level session manager
+- `DBlocks` - Type-safe D script builder (result builder)
 - `DTraceTarget` - Process targeting predicates
-- `DTraceProbeDescription` - Probe metadata (provider:module:function:name)
+- `Probe`, `BEGIN`, `END`, `Tick`, `Profile` - Clause builders
+- `Count`, `Sum`, `Min`, `Max`, `Avg`, `Quantize` - Aggregation functions
+- `Printf`, `Trace`, `Stack`, `Timestamp`, `Latency` - Action helpers
 
 ---
 
@@ -1365,7 +1465,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CCpuset` | CPU affinity macros and syscall wrappers |
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
-| `CDTrace` | DTrace libdtrace wrappers and constants |
+| `CDTrace` | DTrace libdtrace wrappers and constants (used by DTraceCore/DBlocks) |
 
 ---
 
