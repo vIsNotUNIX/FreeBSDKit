@@ -25,6 +25,10 @@ extension MessageID {
     static let serverRequest = MessageID(rawValue: 109)
     static let serverRequestReply = MessageID(rawValue: 110)
     static let triggerServerRequest = MessageID(rawValue: 111)
+    static let getCredentials = MessageID(rawValue: 112)
+    static let credentialsReply = MessageID(rawValue: 113)
+    static let clientIdentify = MessageID(rawValue: 114)
+    static let identifyReply = MessageID(rawValue: 115)
 }
 
 // MARK: - Logging
@@ -84,16 +88,28 @@ struct BPCTestHarness {
             await testPair()
         case "server":
             guard args.count >= 3 else {
-                print("Usage: bpc-test-harness server <socket-path>")
+                print("Usage: fpc-demo server <socket-path>")
                 exit(1)
             }
             await runServer(socketPath: args[2])
+        case "multi-server":
+            guard args.count >= 3 else {
+                print("Usage: fpc-demo multi-server <socket-path>")
+                exit(1)
+            }
+            await runMultiClientServer(socketPath: args[2])
         case "client":
             guard args.count >= 3 else {
-                print("Usage: bpc-test-harness client <socket-path>")
+                print("Usage: fpc-demo client <socket-path>")
                 exit(1)
             }
             await runClient(socketPath: args[2])
+        case "multi-client":
+            guard args.count >= 4 else {
+                print("Usage: fpc-demo multi-client <socket-path> <client-id>")
+                exit(1)
+            }
+            await runMultiClient(socketPath: args[2], clientId: args[3])
         default:
             printUsage()
             exit(1)
@@ -102,21 +118,26 @@ struct BPCTestHarness {
 
     static func printUsage() {
         print("""
-            BPC Test Harness - Demonstrates BPC IPC capabilities
+            FPC Test Harness - Demonstrates FPC IPC capabilities
 
             Usage:
-              bpc-test-harness pair              # In-process socketpair test
-              bpc-test-harness server <path>     # Start server on Unix socket
-              bpc-test-harness client <path>     # Connect client to server
+              fpc-demo pair                          # In-process socketpair test
+              fpc-demo server <path>                 # Start server on Unix socket
+              fpc-demo client <path>                 # Connect client to server
+              fpc-demo multi-server <path>           # Multi-client server
+              fpc-demo multi-client <path> <id>      # Connect as client with ID
 
             Run server first in one terminal, then client in another.
+            For multi-client test, run multi-server, then multiple multi-client instances.
 
             Tests:
               1. Request/Reply     - Correlation ID routing
-              2. Large FPCMessage     - Auto OOL via shared memory (>64KB)
+              2. Large FPCMessage  - Auto OOL via shared memory (>64KB)
               3. Multi-Descriptor  - Pass multiple file descriptors
               4. Unsolicited Msgs  - Fire-and-forget messages via messages() stream
               5. Reply Isolation   - Replies don't leak into messages() stream
+              6. Peer Credentials  - Retrieve UID/GID/PID of connected peer
+              7. Multi-Client      - Multiple concurrent clients
             """)
     }
 
@@ -744,6 +765,333 @@ struct BPCTestHarness {
                 log("║  ALL \(passed) TESTS PASSED                                    ║")
             } else {
                 log("║  RESULTS: \(passed) passed, \(failed) failed                              ║")
+            }
+            log("╚════════════════════════════════════════════════════════════╝")
+
+            exit(failed == 0 ? 0 : 1)
+
+        } catch {
+            log("ERROR: \(error)")
+            exit(1)
+        }
+    }
+
+    // MARK: - Multi-Client Server
+
+    /// Server that handles multiple concurrent clients
+    static func runMultiClientServer(socketPath: String) async {
+        setRole(.server)
+
+        log("╔════════════════════════════════════════════════════════════╗")
+        log("║  Starting MULTI-CLIENT server on: \(socketPath)")
+        log("║  Will accept multiple concurrent connections               ║")
+        log("╚════════════════════════════════════════════════════════════╝")
+
+        unlink(socketPath)
+
+        do {
+            log("Creating listener...")
+            let listener = try FPCListener.listen(on: socketPath)
+            await listener.start()
+            log("Listener started")
+
+            let readyPath = socketPath + ".ready"
+            _ = FileManager.default.createFile(atPath: readyPath, contents: nil)
+            defer { try? FileManager.default.removeItem(atPath: readyPath) }
+
+            log("Waiting for connections (Ctrl+C to stop)...")
+
+            // Track active client tasks
+            let clientCount = MutableBox(0)
+            let completedCount = MutableBox(0)
+
+            let connections = try await listener.connections()
+            for try await endpoint in connections {
+                clientCount.value += 1
+                let clientNum = clientCount.value
+
+                log("┌─ Client #\(clientNum) connected")
+
+                // Get peer credentials immediately after accept
+                do {
+                    let creds = try await endpoint.getPeerCredentials()
+                    log("│  Peer credentials: uid=\(creds.uid), gid=\(creds.gid), pid=\(creds.pid)")
+                    if creds.isRoot {
+                        log("│  ⚠️  Client is running as ROOT")
+                    }
+                } catch {
+                    log("│  Failed to get peer credentials: \(error)")
+                }
+
+                // Handle this client in a separate task
+                Task {
+                    await handleMultiClient(endpoint: endpoint, clientNum: clientNum)
+                    completedCount.value += 1
+                    log("Client #\(clientNum) disconnected (active: \(clientCount.value - completedCount.value))")
+                }
+            }
+
+            log("Stopping listener...")
+            await listener.stop()
+            log("Listener stopped")
+
+        } catch {
+            log("ERROR: \(error)")
+            exit(1)
+        }
+    }
+
+    /// Handle a single client connection in the multi-client server
+    static func handleMultiClient(endpoint: FPCEndpoint, clientNum: Int) async {
+        await endpoint.start()
+
+        do {
+            let stream = try await endpoint.incoming()
+            for await message in stream {
+                log("│  [#\(clientNum)] Received: id=\(message.id), \(message.payload.count) bytes")
+
+                switch message.id {
+                case .echo:
+                    let payload = String(data: message.payload, encoding: .utf8) ?? ""
+                    log("│  [#\(clientNum)] Echo: \(payload)")
+                    try await endpoint.reply(to: message, id: .echoReply,
+                        payload: Data("server-echo-\(clientNum):\(payload)".utf8))
+
+                case .getCredentials:
+                    // Client is asking for their own credentials as seen by server
+                    do {
+                        let creds = try await endpoint.getPeerCredentials()
+                        let response = "uid=\(creds.uid),gid=\(creds.gid),pid=\(creds.pid)"
+                        try await endpoint.reply(to: message, id: .credentialsReply,
+                            payload: Data(response.utf8))
+                    } catch {
+                        try await endpoint.reply(to: message, id: .credentialsReply,
+                            payload: Data("error:\(error)".utf8))
+                    }
+
+                case .clientIdentify:
+                    let clientId = String(data: message.payload, encoding: .utf8) ?? "unknown"
+                    log("│  [#\(clientNum)] Client identifies as: \(clientId)")
+                    try await endpoint.reply(to: message, id: .identifyReply,
+                        payload: Data("ack:\(clientId):server-slot-\(clientNum)".utf8))
+
+                case .done:
+                    log("│  [#\(clientNum)] Client requested disconnect")
+                    break
+
+                default:
+                    log("│  [#\(clientNum)] Unknown message: \(message.id)")
+                }
+
+                if message.id == .done {
+                    break
+                }
+            }
+        } catch {
+            log("│  [#\(clientNum)] Error: \(error)")
+        }
+
+        await endpoint.stop()
+    }
+
+    // MARK: - Multi-Client (connects to multi-server)
+
+    static func runMultiClient(socketPath: String, clientId: String) async {
+        setRole(.client)
+
+        log("╔════════════════════════════════════════════════════════════╗")
+        log("║  Starting multi-client: \(clientId)")
+        log("╚════════════════════════════════════════════════════════════╝")
+
+        let readyPath = socketPath + ".ready"
+        log("Waiting for server to be ready...")
+        var attempts = 0
+        while !FileManager.default.fileExists(atPath: readyPath) {
+            attempts += 1
+            if attempts > 50 {
+                log("ERROR: Server not ready after 5 seconds")
+                exit(1)
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        do {
+            log("Connecting to \(socketPath)...")
+            let endpoint = try FPCClient.connect(path: socketPath)
+            await endpoint.start()
+            log("CONNECTED - endpoint active")
+
+            var passed = 0
+            var failed = 0
+
+            // ══════════════════════════════════════════════════════════════
+            // TEST 1: Identify ourselves to server
+            // ══════════════════════════════════════════════════════════════
+            log("")
+            log("┌──────────────────────────────────────────────────────────────┐")
+            log("│ TEST 1: Client Identification                                │")
+            log("└──────────────────────────────────────────────────────────────┘")
+            do {
+                log("→ Identifying as: \(clientId)")
+
+                let reply = try await endpoint.request(
+                    FPCMessage(id: .clientIdentify, payload: Data(clientId.utf8)),
+                    timeout: .seconds(5)
+                )
+
+                let replyStr = String(data: reply.payload, encoding: .utf8) ?? "<invalid>"
+                log("← Server response: \(replyStr)")
+
+                if replyStr.contains("ack:\(clientId)") {
+                    log("✓ TEST 1 PASSED: Server acknowledged our identity")
+                    passed += 1
+                } else {
+                    log("✗ TEST 1 FAILED: Unexpected response")
+                    failed += 1
+                }
+            } catch {
+                log("✗ TEST 1 FAILED: \(error)")
+                failed += 1
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // TEST 2: Get our credentials as seen by server
+            // ══════════════════════════════════════════════════════════════
+            log("")
+            log("┌──────────────────────────────────────────────────────────────┐")
+            log("│ TEST 2: Peer Credentials (server's view of us)               │")
+            log("└──────────────────────────────────────────────────────────────┘")
+            do {
+                log("→ Requesting our credentials from server")
+
+                let reply = try await endpoint.request(
+                    FPCMessage(id: .getCredentials),
+                    timeout: .seconds(5)
+                )
+
+                let replyStr = String(data: reply.payload, encoding: .utf8) ?? "<invalid>"
+                log("← Server sees us as: \(replyStr)")
+
+                // Verify our UID matches
+                let myUID = getuid()
+                if replyStr.contains("uid=\(myUID)") {
+                    log("✓ TEST 2 PASSED: Server correctly identified our UID (\(myUID))")
+                    passed += 1
+                } else {
+                    log("✗ TEST 2 FAILED: UID mismatch (we are \(myUID))")
+                    failed += 1
+                }
+            } catch {
+                log("✗ TEST 2 FAILED: \(error)")
+                failed += 1
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // TEST 3: Multiple rapid requests
+            // ══════════════════════════════════════════════════════════════
+            log("")
+            log("┌──────────────────────────────────────────────────────────────┐")
+            log("│ TEST 3: Rapid Sequential Requests                            │")
+            log("└──────────────────────────────────────────────────────────────┘")
+            do {
+                let count = 10
+                log("→ Sending \(count) rapid requests...")
+
+                var allPassed = true
+                for i in 0..<count {
+                    let msg = "\(clientId)-request-\(i)"
+                    let reply = try await endpoint.request(
+                        FPCMessage(id: .echo, payload: Data(msg.utf8)),
+                        timeout: .seconds(5)
+                    )
+
+                    let replyStr = String(data: reply.payload, encoding: .utf8) ?? ""
+                    if !replyStr.contains(msg) {
+                        log("  ✗ Request \(i) failed: expected '\(msg)' in '\(replyStr)'")
+                        allPassed = false
+                    }
+                }
+
+                if allPassed {
+                    log("✓ TEST 3 PASSED: All \(count) requests succeeded")
+                    passed += 1
+                } else {
+                    log("✗ TEST 3 FAILED: Some requests failed")
+                    failed += 1
+                }
+            } catch {
+                log("✗ TEST 3 FAILED: \(error)")
+                failed += 1
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // TEST 4: Concurrent requests (parallel)
+            // ══════════════════════════════════════════════════════════════
+            log("")
+            log("┌──────────────────────────────────────────────────────────────┐")
+            log("│ TEST 4: Concurrent Parallel Requests                         │")
+            log("└──────────────────────────────────────────────────────────────┘")
+            do {
+                let count = 5
+                log("→ Sending \(count) concurrent requests in parallel...")
+
+                // Launch all requests concurrently
+                let results = await withTaskGroup(of: (Int, Bool).self) { group in
+                    for i in 0..<count {
+                        group.addTask {
+                            do {
+                                let msg = "\(clientId)-parallel-\(i)"
+                                let reply = try await endpoint.request(
+                                    FPCMessage(id: .echo, payload: Data(msg.utf8)),
+                                    timeout: .seconds(10)
+                                )
+                                let replyStr = String(data: reply.payload, encoding: .utf8) ?? ""
+                                return (i, replyStr.contains(msg))
+                            } catch {
+                                return (i, false)
+                            }
+                        }
+                    }
+
+                    var results: [(Int, Bool)] = []
+                    for await result in group {
+                        results.append(result)
+                    }
+                    return results
+                }
+
+                let allPassed = results.allSatisfy { $0.1 }
+                let passedCount = results.filter { $0.1 }.count
+
+                if allPassed {
+                    log("✓ TEST 4 PASSED: All \(count) concurrent requests succeeded")
+                    passed += 1
+                } else {
+                    log("✗ TEST 4 FAILED: Only \(passedCount)/\(count) requests succeeded")
+                    for (i, success) in results where !success {
+                        log("  ✗ Request \(i) failed")
+                    }
+                    failed += 1
+                }
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // Done
+            // ══════════════════════════════════════════════════════════════
+            log("")
+            log("Sending disconnect signal to server...")
+            try await endpoint.send(FPCMessage(id: .done))
+
+            log("Closing connection...")
+            await endpoint.stop()
+            log("Connection closed")
+
+            log("")
+            log("╔════════════════════════════════════════════════════════════╗")
+            if failed == 0 {
+                log("║  CLIENT \(clientId): ALL \(passed) TESTS PASSED                       ║")
+            } else {
+                log("║  CLIENT \(clientId): \(passed) passed, \(failed) failed                        ║")
             }
             log("╚════════════════════════════════════════════════════════════╝")
 

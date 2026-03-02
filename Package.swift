@@ -69,6 +69,10 @@ let package = Package(
             name: "DScript",
             targets: ["DScript"]
         ),
+        .library(
+            name: "AgeSignal",
+            targets: ["AgeSignal"]
+        ),
         .executable(
             name: "maclabel",
             targets: ["maclabel"]
@@ -84,6 +88,14 @@ let package = Package(
         .executable(
             name: "dprobes",
             targets: ["dprobes-cli"]
+        ),
+        .executable(
+            name: "aged",
+            targets: ["aged"]
+        ),
+        .executable(
+            name: "agectl",
+            targets: ["agectl"]
         )
     ],
     dependencies: [
@@ -320,6 +332,14 @@ let package = Package(
             name: "DScriptTests",
             dependencies: ["DScript", "Descriptors", "Capabilities"]
         ),
+        .target(
+            name: "AgeSignal",
+            dependencies: ["FreeBSDKit", "FPC", "Descriptors", "Capabilities"]
+        ),
+        .testTarget(
+            name: "AgeSignalTests",
+            dependencies: ["AgeSignal"]
+        ),
         .executableTarget(
             name: "maclabel",
             dependencies: [
@@ -355,6 +375,25 @@ let package = Package(
         .testTarget(
             name: "DProbesCLITests",
             dependencies: ["dprobes-cli"]
+        ),
+        .executableTarget(
+            name: "aged",
+            dependencies: [
+                "AgeSignal",
+                "FPC",
+                "FreeBSDKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "Sources/aged"
+        ),
+        .executableTarget(
+            name: "agectl",
+            dependencies: [
+                "AgeSignal",
+                "FPC",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "Sources/agectl"
         ),
     ]
 )

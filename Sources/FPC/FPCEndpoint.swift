@@ -48,6 +48,23 @@ public actor FPCEndpoint: Endpoint {
         state
     }
 
+    // MARK: - Peer Credentials
+
+    /// Gets the credentials of the peer connected to this endpoint.
+    ///
+    /// Uses the `LOCAL_PEERCRED` socket option to retrieve the peer's credentials.
+    /// For server-side endpoints (from `accept()`), this returns the client's credentials.
+    /// For client-side endpoints, this returns the server's credentials at `listen()` time.
+    ///
+    /// - Returns: The credentials of the connected peer.
+    /// - Throws: ``FPCError/disconnected`` if the socket is closed,
+    ///           or a BSD error if credentials cannot be retrieved.
+    public func getPeerCredentials() throws -> PeerCredentials {
+        try socketHolder.withSocketOrThrow { socket in
+            try socket.getPeerCredentials()
+        }
+    }
+
     // MARK: Lifecycle
 
     public func start() {
