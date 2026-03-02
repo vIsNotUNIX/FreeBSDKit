@@ -382,6 +382,11 @@ let package = Package(
                 "AgeSignal",
                 "FPC",
                 "FreeBSDKit",
+                "Capsicum",
+                "Casper",
+                "Capabilities",
+                "Descriptors",
+                "Audit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/aged"
@@ -391,6 +396,9 @@ let package = Package(
             dependencies: [
                 "AgeSignal",
                 "FPC",
+                "Capsicum",
+                "Casper",
+                "Audit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Sources/agectl"

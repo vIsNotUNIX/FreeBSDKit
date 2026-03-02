@@ -217,11 +217,6 @@ public struct AgeSignalResponse: Sendable {
 
 /// Constants for the age signal protocol.
 public enum AgeSignalProtocol {
-    /// Protocol version for future compatibility.
-    ///
-    /// If the wire format changes incompatibly, increment this version.
-    public static let protocolVersion: UInt8 = 1
-
     /// Default socket path for the aged daemon
     public static let defaultSocketPath = "/var/run/aged.sock"
 

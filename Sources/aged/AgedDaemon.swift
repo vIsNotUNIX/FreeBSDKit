@@ -9,6 +9,11 @@ import Glibc
 import ArgumentParser
 import FPC
 import AgeSignal
+import Capsicum
+import Casper
+import Capabilities
+import Descriptors
+import Audit
 
 // MARK: - AgedDaemon
 
@@ -16,6 +21,16 @@ import AgeSignal
 ///
 /// This daemon manages birthdate storage and responds to age bracket queries
 /// from applications. It runs as root and listens on a Unix domain socket.
+///
+/// ## Security Model
+///
+/// The daemon enters Capsicum capability mode after initialization, restricting
+/// itself to only the resources it needs:
+/// - The listening socket (for accepting connections)
+/// - The database directory (`/var/db/aged/`)
+/// - Casper services for syslog and password lookups
+///
+/// All filesystem access by path is disabled after initialization.
 @main
 struct AgedDaemon: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -29,6 +44,9 @@ struct AgedDaemon: AsyncParsableCommand {
             The daemon must run as root to:
             - Store birthdates securely in /var/db/aged/
             - Authenticate peer credentials via LOCAL_PEERCRED
+
+            After initialization, the daemon enters Capsicum capability mode
+            for defense in depth.
 
             Age brackets returned:
             - under13: Under 13 years old
@@ -50,6 +68,9 @@ struct AgedDaemon: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Enable verbose logging")
     var verbose: Bool = false
 
+    @Flag(name: .long, help: "Disable Capsicum sandboxing (for debugging)")
+    var noSandbox: Bool = false
+
     func run() async throws {
         // Check running as root
         guard geteuid() == 0 else {
@@ -57,36 +78,86 @@ struct AgedDaemon: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        // Initialize storage
-        let storage = AgeStorage(databasePath: database)
-        do {
-            try await storage.ensureDirectory()
-        } catch {
-            fputs("Error: Failed to initialize database: \(error)\n", stderr)
-            throw ExitCode.failure
-        }
+        // =====================================================================
+        // Phase 1: Pre-sandbox initialization
+        // All resources must be opened before entering capability mode
+        // =====================================================================
+
+        // Initialize Casper channel (must be done before cap_enter)
+        let casper = try createCasperChannel()
+
+        // Create syslog service and pwd service
+        let syslogService = try CasperSyslog(casper: try casper.clone())
+        let pwdService = try createPwdService(casper: casper)
+
+        // Open syslog before sandbox
+        syslogService.openlog(ident: "aged", options: [.pid, .ndelay], facility: .daemon)
+
+        // Log startup (before services are transferred to handler)
+        syslogService.info("aged daemon initializing")
+
+        // Ensure database directory exists (before sandbox)
+        try ensureDatabaseDirectory(database: database, logger: syslogService)
+
+        // Open database directory capability (before sandbox)
+        let dbDir = try openDatabaseDirectory(path: database, logger: syslogService)
+
+        // Initialize storage with directory capability
+        let storage = AgeStorage(directory: dbDir)
 
         // Remove stale socket if it exists
         unlink(socket)
 
-        // Create listener
-        let listener: FPCListener
-        do {
-            listener = try FPCListener.listen(on: socket)
-        } catch {
-            fputs("Error: Failed to create listener: \(error)\n", stderr)
-            throw ExitCode.failure
-        }
+        // Create listener (before sandbox)
+        let listener = try createListener(socketPath: socket, logger: syslogService)
 
-        // Set socket permissions to allow all users to connect (rw for all, no execute)
-        // Authorization is handled per-request based on peer credentials
+        // Set socket permissions
         chmod(socket, 0o666)
 
-        log("aged daemon starting on \(socket)")
-        log("Database directory: \(database)")
+        syslogService.info("aged daemon starting on \(socket)")
+        syslogService.info("Database directory: \(database)")
 
-        // Create request handler
-        let handler = RequestHandler(storage: storage, verbose: verbose)
+        if verbose || foreground {
+            print("aged daemon starting on \(socket)")
+            print("Database directory: \(database)")
+        }
+
+        // =====================================================================
+        // Phase 2: Enter Capsicum capability mode
+        // =====================================================================
+
+        if !noSandbox {
+            do {
+                try Capsicum.enter()
+                syslogService.info("Entered Capsicum capability mode")
+                if verbose || foreground {
+                    print("Entered Capsicum capability mode")
+                }
+            } catch {
+                syslogService.warning("Failed to enter capability mode: \(error)")
+                if verbose || foreground {
+                    print("Warning: Failed to enter capability mode: \(error)")
+                }
+                // Continue without sandbox
+            }
+        } else {
+            syslogService.warning("Sandbox disabled (--no-sandbox flag)")
+            if verbose || foreground {
+                print("Warning: Sandbox disabled (--no-sandbox flag)")
+            }
+        }
+
+        // =====================================================================
+        // Phase 3: Main loop (sandboxed)
+        // =====================================================================
+
+        // Create request handler with Casper services (transfers ownership)
+        let handler = RequestHandler(
+            storage: storage,
+            pwdService: pwdService,
+            logService: syslogService,
+            verbose: verbose
+        )
 
         // Start listener
         await listener.start()
@@ -94,7 +165,9 @@ struct AgedDaemon: AsyncParsableCommand {
         // Handle signals
         setupSignalHandlers(listener: listener)
 
-        log("Accepting connections...")
+        if verbose || foreground {
+            print("Accepting connections...")
+        }
 
         // Accept connections
         do {
@@ -102,32 +175,116 @@ struct AgedDaemon: AsyncParsableCommand {
             for try await endpoint in connections {
                 // Handle each connection in its own task
                 Task {
-                    await handleConnection(endpoint: endpoint, handler: handler)
+                    await handleConnection(
+                        endpoint: endpoint,
+                        handler: handler,
+                        verbose: verbose
+                    )
                 }
             }
         } catch {
-            log("Listener error: \(error)")
+            if verbose || foreground {
+                print("Listener error: \(error)")
+            }
         }
 
         // Cleanup
         await listener.stop()
-        unlink(socket)
-        log("aged daemon stopped")
+        // Note: Can't unlink(socket) in capability mode - socket will be cleaned up on next start
+        if verbose || foreground {
+            print("aged daemon stopped")
+        }
     }
 
+    // MARK: - Initialization Helpers
+
+    /// Creates the main Casper channel.
+    private func createCasperChannel() throws -> CasperChannel {
+        do {
+            return try CasperChannel.create()
+        } catch {
+            fputs("Error: Failed to create Casper channel: \(error)\n", stderr)
+            fputs("Is casper(8) running?\n", stderr)
+            throw ExitCode.failure
+        }
+    }
+
+    /// Creates and configures the password service.
+    private func createPwdService(casper: borrowing CasperChannel) throws -> CasperPwd {
+        do {
+            let pwdService = try CasperPwd(casper: try casper.clone())
+            // Limit pwd service to only what we need
+            try pwdService.limitCommands([CasperPwd.Command.getpwuid])
+            try pwdService.limitFields([CasperPwd.Field.uid, CasperPwd.Field.gid, CasperPwd.Field.name])
+            return pwdService
+        } catch {
+            fputs("Error: Failed to create pwd service: \(error)\n", stderr)
+            throw ExitCode.failure
+        }
+    }
+
+    /// Ensures the database directory exists with proper permissions.
+    private func ensureDatabaseDirectory(database: String, logger: borrowing CasperSyslog) throws {
+        var st = stat()
+        if stat(database, &st) != 0 {
+            if mkdir(database, 0o700) != 0 {
+                logger.error("Failed to create \(database): \(String(cString: strerror(errno)))")
+                throw ExitCode.failure
+            }
+        } else if (st.st_mode & S_IFMT) != S_IFDIR {
+            logger.error("\(database) exists but is not a directory")
+            throw ExitCode.failure
+        }
+        // Ensure permissions
+        if chmod(database, 0o700) != 0 {
+            logger.error("Failed to set permissions on \(database)")
+            throw ExitCode.failure
+        }
+    }
+
+    /// Opens the database directory as a capability.
+    private func openDatabaseDirectory(path: String, logger: borrowing CasperSyslog) throws -> DirectoryCapability {
+        do {
+            return try DirectoryCapability.open(path: path, flags: [.closeOnExec])
+        } catch {
+            logger.error("Failed to open database directory: \(error)")
+            throw ExitCode.failure
+        }
+    }
+
+    /// Creates the FPC listener.
+    private func createListener(socketPath: String, logger: borrowing CasperSyslog) throws -> FPCListener {
+        do {
+            return try FPCListener.listen(on: socketPath)
+        } catch {
+            logger.error("Failed to create listener: \(error)")
+            throw ExitCode.failure
+        }
+    }
+
+    // MARK: - Connection Handling
+
     /// Handles a single client connection.
-    private func handleConnection(endpoint: FPCEndpoint, handler: RequestHandler) async {
+    private func handleConnection(
+        endpoint: FPCEndpoint,
+        handler: RequestHandler,
+        verbose: Bool
+    ) async {
         // Get peer credentials
         let creds: PeerCredentials
         do {
             creds = try await endpoint.getPeerCredentials()
         } catch {
-            log("Failed to get peer credentials: \(error)")
+            if verbose {
+                print("Failed to get peer credentials: \(error)")
+            }
             await endpoint.stop()
             return
         }
 
-        log("Connection from PID \(creds.pid), UID \(creds.uid)")
+        if verbose {
+            print("Connection from PID \(creds.pid), UID \(creds.uid)")
+        }
 
         await endpoint.start()
 
@@ -143,18 +300,20 @@ struct AgedDaemon: AsyncParsableCommand {
                     )
                 } catch {
                     if verbose {
-                        log("Error handling message: \(error)")
+                        print("Error handling message: \(error)")
                     }
                 }
             }
         } catch {
             if verbose {
-                log("Connection error: \(error)")
+                print("Connection error: \(error)")
             }
         }
 
         await endpoint.stop()
-        log("Connection closed from PID \(creds.pid)")
+        if verbose {
+            print("Connection closed from PID \(creds.pid)")
+        }
     }
 
     /// Sets up signal handlers for graceful shutdown.
@@ -164,12 +323,5 @@ struct AgedDaemon: AsyncParsableCommand {
 
         // TODO: Handle SIGTERM/SIGINT for graceful shutdown
         // This would require a more sophisticated approach with signalfd or kqueue
-    }
-
-    private func log(_ message: String) {
-        if verbose || foreground {
-            let timestamp = ISO8601DateFormatter().string(from: Date())
-            print("[\(timestamp)] \(message)")
-        }
     }
 }

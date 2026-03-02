@@ -8,6 +8,8 @@ import Foundation
 import Glibc
 import FreeBSDKit
 import AgeSignal
+import Capabilities
+import Descriptors
 
 // MARK: - AgeStorage
 
@@ -17,53 +19,34 @@ import AgeSignal
 /// located at `<databasePath>/<uid>`. The attribute contains a 2-byte compact
 /// birthdate (days since Unix epoch in big-endian format).
 ///
+/// ## Capsicum Capability Mode
+///
+/// This actor is designed to work within Capsicum capability mode. It uses a
+/// `DirectoryCapability` for all file operations rather than absolute paths,
+/// allowing it to function after `cap_enter()`.
+///
 /// The database directory and all files are owned by root with mode 0700/0600,
 /// ensuring only the daemon can access the data.
 actor AgeStorage {
-    private let databasePath: String
+    private let directory: DirectoryCapability
     private let namespace: ExtAttrNamespace = .user
     private let attributeName = AgeSignalProtocol.birthdateAttribute
 
     // MARK: - Initialization
 
-    /// Creates a new storage actor.
+    /// Creates a new storage actor with a directory capability.
     ///
-    /// - Parameter databasePath: Path to the database directory (default: `/var/db/aged`)
-    init(databasePath: String = AgeSignalProtocol.databasePath) {
-        self.databasePath = databasePath
+    /// - Parameter directory: A capability for the database directory.
+    ///   This should be opened before entering capability mode.
+    init(directory: consuming DirectoryCapability) {
+        self.directory = directory
     }
 
-    // MARK: - Directory Management
+    // MARK: - File Operations
 
-    /// Ensures the database directory exists with proper permissions.
-    ///
-    /// Creates the directory if it doesn't exist. Sets mode to 0700 (root only).
-    ///
-    /// - Throws: `AgeSignalError.storageError` if the directory cannot be created or secured.
-    func ensureDirectory() throws {
-        var st = stat()
-        if stat(databasePath, &st) == 0 {
-            // Directory exists, verify it's a directory
-            if (st.st_mode & S_IFMT) != S_IFDIR {
-                throw AgeSignalError.storageError("\(databasePath) exists but is not a directory")
-            }
-            // Ensure permissions are correct (0700)
-            if chmod(databasePath, 0o700) != 0 {
-                throw AgeSignalError.storageError("Failed to set permissions on \(databasePath): \(String(cString: strerror(errno)))")
-            }
-        } else {
-            // Create directory
-            if mkdir(databasePath, 0o700) != 0 {
-                throw AgeSignalError.storageError("Failed to create \(databasePath): \(String(cString: strerror(errno)))")
-            }
-        }
-    }
-
-    // MARK: - File Path
-
-    /// Returns the path to the file for a given UID.
-    private func filePath(for uid: UInt32) -> String {
-        "\(databasePath)/\(uid)"
+    /// Returns the filename for a given UID.
+    private func filename(for uid: UInt32) -> String {
+        "\(uid)"
     }
 
     /// Ensures the file for a UID exists.
@@ -73,20 +56,23 @@ actor AgeStorage {
     /// - Parameter uid: The user ID
     /// - Throws: `AgeSignalError.storageError` on failure
     private func ensureFile(for uid: UInt32) throws {
-        let path = filePath(for: uid)
+        let name = filename(for: uid)
 
-        var st = stat()
-        if stat(path, &st) == 0 {
-            // File exists
-            return
+        // Check if file exists
+        do {
+            _ = try directory.stat(path: name)
+            return  // File exists
+        } catch {
+            // File doesn't exist, create it
         }
 
         // Create empty file with mode 0600
-        let fd = open(path, O_CREAT | O_WRONLY | O_CLOEXEC, 0o600)
-        if fd < 0 {
-            throw AgeSignalError.storageError("Failed to create \(path): \(String(cString: strerror(errno)))")
-        }
-        close(fd)
+        let fd = try directory.openFile(
+            path: name,
+            flags: [.create, .writeOnly, .closeOnExec],
+            mode: 0o600
+        )
+        Glibc.close(fd)
     }
 
     // MARK: - Birthdate Operations
@@ -97,21 +83,28 @@ actor AgeStorage {
     /// - Returns: The birthdate, or `nil` if not set
     /// - Throws: `AgeSignalError.storageError` on I/O failure
     func getBirthdate(uid: UInt32) throws -> Birthdate? {
-        let path = filePath(for: uid)
+        let name = filename(for: uid)
 
         // Check if file exists
-        var st = stat()
-        if stat(path, &st) != 0 {
-            if errno == ENOENT {
-                return nil
-            }
-            throw AgeSignalError.storageError("Failed to stat \(path): \(String(cString: strerror(errno)))")
+        do {
+            _ = try directory.stat(path: name)
+        } catch {
+            return nil  // File doesn't exist
         }
 
-        // Get the attribute
+        // Open the file to read extended attributes
+        let fd: Int32
+        do {
+            fd = try directory.openFile(path: name, flags: [.readOnly, .closeOnExec])
+        } catch {
+            return nil
+        }
+        defer { Glibc.close(fd) }
+
+        // Get the attribute using file descriptor
         do {
             guard let data = try ExtendedAttributes.get(
-                path: path,
+                fd: fd,
                 namespace: namespace,
                 name: attributeName
             ) else {
@@ -120,6 +113,10 @@ actor AgeStorage {
 
             return try Birthdate(deserializing: data)
         } catch let error as ExtAttrError {
+            // Check if it's an ENOATTR error (attribute not found)
+            if case .getFailed(_, _, _, let errno) = error, errno == ENOATTR {
+                return nil
+            }
             throw AgeSignalError.storageError("Failed to read birthdate for UID \(uid): \(error)")
         }
     }
@@ -132,12 +129,16 @@ actor AgeStorage {
     /// - Throws: `AgeSignalError.storageError` on I/O failure
     func setBirthdate(uid: UInt32, birthdate: Birthdate) throws {
         try ensureFile(for: uid)
-        let path = filePath(for: uid)
+        let name = filename(for: uid)
         let data = birthdate.serialize()
+
+        // Open the file to set extended attributes
+        let fd = try directory.openFile(path: name, flags: [.writeOnly, .closeOnExec])
+        defer { Glibc.close(fd) }
 
         do {
             try ExtendedAttributes.set(
-                path: path,
+                fd: fd,
                 namespace: namespace,
                 name: attributeName,
                 data: data
@@ -152,30 +153,42 @@ actor AgeStorage {
     /// - Parameter uid: The user ID
     /// - Throws: `AgeSignalError.storageError` on I/O failure
     func removeBirthdate(uid: UInt32) throws {
-        let path = filePath(for: uid)
+        let name = filename(for: uid)
 
         // Check if file exists
-        var st = stat()
-        if stat(path, &st) != 0 {
-            if errno == ENOENT {
-                return  // Nothing to remove
-            }
-            throw AgeSignalError.storageError("Failed to stat \(path): \(String(cString: strerror(errno)))")
+        do {
+            _ = try directory.stat(path: name)
+        } catch {
+            return  // Nothing to remove
         }
+
+        // Open the file to delete the attribute
+        let fd: Int32
+        do {
+            fd = try directory.openFile(path: name, flags: [.writeOnly, .closeOnExec])
+        } catch {
+            return  // Can't open, nothing to remove
+        }
+        defer { Glibc.close(fd) }
 
         // Delete the attribute (idempotent)
         do {
             try ExtendedAttributes.delete(
-                path: path,
+                fd: fd,
                 namespace: namespace,
                 name: attributeName
             )
         } catch let error as ExtAttrError {
-            throw AgeSignalError.storageError("Failed to remove birthdate for UID \(uid): \(error)")
+            // Ignore ENOATTR errors - attribute might not exist
+            if case .deleteFailed(_, _, _, let errno) = error, errno == ENOATTR {
+                // OK - attribute didn't exist
+            } else {
+                throw AgeSignalError.storageError("Failed to remove birthdate for UID \(uid): \(error)")
+            }
         }
 
-        // Optionally delete the empty file too
-        unlink(path)
+        // Delete the empty file using unlinkat
+        try directory.unlink(path: name)
     }
 
     /// Gets the current age bracket for a user.

@@ -9,6 +9,15 @@ import Glibc
 import ArgumentParser
 import AgeSignal
 import FPC
+import Capsicum
+import Casper
+import Audit
+
+// MARK: - Audit Event
+
+/// BSM audit event number for agectl operations.
+/// Uses AUE_audit_user (32767) for application-generated audit records.
+private let AUE_AGECTL: Audit.EventNumber = 32767
 
 // MARK: - AgeCtl
 
@@ -16,6 +25,19 @@ import FPC
 ///
 /// This CLI tool communicates with the aged daemon to set, query, and remove
 /// user birthdates. Most operations require root privileges.
+///
+/// ## Security Model
+///
+/// After parsing arguments and connecting to the daemon, agectl enters
+/// Capsicum capability mode. This prevents any further filesystem access
+/// or network connections - only the pre-opened socket to aged can be used.
+///
+/// Casper services are used for:
+/// - Syslog: Logging operations to system log (works in capability mode)
+/// - Pwd: Username lookups (done before entering capability mode)
+///
+/// Security-relevant operations (set/remove) are logged to syslog and
+/// submitted as BSM audit events.
 @main
 struct AgeCtl: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -33,6 +55,89 @@ struct AgeCtl: AsyncParsableCommand {
             """,
         subcommands: [Query.self, Set.self, Remove.self]
     )
+}
+
+// MARK: - Security Context
+
+/// Security context for sandboxed operations.
+///
+/// This struct holds references to Casper services that work within
+/// Capsicum capability mode. It's created before entering the sandbox
+/// and passed to operations that need logging/audit capabilities.
+struct SecurityContext: ~Copyable {
+    let syslog: CasperSyslog
+
+    init(syslog: consuming CasperSyslog) {
+        self.syslog = syslog
+    }
+
+    /// Logs a message to syslog (auth facility for security events).
+    func logAuth(_ message: String) {
+        syslog.log(.notice, facility: .auth, message)
+    }
+
+    /// Submits a BSM audit event.
+    func audit(message: String, success: Bool, error: Int32 = 0) {
+        do {
+            try Audit.submit(
+                event: AUE_AGECTL,
+                message: message,
+                success: success,
+                error: error
+            )
+        } catch {
+            // Audit failure is not fatal
+        }
+    }
+}
+
+/// Creates the security context (Casper services) before entering sandbox.
+///
+/// - Returns: A SecurityContext, or nil if Casper services unavailable.
+private func createSecurityContext() -> SecurityContext? {
+    do {
+        let casper = try CasperChannel.create()
+        let syslogService = try CasperSyslog(casper: try casper.clone())
+        syslogService.openlog(ident: "agectl", options: [.pid, .ndelay], facility: .auth)
+        return SecurityContext(syslog: syslogService)
+    } catch {
+        // Casper not available - continue without logging
+        return nil
+    }
+}
+
+/// Enters Capsicum capability mode.
+private func enterSandbox() {
+    do {
+        try Capsicum.enter()
+    } catch {
+        // Sandbox failure is not fatal for the client
+    }
+}
+
+// MARK: - User Resolution Helpers
+
+/// Resolves a username to a UID.
+///
+/// - Parameter username: The username to resolve
+/// - Returns: The UID for the username
+/// - Throws: `ValidationError` if the user doesn't exist
+private func resolveUsername(_ username: String) throws -> UInt32 {
+    guard let pwd = getpwnam(username) else {
+        throw ValidationError("User not found: \(username)")
+    }
+    return pwd.pointee.pw_uid
+}
+
+/// Gets the username for a UID.
+///
+/// - Parameter uid: The UID to look up
+/// - Returns: The username, or nil if not found
+private func usernameForUID(_ uid: UInt32) -> String? {
+    guard let pwd = getpwuid(uid) else {
+        return nil
+    }
+    return String(cString: pwd.pointee.pw_name)
 }
 
 // MARK: - Query Command
@@ -62,18 +167,22 @@ extension AgeCtl {
         }
 
         func run() async throws {
-            let targetUID: UInt32?
+            // Phase 1: Pre-sandbox - initialize security context
+            // (Query operations don't need logging, but we create it
+            // anyway for consistency and potential future use)
+            _ = createSecurityContext()
 
-            // Resolve username to UID if provided
-            if let username = username {
-                guard let pwd = getpwnam(username) else {
-                    throw ValidationError("User not found: \(username)")
-                }
-                targetUID = pwd.pointee.pw_uid
-            } else {
-                targetUID = user
-            }
+            // Phase 2: Pre-sandbox - resolve usernames and gather info
+            let myUID = getuid()
+            let myUsername = usernameForUID(myUID)
 
+            // Resolve target username to UID if provided
+            let targetUID: UInt32? = try username.map { try resolveUsername($0) } ?? user
+
+            // Get target user's name for output (before sandbox)
+            let targetUsername = targetUID.flatMap { usernameForUID($0) }
+
+            // Phase 3: Connect to daemon
             let client = AgeSignalClient()
             do {
                 try await client.connect(socketPath: socket)
@@ -83,12 +192,16 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
+            // Phase 4: Enter sandbox - no more filesystem access
+            enterSandbox()
+
             defer {
                 Task {
                     await client.disconnect()
                 }
             }
 
+            // Phase 5: Perform operation (sandboxed)
             let result: AgeSignalResult
             if let uid = targetUID {
                 result = try await client.queryBracket(for: uid)
@@ -96,11 +209,21 @@ extension AgeCtl {
                 result = try await client.queryOwnBracket()
             }
 
+            // Phase 6: Output results
             if json {
-                printJSON(result: result, uid: targetUID ?? UInt32(getuid()))
+                printJSON(result: result, uid: targetUID ?? myUID)
             } else {
-                printHuman(result: result, uid: targetUID)
+                printHuman(
+                    result: result,
+                    targetUID: targetUID,
+                    targetUsername: targetUsername,
+                    myUID: myUID,
+                    myUsername: myUsername
+                )
             }
+
+            // Note: Query operations are not logged/audited as they are
+            // read-only and already authorized by the daemon
         }
 
         private func printJSON(result: AgeSignalResult, uid: UInt32) {
@@ -128,18 +251,23 @@ extension AgeCtl {
             }
         }
 
-        private func printHuman(result: AgeSignalResult, uid: UInt32?) {
+        private func printHuman(
+            result: AgeSignalResult,
+            targetUID: UInt32?,
+            targetUsername: String?,
+            myUID: uid_t,
+            myUsername: String?
+        ) {
             let userDesc: String
-            if let uid = uid {
-                if let pwd = getpwuid(uid) {
-                    userDesc = "\(String(cString: pwd.pointee.pw_name)) (UID \(uid))"
+            if let uid = targetUID {
+                if let name = targetUsername {
+                    userDesc = "\(name) (UID \(uid))"
                 } else {
                     userDesc = "UID \(uid)"
                 }
             } else {
-                let myUID = getuid()
-                if let pwd = getpwuid(myUID) {
-                    userDesc = "\(String(cString: pwd.pointee.pw_name)) (you)"
+                if let name = myUsername {
+                    userDesc = "\(name) (you)"
                 } else {
                     userDesc = "UID \(myUID) (you)"
                 }
@@ -200,16 +328,14 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
-            // Resolve username to UID if provided
-            let targetUID: UInt32
-            if let username = username {
-                guard let pwd = getpwnam(username) else {
-                    throw ValidationError("User not found: \(username)")
-                }
-                targetUID = pwd.pointee.pw_uid
-            } else {
-                targetUID = user!
-            }
+            // Phase 1: Pre-sandbox - initialize security context
+            let securityContext = createSecurityContext()
+
+            // Phase 2: Pre-sandbox - resolve usernames and parse input
+            let targetUID: UInt32 = try username.map { try resolveUsername($0) } ?? user!
+
+            // Get username for output and logging (before sandbox)
+            let targetUsername = usernameForUID(targetUID)
 
             // Parse birthdate
             let bd: Birthdate
@@ -220,6 +346,7 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
+            // Phase 3: Connect to daemon
             let client = AgeSignalClient()
             do {
                 try await client.connect(socketPath: socket)
@@ -228,32 +355,41 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
+            // Phase 4: Enter sandbox
+            enterSandbox()
+
             defer {
                 Task {
                     await client.disconnect()
                 }
             }
 
+            // Phase 5: Perform operation (sandboxed)
+            let userDesc = targetUsername ?? "UID \(targetUID)"
+
             do {
                 try await client.setBirthdate(bd, for: targetUID)
             } catch {
+                // Log failure
+                let message = "agectl: SET_BIRTHDATE failed for \(userDesc): \(error)"
+                securityContext?.logAuth(message)
+                securityContext?.audit(message: message, success: false, error: EPERM)
+
                 fputs("Error: Failed to set birthdate: \(error)\n", stderr)
                 throw ExitCode.failure
             }
 
+            // Phase 6: Log success and output results
             let bracket = bd.currentBracket()
+            let message = "agectl: SET_BIRTHDATE for \(userDesc) (bracket=\(bracket))"
+            securityContext?.logAuth(message)
+            securityContext?.audit(message: message, success: true)
 
             if json {
                 print("""
                 {"status":"ok","uid":\(targetUID),"bracket":"\(bracket.description)","bracket_code":\(bracket.rawValue)}
                 """)
             } else {
-                let userDesc: String
-                if let pwd = getpwuid(targetUID) {
-                    userDesc = String(cString: pwd.pointee.pw_name)
-                } else {
-                    userDesc = "UID \(targetUID)"
-                }
                 print("Birthdate set for \(userDesc)")
                 print("Current age bracket: \(bracket.humanReadable)")
             }
@@ -297,17 +433,16 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
-            // Resolve username to UID if provided
-            let targetUID: UInt32
-            if let username = username {
-                guard let pwd = getpwnam(username) else {
-                    throw ValidationError("User not found: \(username)")
-                }
-                targetUID = pwd.pointee.pw_uid
-            } else {
-                targetUID = user!
-            }
+            // Phase 1: Pre-sandbox - initialize security context
+            let securityContext = createSecurityContext()
 
+            // Phase 2: Pre-sandbox - resolve usernames
+            let targetUID: UInt32 = try username.map { try resolveUsername($0) } ?? user!
+
+            // Get username for output and logging (before sandbox)
+            let targetUsername = usernameForUID(targetUID)
+
+            // Phase 3: Connect to daemon
             let client = AgeSignalClient()
             do {
                 try await client.connect(socketPath: socket)
@@ -316,30 +451,40 @@ extension AgeCtl {
                 throw ExitCode.failure
             }
 
+            // Phase 4: Enter sandbox
+            enterSandbox()
+
             defer {
                 Task {
                     await client.disconnect()
                 }
             }
 
+            // Phase 5: Perform operation (sandboxed)
+            let userDesc = targetUsername ?? "UID \(targetUID)"
+
             do {
                 try await client.removeBirthdate(for: targetUID)
             } catch {
+                // Log failure
+                let message = "agectl: REMOVE_BIRTHDATE failed for \(userDesc): \(error)"
+                securityContext?.logAuth(message)
+                securityContext?.audit(message: message, success: false, error: EPERM)
+
                 fputs("Error: Failed to remove birthdate: \(error)\n", stderr)
                 throw ExitCode.failure
             }
+
+            // Phase 6: Log success and output results
+            let message = "agectl: REMOVE_BIRTHDATE for \(userDesc)"
+            securityContext?.logAuth(message)
+            securityContext?.audit(message: message, success: true)
 
             if json {
                 print("""
                 {"status":"ok","uid":\(targetUID)}
                 """)
             } else {
-                let userDesc: String
-                if let pwd = getpwuid(targetUID) {
-                    userDesc = String(cString: pwd.pointee.pw_name)
-                } else {
-                    userDesc = "UID \(targetUID)"
-                }
                 print("Birthdate removed for \(userDesc)")
             }
         }
