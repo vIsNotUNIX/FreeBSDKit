@@ -15,10 +15,10 @@ import Glibc
 ///
 /// ## Quick Start
 ///
-/// For simple cases, use `DScript.run()` directly:
+/// For simple cases, use `DBlocks.run()` directly:
 ///
 /// ```swift
-/// try DScript.run {
+/// try DBlocks.run {
 ///     Probe("syscall:::entry") { Count() }
 ///     Tick(5, .seconds) { Exit(0) }
 /// }
@@ -65,7 +65,7 @@ import Glibc
 /// ```
 public struct DTraceSession: ~Copyable {
     private var handle: DTraceHandle
-    private var scripts: [DScript] = []
+    private var scripts: [DBlocks] = []
     private var isEnabled: Bool = false
     private var outputDestination: DTraceOutput = .stdout
 
@@ -150,7 +150,7 @@ public struct DTraceSession: ~Copyable {
     /// var session = try DTraceSession()
     /// session.add(script)
     /// ```
-    public mutating func add(_ script: DScript) {
+    public mutating func add(_ script: DBlocks) {
         scripts.append(script)
     }
 
@@ -164,8 +164,8 @@ public struct DTraceSession: ~Copyable {
     ///     }
     /// }
     /// ```
-    public mutating func add(@DScriptBuilder _ builder: () -> [ProbeClause]) {
-        scripts.append(DScript(builder))
+    public mutating func add(@DBlocksBuilder _ builder: () -> [ProbeClause]) {
+        scripts.append(DBlocks(builder))
     }
 
     // MARK: - Execution (Simple)
@@ -373,7 +373,7 @@ public struct DTraceSession: ~Copyable {
     // MARK: - Introspection
 
     /// Returns all scripts added to this session.
-    public var allScripts: [DScript] {
+    public var allScripts: [DBlocks] {
         scripts
     }
 
@@ -387,4 +387,4 @@ public struct DTraceSession: ~Copyable {
 
 /// Deprecated: Use `DTraceSession` instead.
 @available(*, deprecated, renamed: "DTraceSession")
-public typealias DScriptSession = DTraceSession
+public typealias DBlocksSession = DTraceSession

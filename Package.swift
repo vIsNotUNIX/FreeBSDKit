@@ -66,8 +66,8 @@ let package = Package(
             targets: ["DTraceCore"]
         ),
         .library(
-            name: "DScript",
-            targets: ["DScript"]
+            name: "DBlocks",
+            targets: ["DBlocks"]
         ),
         .library(
             name: "AgeSignal",
@@ -321,7 +321,7 @@ let package = Package(
             dependencies: ["CDTrace"]
         ),
         .target(
-            name: "DScript",
+            name: "DBlocks",
             dependencies: ["DTraceCore", "FreeBSDKit"]
         ),
         .testTarget(
@@ -329,8 +329,8 @@ let package = Package(
             dependencies: ["DTraceCore"]
         ),
         .testTarget(
-            name: "DScriptTests",
-            dependencies: ["DScript", "Descriptors", "Capabilities"]
+            name: "DBlocksTests",
+            dependencies: ["DBlocks", "Descriptors", "Capabilities"]
         ),
         .target(
             name: "AgeSignal",
@@ -368,9 +368,9 @@ let package = Package(
             path: "Sources/dprobes-cli"
         ),
         .executableTarget(
-            name: "dscript-examples",
-            dependencies: ["DScript"],
-            path: "Examples/DScriptExamples"
+            name: "dblocks-examples",
+            dependencies: ["DBlocks"],
+            path: "Examples/DBlocksExamples"
         ),
         .testTarget(
             name: "DProbesCLITests",

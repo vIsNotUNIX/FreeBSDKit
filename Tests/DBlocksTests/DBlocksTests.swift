@@ -7,7 +7,7 @@
 import Testing
 import Glibc
 import Foundation
-@testable import DScript
+@testable import DBlocks
 
 @Suite("DTraceTarget Tests")
 struct DTraceTargetTests {
@@ -364,7 +364,7 @@ struct DTraceSessionTests {
     @Test("Session script methods exist")
     func testSessionScriptMethods() {
         // Verify add method signatures exist
-        func verifyAddScript(_: (inout DTraceSession, DScript) -> Void) {}
+        func verifyAddScript(_: (inout DTraceSession, DBlocks) -> Void) {}
 
         #expect(true, "Script methods verified via static type checking")
     }
@@ -383,10 +383,10 @@ struct DTraceSessionTests {
         #expect(true, "Execution methods verified via static type checking")
     }
 
-    @Test("DScript run methods exist")
-    func testDScriptRunMethods() {
-        // Verify DScript has run/capture methods
-        let script = DScript {
+    @Test("DBlocks run methods exist")
+    func testDBlocksRunMethods() {
+        // Verify DBlocks has run/capture methods
+        let script = DBlocks {
             Probe("syscall:::entry") { Count() }
         }
 
@@ -396,34 +396,34 @@ struct DTraceSessionTests {
         _ = script.capture as () throws -> String
         _ = script.capture as (TimeInterval) throws -> String
 
-        #expect(true, "DScript run methods verified")
+        #expect(true, "DBlocks run methods verified")
     }
 
-    @Test("DScript static run methods exist")
-    func testDScriptStaticRunMethods() {
-        // Verify DScript has static run/capture methods
-        _ = DScript.run as (@escaping () -> [ProbeClause]) throws -> Void
-        _ = DScript.run as (TimeInterval, @escaping () -> [ProbeClause]) throws -> Void
-        _ = DScript.capture as (@escaping () -> [ProbeClause]) throws -> String
-        _ = DScript.capture as (TimeInterval, @escaping () -> [ProbeClause]) throws -> String
+    @Test("DBlocks static run methods exist")
+    func testDBlocksStaticRunMethods() {
+        // Verify DBlocks has static run/capture methods
+        _ = DBlocks.run as (@escaping () -> [ProbeClause]) throws -> Void
+        _ = DBlocks.run as (TimeInterval, @escaping () -> [ProbeClause]) throws -> Void
+        _ = DBlocks.capture as (@escaping () -> [ProbeClause]) throws -> String
+        _ = DBlocks.capture as (TimeInterval, @escaping () -> [ProbeClause]) throws -> String
 
-        #expect(true, "DScript static run methods verified")
+        #expect(true, "DBlocks static run methods verified")
     }
 
     @Test("Deprecated typealias exists")
     func testDeprecatedTypealias() {
-        // DScriptSession should be a typealias for DTraceSession
-        let _: DScriptSession.Type = DTraceSession.self
+        // DBlocksSession should be a typealias for DTraceSession
+        let _: DBlocksSession.Type = DTraceSession.self
         #expect(true, "Deprecated typealias exists")
     }
 }
 
-@Suite("DScript Module Tests")
-struct DScriptModuleTests {
+@Suite("DBlocks Module Tests")
+struct DBlocksModuleTests {
 
     @Test("DTraceCore is re-exported")
     func testDTraceCoreReExported() {
-        // Verify DTraceCore types are accessible via DScript
+        // Verify DTraceCore types are accessible via DBlocks
         let version = DTraceCore.version
         #expect(version > 0)
 
@@ -432,17 +432,17 @@ struct DScriptModuleTests {
     }
 }
 
-// MARK: - DScript Validation Tests
+// MARK: - DBlocks Validation Tests
 
-@Suite("DScript Validation Tests")
-struct DScriptValidationTests {
+@Suite("DBlocks Validation Tests")
+struct DBlocksValidationTests {
 
     @Test("Empty script throws emptyScript error")
     func testEmptyScriptThrows() {
         // Create an empty script programmatically (can't do with builder)
-        let script = DScript { }
+        let script = DBlocks { }
 
-        #expect(throws: DScriptError.self) {
+        #expect(throws: DBlocksError.self) {
             try script.validate()
         }
     }
@@ -452,8 +452,8 @@ struct DScriptValidationTests {
         // Create a probe clause with no actions programmatically
         let clause = ProbeClause(probe: "syscall:::entry", predicates: ["pid == 1234"], actions: [])
 
-        // We need to create a DScript with this clause
-        // Since DScript uses a builder, we'll test the clause directly
+        // We need to create a DBlocks with this clause
+        // Since DBlocks uses a builder, we'll test the clause directly
         #expect(clause.actions.isEmpty)
 
         // Create script with the empty-action clause
@@ -462,18 +462,18 @@ struct DScriptValidationTests {
 
             func validate() throws {
                 if clauses.isEmpty {
-                    throw DScriptError.emptyScript
+                    throw DBlocksError.emptyScript
                 }
                 for (index, clause) in clauses.enumerated() {
                     if clause.actions.isEmpty {
-                        throw DScriptError.emptyClause(probe: clause.probe, index: index)
+                        throw DBlocksError.emptyClause(probe: clause.probe, index: index)
                     }
                 }
             }
         }
 
         let testScript = TestScript(clauses: [clause])
-        #expect(throws: DScriptError.self) {
+        #expect(throws: DBlocksError.self) {
             try testScript.validate()
         }
     }
@@ -491,17 +491,17 @@ struct DScriptValidationTests {
         #expect(clause.actions.isEmpty)
     }
 
-    @Test("DScriptError descriptions are meaningful")
+    @Test("DBlocksError descriptions are meaningful")
     func testErrorDescriptions() {
-        let emptyError = DScriptError.emptyScript
+        let emptyError = DBlocksError.emptyScript
         #expect(emptyError.description.contains("no probe clauses"))
 
-        let emptyClauseError = DScriptError.emptyClause(probe: "syscall:::entry", index: 0)
+        let emptyClauseError = DBlocksError.emptyClause(probe: "syscall:::entry", index: 0)
         #expect(emptyClauseError.description.contains("syscall:::entry"))
         #expect(emptyClauseError.description.contains("0"))
         #expect(emptyClauseError.description.contains("no actions"))
 
-        let compileError = DScriptError.compilationFailed(
+        let compileError = DBlocksError.compilationFailed(
             source: "invalid:::probe { }",
             error: "syntax error"
         )
@@ -511,7 +511,7 @@ struct DScriptValidationTests {
 
     @Test("Script compile() method exists")
     func testCompileMethodExists() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -524,7 +524,7 @@ struct DScriptValidationTests {
 
     @Test("Valid script with action passes validation")
     func testValidScriptPasses() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -538,7 +538,7 @@ struct DScriptValidationTests {
 
     @Test("Valid script with multiple probes passes")
     func testMultipleProbesPasses() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Timestamp()
             }
@@ -554,7 +554,7 @@ struct DScriptValidationTests {
 
     @Test("Script data conversion works")
     func testScriptDataConversion() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -571,7 +571,7 @@ struct DScriptValidationTests {
 
     @Test("Script null-terminated data works")
     func testScriptNullTerminatedData() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -584,7 +584,7 @@ struct DScriptValidationTests {
 
     @Test("Script JSON data is valid JSON")
     func testScriptJSONDataValid() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
                 Count(by: "probefunc")
@@ -608,13 +608,13 @@ struct DScriptValidationTests {
 
     @Test("Script write to file works")
     func testScriptWriteToFile() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
         }
 
-        let testPath = "/tmp/dscript_test_\(getpid()).d"
+        let testPath = "/tmp/dblocks_test_\(getpid()).d"
         defer { unlink(testPath) }
 
         try script.write(to: testPath)
@@ -624,14 +624,14 @@ struct DScriptValidationTests {
     }
 }
 
-// MARK: - DScript ResultBuilder Tests
+// MARK: - DBlocks ResultBuilder Tests
 
-@Suite("DScript ResultBuilder Tests")
-struct DScriptResultBuilderTests {
+@Suite("DBlocks ResultBuilder Tests")
+struct DBlocksResultBuilderTests {
 
     @Test("Simple script with single probe")
     func testSimpleScript() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count(by: "probefunc")
             }
@@ -644,7 +644,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with target predicate")
     func testScriptWithTarget() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
                 Count(by: "probefunc")
@@ -658,7 +658,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with When predicate")
     func testScriptWithWhen() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:return") {
                 When("arg0 > 0")
                 Sum("arg0", by: "execname")
@@ -672,7 +672,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with multiple predicates")
     func testScriptWithMultiplePredicates() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
                 When("arg0 > 0")
@@ -688,7 +688,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with multiple actions")
     func testScriptWithMultipleActions() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Action("self->ts = timestamp;")
                 Action("self->fd = arg0;")
@@ -702,7 +702,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with multiple probes")
     func testScriptWithMultipleProbes() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Target(.execname("postgres"))
                 Timestamp()
@@ -723,7 +723,7 @@ struct DScriptResultBuilderTests {
 
     @Test("All aggregation types")
     func testAllAggregationTypes() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("test:::probe") {
                 Count(by: "a")
             }
@@ -759,7 +759,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Printf action")
     func testPrintfAction() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::open:entry") {
                 Printf("%s[%d]: %s", "execname", "pid", "copyinstr(arg0)")
             }
@@ -774,7 +774,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Trace action")
     func testTraceAction() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Trace("arg0")
             }
@@ -786,7 +786,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Stack trace actions")
     func testStackTraceActions() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("fbt:::entry") {
                 Stack()
             }
@@ -802,7 +802,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Timestamp and Latency helpers")
     func testTimestampAndLatency() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Timestamp()
             }
@@ -820,7 +820,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Custom Timestamp variable")
     func testCustomTimestampVariable() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Timestamp("self->read_start")
             }
@@ -832,7 +832,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script validation - passes for valid script")
     func testValidationPasses() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -843,7 +843,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script validation - passes with multiple valid probes")
     func testValidationMultipleProbes() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Timestamp()
             }
@@ -858,7 +858,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script validation - passes with predicate only actions")
     func testValidationPredicateWithAction() throws {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
                 When("arg0 > 0")
@@ -869,9 +869,9 @@ struct DScriptResultBuilderTests {
         try script.validate()
     }
 
-    @Test("DScript description matches source")
+    @Test("DBlocks description matches source")
     func testDescription() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("test:::probe") {
                 Count()
             }
@@ -882,7 +882,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined syscallCounts script")
     func testPredefinedSyscallCounts() {
-        let script = DScript.syscallCounts(for: .execname("nginx"))
+        let script = DBlocks.syscallCounts(for: .execname("nginx"))
         let source = script.source
 
         #expect(source.contains("syscall:freebsd::entry"))
@@ -892,7 +892,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined syscallCounts without target")
     func testPredefinedSyscallCountsNoTarget() {
-        let script = DScript.syscallCounts()
+        let script = DBlocks.syscallCounts()
         let source = script.source
 
         #expect(source.contains("syscall:freebsd::entry"))
@@ -902,7 +902,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined fileOpens script")
     func testPredefinedFileOpens() {
-        let script = DScript.fileOpens(for: .pid(1234))
+        let script = DBlocks.fileOpens(for: .pid(1234))
         let source = script.source
 
         #expect(source.contains("syscall:freebsd:open"))
@@ -912,7 +912,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined cpuProfile script")
     func testPredefinedCpuProfile() {
-        let script = DScript.cpuProfile(hz: 99, for: .uid(0))
+        let script = DBlocks.cpuProfile(hz: 99, for: .uid(0))
         let source = script.source
 
         #expect(source.contains("profile-99"))
@@ -922,7 +922,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined processExec script")
     func testPredefinedProcessExec() {
-        let script = DScript.processExec()
+        let script = DBlocks.processExec()
         let source = script.source
 
         #expect(source.contains("proc:::exec-success"))
@@ -931,7 +931,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined ioBytes script")
     func testPredefinedIoBytes() {
-        let script = DScript.ioBytes(for: .execname("postgres"))
+        let script = DBlocks.ioBytes(for: .execname("postgres"))
         let source = script.source
 
         #expect(source.contains("syscall:freebsd:read:return"))
@@ -942,7 +942,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Predefined syscallLatency script")
     func testPredefinedSyscallLatency() {
-        let script = DScript.syscallLatency("write", for: .jail(1))
+        let script = DBlocks.syscallLatency("write", for: .jail(1))
         let source = script.source
 
         #expect(source.contains("syscall:freebsd:write:entry"))
@@ -954,7 +954,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Complex combined predicates")
     func testComplexCombinedPredicates() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("nginx") || .execname("apache"))
                 When("arg0 > 0")
@@ -971,7 +971,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Script with raw action code")
     func testRawActionCode() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::open:entry") {
                 Action("""
                     self->path = copyinstr(arg0);
@@ -989,7 +989,7 @@ struct DScriptResultBuilderTests {
 
     @Test("Output format is correct D syntax")
     func testOutputFormatIsValidD() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Target(.execname("test"))
                 When("arg0 > 0")
@@ -1014,14 +1014,14 @@ struct DScriptResultBuilderTests {
     }
 }
 
-// MARK: - New DScript Features Tests
+// MARK: - New DBlocks Features Tests
 
-@Suite("DScript Special Clauses Tests")
-struct DScriptSpecialClausesTests {
+@Suite("DBlocks Special Clauses Tests")
+struct DBlocksSpecialClausesTests {
 
     @Test("BEGIN clause generates correct syntax")
     func testBEGINClause() {
-        let script = DScript {
+        let script = DBlocks {
             BEGIN {
                 Printf("Starting trace...")
             }
@@ -1038,7 +1038,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("END clause generates correct syntax")
     func testENDClause() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -1055,7 +1055,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("ERROR clause generates correct syntax")
     func testERRORClause() {
-        let script = DScript {
+        let script = DBlocks {
             ERROR {
                 Printf("Error occurred")
             }
@@ -1070,7 +1070,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("Tick clause with seconds")
     func testTickSeconds() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(1, .seconds) {
                 Printa()
             }
@@ -1083,7 +1083,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("Tick clause with hz")
     func testTickHz() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(hz: 100) {
                 Count()
             }
@@ -1095,13 +1095,13 @@ struct DScriptSpecialClausesTests {
 
     @Test("Tick clause with various time units")
     func testTickTimeUnits() {
-        let ns = DScript { Tick(1000, .nanoseconds) { Count() } }
-        let us = DScript { Tick(100, .microseconds) { Count() } }
-        let ms = DScript { Tick(10, .milliseconds) { Count() } }
-        let sec = DScript { Tick(1, .seconds) { Count() } }
-        let min = DScript { Tick(1, .minutes) { Count() } }
-        let hr = DScript { Tick(1, .hours) { Count() } }
-        let day = DScript { Tick(1, .days) { Count() } }
+        let ns = DBlocks { Tick(1000, .nanoseconds) { Count() } }
+        let us = DBlocks { Tick(100, .microseconds) { Count() } }
+        let ms = DBlocks { Tick(10, .milliseconds) { Count() } }
+        let sec = DBlocks { Tick(1, .seconds) { Count() } }
+        let min = DBlocks { Tick(1, .minutes) { Count() } }
+        let hr = DBlocks { Tick(1, .hours) { Count() } }
+        let day = DBlocks { Tick(1, .days) { Count() } }
 
         #expect(ns.source.contains("tick-1000ns"))
         #expect(us.source.contains("tick-100us"))
@@ -1114,7 +1114,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("Profile clause generates correct syntax")
     func testProfileClause() {
-        let script = DScript {
+        let script = DBlocks {
             Profile(hz: 997) {
                 When("arg0")
                 Count(by: "stack()")
@@ -1127,7 +1127,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("Profile clause with seconds")
     func testProfileSeconds() {
-        let script = DScript {
+        let script = DBlocks {
             Profile(seconds: 1) {
                 Count()
             }
@@ -1139,7 +1139,7 @@ struct DScriptSpecialClausesTests {
 
     @Test("Combined BEGIN, probes, Tick, and END")
     func testCombinedClauses() {
-        let script = DScript {
+        let script = DBlocks {
             BEGIN {
                 Printf("Started")
             }
@@ -1166,12 +1166,12 @@ struct DScriptSpecialClausesTests {
     }
 }
 
-@Suite("DScript Named and Multi-Key Aggregations Tests")
-struct DScriptAggregationTests {
+@Suite("DBlocks Named and Multi-Key Aggregations Tests")
+struct DBlocksAggregationTests {
 
     @Test("Named aggregation with into:")
     func testNamedAggregation() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count(by: "probefunc", into: "syscalls")
             }
@@ -1183,7 +1183,7 @@ struct DScriptAggregationTests {
 
     @Test("Multi-key aggregation")
     func testMultiKeyAggregation() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count(by: ["execname", "probefunc"])
             }
@@ -1195,7 +1195,7 @@ struct DScriptAggregationTests {
 
     @Test("Named multi-key aggregation")
     func testNamedMultiKeyAggregation() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count(by: ["execname", "probefunc"], into: "calls")
             }
@@ -1207,7 +1207,7 @@ struct DScriptAggregationTests {
 
     @Test("Sum with named and multi-key")
     func testSumNamedMultiKey() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:return") {
                 Sum("arg0", by: ["execname", "probefunc"], into: "bytes")
             }
@@ -1219,7 +1219,7 @@ struct DScriptAggregationTests {
 
     @Test("All aggregation types with into:")
     func testAllAggregationsWithInto() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("test:::probe") {
                 Count(by: "k", into: "cnt")
             }
@@ -1251,7 +1251,7 @@ struct DScriptAggregationTests {
 
     @Test("Simple count without keys")
     func testSimpleCount() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Count()
             }
@@ -1262,12 +1262,12 @@ struct DScriptAggregationTests {
     }
 }
 
-@Suite("DScript Variables Tests")
-struct DScriptVariablesTests {
+@Suite("DBlocks Variables Tests")
+struct DBlocksVariablesTests {
 
     @Test("Thread-local variable")
     func testThreadLocalVariable() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::read:entry") {
                 Assign(.thread("ts"), to: "timestamp")
             }
@@ -1279,7 +1279,7 @@ struct DScriptVariablesTests {
 
     @Test("Clause-local variable")
     func testClauseLocalVariable() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall:::entry") {
                 Assign(.clause("start"), to: "vtimestamp")
             }
@@ -1291,7 +1291,7 @@ struct DScriptVariablesTests {
 
     @Test("Global variable")
     func testGlobalVariable() {
-        let script = DScript {
+        let script = DBlocks {
             BEGIN {
                 Assign(.global("total"), to: "0")
             }
@@ -1317,12 +1317,12 @@ struct DScriptVariablesTests {
     }
 }
 
-@Suite("DScript Control Actions Tests")
-struct DScriptControlActionsTests {
+@Suite("DBlocks Control Actions Tests")
+struct DBlocksControlActionsTests {
 
     @Test("Exit action")
     func testExitAction() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(60, .seconds) {
                 Exit(0)
             }
@@ -1334,7 +1334,7 @@ struct DScriptControlActionsTests {
 
     @Test("Exit with custom status")
     func testExitWithStatus() {
-        let script = DScript {
+        let script = DBlocks {
             ERROR {
                 Exit(1)
             }
@@ -1346,7 +1346,7 @@ struct DScriptControlActionsTests {
 
     @Test("Stop action")
     func testStopAction() {
-        let script = DScript {
+        let script = DBlocks {
             Probe("syscall::exit:entry") {
                 Stop()
             }
@@ -1357,12 +1357,12 @@ struct DScriptControlActionsTests {
     }
 }
 
-@Suite("DScript Aggregation Operations Tests")
-struct DScriptAggregationOperationsTests {
+@Suite("DBlocks Aggregation Operations Tests")
+struct DBlocksAggregationOperationsTests {
 
     @Test("Printa all aggregations")
     func testPrintaAll() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Printa()
             }
@@ -1374,7 +1374,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Printa named aggregation")
     func testPrintaNamed() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(1, .seconds) {
                 Printa("calls")
             }
@@ -1386,7 +1386,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Printa with format")
     func testPrintaWithFormat() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Printa("%s: %@count\\n", "calls")
             }
@@ -1398,7 +1398,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Clear all aggregations")
     func testClearAll() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(1, .seconds) {
                 Printa()
                 Clear()
@@ -1411,7 +1411,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Clear named aggregation")
     func testClearNamed() {
-        let script = DScript {
+        let script = DBlocks {
             Tick(1, .seconds) {
                 Clear("calls")
             }
@@ -1423,7 +1423,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Trunc aggregation")
     func testTrunc() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Trunc("calls", 10)
                 Printa("calls")
@@ -1436,7 +1436,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Trunc all to N")
     func testTruncAllToN() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Trunc(5)
             }
@@ -1448,7 +1448,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Normalize aggregation")
     func testNormalize() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Normalize("latency", 1_000_000)
                 Printa("latency")
@@ -1461,7 +1461,7 @@ struct DScriptAggregationOperationsTests {
 
     @Test("Denormalize aggregation")
     func testDenormalize() {
-        let script = DScript {
+        let script = DBlocks {
             END {
                 Denormalize("latency")
             }
@@ -1472,8 +1472,8 @@ struct DScriptAggregationOperationsTests {
     }
 }
 
-@Suite("DScript Time Units Tests")
-struct DScriptTimeUnitsTests {
+@Suite("DBlocks Time Units Tests")
+struct DBlocksTimeUnitsTests {
 
     @Test("All time unit raw values")
     func testTimeUnitRawValues() {
@@ -1497,21 +1497,21 @@ struct DScriptTimeUnitsTests {
 
 // MARK: - Composable API Tests
 
-@Suite("DScript Composable API Tests")
-struct DScriptComposableAPITests {
+@Suite("DBlocks Composable API Tests")
+struct DBlocksComposableAPITests {
 
-    // MARK: - DScript Composition
+    // MARK: - DBlocks Composition
 
-    @Test("Empty DScript initialization")
+    @Test("Empty DBlocks initialization")
     func testEmptyInit() {
-        let script = DScript()
+        let script = DBlocks()
         #expect(script.clauses.isEmpty)
         #expect(script.source.isEmpty)
     }
 
-    @Test("Add probe clause to DScript")
+    @Test("Add probe clause to DBlocks")
     func testAddProbeClause() {
-        var script = DScript()
+        var script = DBlocks()
         script.add(Probe("syscall:::entry") { Count() })
 
         #expect(script.clauses.count == 1)
@@ -1521,7 +1521,7 @@ struct DScriptComposableAPITests {
 
     @Test("Add probe with builder syntax")
     func testAddProbeWithBuilder() {
-        var script = DScript()
+        var script = DBlocks()
         script.add("syscall:::entry") {
             Count(by: "probefunc")
         }
@@ -1532,10 +1532,10 @@ struct DScriptComposableAPITests {
 
     @Test("Merge two scripts")
     func testMergeScripts() {
-        var script1 = DScript {
+        var script1 = DBlocks {
             BEGIN { Printf("Starting...") }
         }
-        let script2 = DScript {
+        let script2 = DBlocks {
             Probe("syscall:::entry") { Count() }
         }
 
@@ -1548,7 +1548,7 @@ struct DScriptComposableAPITests {
 
     @Test("Adding clause returns new script")
     func testAddingClause() {
-        let base = DScript {
+        let base = DBlocks {
             BEGIN { Printf("Starting...") }
         }
         let extended = base.adding(Probe("syscall:::entry") { Count() })
@@ -1561,8 +1561,8 @@ struct DScriptComposableAPITests {
 
     @Test("Merging returns new script")
     func testMergingScripts() {
-        let script1 = DScript { BEGIN { Printf("Start") } }
-        let script2 = DScript { END { Printf("End") } }
+        let script1 = DBlocks { BEGIN { Printf("Start") } }
+        let script2 = DBlocks { END { Printf("End") } }
 
         let combined = script1.merging(script2)
 
@@ -1575,9 +1575,9 @@ struct DScriptComposableAPITests {
 
     @Test("Plus operator combines scripts")
     func testPlusOperator() {
-        let script = DScript { BEGIN { Printf("Start") } }
-                   + DScript { Probe("syscall:::entry") { Count() } }
-                   + DScript { END { Printf("End") } }
+        let script = DBlocks { BEGIN { Printf("Start") } }
+                   + DBlocks { Probe("syscall:::entry") { Count() } }
+                   + DBlocks { END { Printf("End") } }
 
         #expect(script.clauses.count == 3)
         #expect(script.source.contains("BEGIN"))
@@ -1587,17 +1587,17 @@ struct DScriptComposableAPITests {
 
     @Test("Plus equals operator appends")
     func testPlusEqualsOperator() {
-        var script = DScript { BEGIN { Printf("Start") } }
-        script += DScript { Probe("syscall:::entry") { Count() } }
+        var script = DBlocks { BEGIN { Printf("Start") } }
+        script += DBlocks { Probe("syscall:::entry") { Count() } }
 
         #expect(script.clauses.count == 2)
     }
 
     @Test("Combine predefined scripts")
     func testCombinePredefinedScripts() {
-        let script = DScript { BEGIN { Printf("Tracing...") } }
-                   + DScript.syscallCounts(for: .execname("nginx"))
-                   + DScript { Tick(5, .seconds) { Exit(0) } }
+        let script = DBlocks { BEGIN { Printf("Tracing...") } }
+                   + DBlocks.syscallCounts(for: .execname("nginx"))
+                   + DBlocks { Tick(5, .seconds) { Exit(0) } }
 
         #expect(script.source.contains("BEGIN"))
         #expect(script.source.contains("syscall:freebsd::entry"))
@@ -1703,7 +1703,7 @@ struct DScriptComposableAPITests {
         clause.add(When("arg0 > 0"))
         clause.add(Count(by: "probefunc"))
 
-        var script = DScript()
+        var script = DBlocks()
         script.add(clause)
 
         let source = script.source
@@ -1717,7 +1717,7 @@ struct DScriptComposableAPITests {
 
     @Test("JSON round-trip preserves script")
     func testJSONRoundTrip() throws {
-        let original = DScript {
+        let original = DBlocks {
             BEGIN { Printf("Starting...") }
             Probe("syscall:::entry") {
                 Target(.execname("nginx"))
@@ -1727,7 +1727,7 @@ struct DScriptComposableAPITests {
         }
 
         let jsonData = try original.jsonData()
-        let restored = try DScript(jsonData: jsonData)
+        let restored = try DBlocks(jsonData: jsonData)
 
         #expect(restored.clauses.count == original.clauses.count)
         for (i, clause) in restored.clauses.enumerated() {
@@ -1752,7 +1752,7 @@ struct DScriptComposableAPITests {
         }
         """
 
-        let script = try DScript(jsonData: json.data(using: .utf8)!)
+        let script = try DBlocks(jsonData: json.data(using: .utf8)!)
 
         #expect(script.clauses.count == 1)
         #expect(script.clauses[0].probe == "syscall:::entry")
@@ -1763,7 +1763,7 @@ struct DScriptComposableAPITests {
     @Test("Invalid JSON throws error")
     func testInvalidJSONThrows() {
         #expect(throws: DecodingError.self) {
-            _ = try DScript(jsonData: "not valid json".data(using: .utf8)!)
+            _ = try DBlocks(jsonData: "not valid json".data(using: .utf8)!)
         }
     }
 
@@ -1779,7 +1779,7 @@ struct DScriptComposableAPITests {
         """
 
         #expect(throws: DecodingError.self) {
-            _ = try DScript(jsonData: json.data(using: .utf8)!)
+            _ = try DBlocks(jsonData: json.data(using: .utf8)!)
         }
     }
 
@@ -1795,14 +1795,14 @@ struct DScriptComposableAPITests {
         """
 
         #expect(throws: DecodingError.self) {
-            _ = try DScript(jsonData: json.data(using: .utf8)!)
+            _ = try DBlocks(jsonData: json.data(using: .utf8)!)
         }
     }
 
     @Test("Modify script via JSON")
     func testModifyViaJSON() throws {
         // Create initial script
-        let original = DScript {
+        let original = DBlocks {
             Probe("syscall:::entry") { Count() }
         }
 
@@ -1822,15 +1822,15 @@ struct DScriptComposableAPITests {
         json["clauses"] = clauses
 
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
-        let modified = try DScript(jsonData: modifiedData)
+        let modified = try DBlocks(jsonData: modifiedData)
 
         #expect(modified.clauses.count == 2)
         #expect(modified.clauses[1].probe == "syscall:::return")
     }
 
-    @Test("DScriptError invalidJSON description")
+    @Test("DBlocksError invalidJSON description")
     func testInvalidJSONErrorDescription() {
-        let error = DScriptError.invalidJSON("test message")
+        let error = DBlocksError.invalidJSON("test message")
         #expect(error.description.contains("Invalid JSON"))
         #expect(error.description.contains("test message"))
     }

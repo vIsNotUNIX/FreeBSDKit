@@ -1,11 +1,11 @@
 /*
- * DScript API Examples
+ * DBlocks API Examples
  *
- * This file demonstrates the DScript API at various complexity levels.
- * Run with: sudo .build/debug/dscript-examples
+ * This file demonstrates the DBlocks API at various complexity levels.
+ * Run with: sudo .build/debug/dblocks-examples
  */
 
-import DScript
+import DBlocks
 import Foundation
 
 // MARK: - Example 1: Minimal (Print D source only)
@@ -15,7 +15,7 @@ func example1_minimal() {
     print("EXAMPLE 1: Minimal - Count syscalls")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall:::entry") {
             Count(by: "probefunc")
         }
@@ -34,7 +34,7 @@ func example2_withTarget() {
     print("=" .repeating(60))
 
     // Filter to a specific process
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall:::entry") {
             Target(.execname("sh"))
             Count(by: "probefunc")
@@ -53,7 +53,7 @@ func example3_beginEnd() {
     print("EXAMPLE 3: BEGIN/END Clauses")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         BEGIN {
             Printf("Starting syscall trace...")
         }
@@ -80,7 +80,7 @@ func example4_timedWithTick() {
     print("EXAMPLE 4: Timed Execution (5 seconds)")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall:::entry") {
             Count(by: "probefunc", into: "calls")
         }
@@ -110,7 +110,7 @@ func example5_latency() {
     print("EXAMPLE 5: Syscall Latency Measurement")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         // Record timestamp at entry
         Probe("syscall::read:entry") {
             Timestamp()
@@ -140,7 +140,7 @@ func example6_multipleAggregations() {
     print("EXAMPLE 6: Multiple Aggregations")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall::read:return") {
             When("arg0 > 0")
             Count(by: "execname", into: "reads")
@@ -178,7 +178,7 @@ func example7_fileOpens() {
     print("EXAMPLE 7: File Opens Tracing")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall::open:entry") {
             Printf("%s[%d] opening: %s", "execname", "pid", "copyinstr(arg0)")
         }
@@ -208,7 +208,7 @@ func example8_combinedTargets() {
     let webServers = DTraceTarget.execname("nginx") || .execname("httpd")
     let asWww = webServers && .uid(80)
 
-    let script = DScript {
+    let script = DBlocks {
         Probe("syscall:::entry") {
             Target(asWww)
             Count(by: ["execname", "probefunc"])
@@ -232,7 +232,7 @@ func example9_cpuProfile() {
     print("EXAMPLE 9: CPU Profiling (997 Hz sampling)")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         Profile(hz: 997) {
             When("arg1")  // User-space samples only (arg1 = user PC)
             Count(by: "execname", into: "samples")
@@ -257,7 +257,7 @@ func example10_variables() {
     print("EXAMPLE 10: Variables and State Tracking")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         BEGIN {
             Assign(.global("total_reads"), to: "0")
             Assign(.global("total_writes"), to: "0")
@@ -303,23 +303,23 @@ func example11_predefined() {
     print("=" .repeating(60))
 
     print("syscallCounts():")
-    print(DScript.syscallCounts().source)
+    print(DBlocks.syscallCounts().source)
     print()
 
     print("syscallCounts(for: .execname(\"nginx\")):")
-    print(DScript.syscallCounts(for: .execname("nginx")).source)
+    print(DBlocks.syscallCounts(for: .execname("nginx")).source)
     print()
 
     print("fileOpens():")
-    print(DScript.fileOpens().source)
+    print(DBlocks.fileOpens().source)
     print()
 
     print("cpuProfile(hz: 99):")
-    print(DScript.cpuProfile(hz: 99).source)
+    print(DBlocks.cpuProfile(hz: 99).source)
     print()
 
     print("syscallLatency(\"read\"):")
-    print(DScript.syscallLatency("read").source)
+    print(DBlocks.syscallLatency("read").source)
     print()
 }
 
@@ -330,7 +330,7 @@ func example12_json() {
     print("EXAMPLE 12: JSON Representation")
     print("=" .repeating(60))
 
-    let script = DScript {
+    let script = DBlocks {
         BEGIN {
             Printf("Start")
         }
@@ -356,8 +356,8 @@ func example13_runScript() {
     print("=" .repeating(60))
 
     do {
-        // Simple 3-second syscall count using the new DScript API
-        try DScript.run(for: 3) {
+        // Simple 3-second syscall count using the new DBlocks API
+        try DBlocks.run(for: 3) {
             Probe("syscall:::entry") {
                 Count(by: "probefunc", into: "calls")
             }
@@ -384,9 +384,9 @@ extension String {
 
 print("""
 ╔══════════════════════════════════════════════════════════════╗
-║                   DScript API Examples                       ║
+║                   DBlocks API Examples                       ║
 ║                                                              ║
-║  This demonstrates the DScript result builder API for        ║
+║  This demonstrates the DBlocks result builder API for        ║
 ║  constructing type-safe DTrace scripts in Swift.             ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -417,7 +417,7 @@ if geteuid() == 0 {
     example13_runScript()
 } else {
     print("Not running as root - skipping live trace.")
-    print("To run: sudo .build/debug/dscript-examples")
+    print("To run: sudo .build/debug/dblocks-examples")
 }
 
 print("""

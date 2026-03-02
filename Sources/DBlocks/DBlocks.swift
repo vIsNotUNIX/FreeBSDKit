@@ -13,10 +13,10 @@ import Glibc
 
 /// A result builder for constructing DTrace scripts with compile-time safety.
 ///
-/// Use `@DScriptBuilder` to create scripts declaratively:
+/// Use `@DBlocksBuilder` to create scripts declaratively:
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     BEGIN {
 ///         Printf("Tracing started...")
 ///     }
@@ -37,7 +37,7 @@ import Glibc
 /// }
 /// ```
 @resultBuilder
-public struct DScriptBuilder {
+public struct DBlocksBuilder {
     public static func buildBlock(_ components: [ProbeClause]...) -> [ProbeClause] {
         components.flatMap { $0 }
     }
@@ -83,19 +83,19 @@ public struct DScriptBuilder {
     }
 }
 
-// MARK: - DScript
+// MARK: - DBlocks
 
 /// A type-safe DTrace script built using Swift result builders.
 ///
-/// `DScript` provides a declarative way to construct DTrace programs
+/// `DBlocks` provides a declarative way to construct DTrace programs
 /// with compile-time type checking and IDE support.
 ///
 /// ## Quick Start
 ///
 /// ```swift
-/// import DScript
+/// import DBlocks
 ///
-/// let script = DScript {
+/// let script = DBlocks {
 ///     Probe("syscall:::entry") {
 ///         Target(.execname("nginx"))
 ///         Count(by: "probefunc")
@@ -118,7 +118,7 @@ public struct DScriptBuilder {
 /// Or use static methods:
 ///
 /// ```swift
-/// try DScript.run {
+/// try DBlocks.run {
 ///     Probe("syscall:::entry") { Count() }
 ///     Tick(5, .seconds) { Exit(0) }
 /// }
@@ -126,13 +126,13 @@ public struct DScriptBuilder {
 ///
 /// ## Script Structure
 ///
-/// A DScript consists of probe clauses. Each clause has:
+/// A DBlocks consists of probe clauses. Each clause has:
 /// - A probe specification (e.g., "syscall:::entry")
 /// - Optional predicates to filter when it fires
 /// - Actions to execute when it fires
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     BEGIN {
 ///         Printf("Starting trace...")
 ///     }
@@ -153,7 +153,7 @@ public struct DScriptBuilder {
 ///     }
 /// }
 /// ```
-public struct DScript: Sendable, Codable, CustomStringConvertible {
+public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     /// Version of the serialization format for forward compatibility.
     private static let serializationVersion = 1
 
@@ -177,7 +177,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
         try container.encode(clauses, forKey: .clauses)
     }
 
-    public init(@DScriptBuilder _ builder: () -> [ProbeClause]) {
+    public init(@DBlocksBuilder _ builder: () -> [ProbeClause]) {
         self.clauses = builder()
     }
 
@@ -196,7 +196,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Adds a probe clause to this script.
     ///
     /// ```swift
-    /// var script = DScript()
+    /// var script = DBlocks()
     /// script.add(Probe("syscall:::entry") { Count() })
     /// ```
     public mutating func add(_ clause: ProbeClause) {
@@ -206,7 +206,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Adds a probe clause using a result builder.
     ///
     /// ```swift
-    /// var script = DScript()
+    /// var script = DBlocks()
     /// script.add("syscall:::entry") {
     ///     Count(by: "probefunc")
     /// }
@@ -221,26 +221,26 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// BEGIN/END clauses). Each fires independently in the order they appear.
     ///
     /// ```swift
-    /// var script = DScript { BEGIN { Printf("Starting...") } }
-    /// script.merge(DScript.syscallCounts(for: .execname("nginx")))
+    /// var script = DBlocks { BEGIN { Printf("Starting...") } }
+    /// script.merge(DBlocks.syscallCounts(for: .execname("nginx")))
     /// ```
     ///
     /// - Note: Be careful when merging scripts that use the same thread-local
     ///   variables (e.g., `self->ts`). If both scripts use the same variable
     ///   for different purposes, they will interfere with each other.
     ///   Shared aggregation names (e.g., `@bytes`) are usually intentional.
-    public mutating func merge(_ other: DScript) {
+    public mutating func merge(_ other: DBlocks) {
         clauses.append(contentsOf: other.clauses)
     }
 
     /// Returns a new script with the given clause added.
     ///
     /// ```swift
-    /// let base = DScript { BEGIN { Printf("Starting...") } }
+    /// let base = DBlocks { BEGIN { Printf("Starting...") } }
     /// let extended = base.adding(Probe("syscall:::entry") { Count() })
     /// ```
-    public func adding(_ clause: ProbeClause) -> DScript {
-        DScript(clauses: clauses + [clause])
+    public func adding(_ clause: ProbeClause) -> DBlocks {
+        DBlocks(clauses: clauses + [clause])
     }
 
     /// Returns a new script with another script's clauses merged.
@@ -249,15 +249,15 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// BEGIN/END clauses). Each fires independently in the order they appear.
     ///
     /// ```swift
-    /// let base = DScript { BEGIN { Printf("Starting...") } }
-    /// let combined = base.merging(DScript.syscallCounts())
+    /// let base = DBlocks { BEGIN { Printf("Starting...") } }
+    /// let combined = base.merging(DBlocks.syscallCounts())
     /// ```
     ///
     /// - Note: Be careful when merging scripts that use the same thread-local
     ///   variables (e.g., `self->ts`). If both scripts use the same variable
     ///   for different purposes, they will interfere with each other.
-    public func merging(_ other: DScript) -> DScript {
-        DScript(clauses: clauses + other.clauses)
+    public func merging(_ other: DBlocks) -> DBlocks {
+        DBlocks(clauses: clauses + other.clauses)
     }
 
     /// Combines two scripts using the + operator.
@@ -266,19 +266,19 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// independently in the order they appear.
     ///
     /// ```swift
-    /// let combined = DScript { BEGIN { Printf("Start") } }
-    ///              + DScript.syscallCounts()
-    ///              + DScript { END { Printf("Done") } }
+    /// let combined = DBlocks { BEGIN { Printf("Start") } }
+    ///              + DBlocks.syscallCounts()
+    ///              + DBlocks { END { Printf("Done") } }
     /// ```
     ///
     /// - Note: Be careful when combining scripts that use the same thread-local
     ///   variables (e.g., `self->ts`) for different purposes.
-    public static func + (lhs: DScript, rhs: DScript) -> DScript {
+    public static func + (lhs: DBlocks, rhs: DBlocks) -> DBlocks {
         lhs.merging(rhs)
     }
 
     /// Appends another script's clauses using the += operator.
-    public static func += (lhs: inout DScript, rhs: DScript) {
+    public static func += (lhs: inout DBlocks, rhs: DBlocks) {
         lhs.merge(rhs)
     }
 
@@ -329,10 +329,10 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Useful for serialization, storage, or transmission.
     ///
     /// ```swift
-    /// let script = DScript { Probe("syscall:::entry") { Count() } }
+    /// let script = DBlocks { Probe("syscall:::entry") { Count() } }
     /// let data = try script.jsonData()
     /// // ... store or transmit ...
-    /// let restored = try DScript(jsonData: data)
+    /// let restored = try DBlocks(jsonData: data)
     /// ```
     public func jsonData() throws -> Data {
         let encoder = JSONEncoder()
@@ -347,17 +347,17 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     ///
     /// ```swift
     /// // Modify a script via JSON
-    /// var script = DScript { Probe("syscall:::entry") { Count() } }
+    /// var script = DBlocks { Probe("syscall:::entry") { Count() } }
     /// let data = try script.jsonData()
     ///
     /// // Later, reconstruct it
-    /// let restored = try DScript(jsonData: data)
+    /// let restored = try DBlocks(jsonData: data)
     /// ```
     ///
     /// - Parameter data: JSON data representing a script.
     /// - Throws: `DecodingError` if parsing fails.
     public init(jsonData data: Data) throws {
-        self = try JSONDecoder().decode(DScript.self, from: data)
+        self = try JSONDecoder().decode(DBlocks.self, from: data)
     }
 
 
@@ -365,14 +365,14 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
 
     /// Validates the script structure.
     ///
-    /// - Throws: `DScriptError` if the script is invalid.
+    /// - Throws: `DBlocksError` if the script is invalid.
     public func validate() throws {
         if clauses.isEmpty {
-            throw DScriptError.emptyScript
+            throw DBlocksError.emptyScript
         }
         for (index, clause) in clauses.enumerated() {
             if clause.actions.isEmpty {
-                throw DScriptError.emptyClause(probe: clause.probe, index: index)
+                throw DBlocksError.emptyClause(probe: clause.probe, index: index)
             }
         }
     }
@@ -383,13 +383,13 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// undefined variables, invalid probe specifications, etc.
     ///
     /// - Returns: `true` if compilation succeeded.
-    /// - Throws: `DScriptError.compilationFailed` with details if compilation fails,
+    /// - Throws: `DBlocksError.compilationFailed` with details if compilation fails,
     ///           or other errors if DTrace cannot be initialized.
     ///
     /// - Note: Requires appropriate privileges (typically root) to open DTrace.
     ///
     /// ```swift
-    /// let script = DScript {
+    /// let script = DBlocks {
     ///     Probe("syscall:::entry") {
     ///         Count()
     ///     }
@@ -398,7 +398,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// do {
     ///     try script.compile()
     ///     print("Script is valid!")
-    /// } catch let error as DScriptError {
+    /// } catch let error as DBlocksError {
     ///     print("Compilation failed: \(error)")
     /// }
     /// ```
@@ -424,7 +424,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
             default:
                 message = String(describing: error)
             }
-            throw DScriptError.compilationFailed(
+            throw DBlocksError.compilationFailed(
                 source: source,
                 error: message
             )
@@ -439,7 +439,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// enabling probes, processing output, and printing aggregations.
     ///
     /// ```swift
-    /// let script = DScript {
+    /// let script = DBlocks {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
@@ -459,7 +459,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Runs this script for a specific duration.
     ///
     /// ```swift
-    /// let script = DScript {
+    /// let script = DBlocks {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
@@ -479,7 +479,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Runs this script and captures all output as a string.
     ///
     /// ```swift
-    /// let script = DScript {
+    /// let script = DBlocks {
     ///     Probe("syscall:::entry") {
     ///         Printf("%s", "probefunc")
     ///     }
@@ -523,7 +523,7 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// Builds and runs a script until it exits.
     ///
     /// ```swift
-    /// try DScript.run {
+    /// try DBlocks.run {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
@@ -532,14 +532,14 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// ```
     ///
     /// - Note: Requires root privileges.
-    public static func run(@DScriptBuilder _ builder: () -> [ProbeClause]) throws {
-        try DScript(builder).run()
+    public static func run(@DBlocksBuilder _ builder: () -> [ProbeClause]) throws {
+        try DBlocks(builder).run()
     }
 
     /// Builds and runs a script for a specific duration.
     ///
     /// ```swift
-    /// try DScript.run(for: 10) {
+    /// try DBlocks.run(for: 10) {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
@@ -549,15 +549,15 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// - Note: Requires root privileges.
     public static func run(
         for seconds: TimeInterval,
-        @DScriptBuilder _ builder: () -> [ProbeClause]
+        @DBlocksBuilder _ builder: () -> [ProbeClause]
     ) throws {
-        try DScript(builder).run(for: seconds)
+        try DBlocks(builder).run(for: seconds)
     }
 
     /// Builds and runs a script, capturing output as a string.
     ///
     /// ```swift
-    /// let output = try DScript.capture {
+    /// let output = try DBlocks.capture {
     ///     Probe("syscall:::entry") {
     ///         Printf("%s", "probefunc")
     ///     }
@@ -568,15 +568,15 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// - Returns: All trace output as a string.
     /// - Note: Requires root privileges.
     public static func capture(
-        @DScriptBuilder _ builder: () -> [ProbeClause]
+        @DBlocksBuilder _ builder: () -> [ProbeClause]
     ) throws -> String {
-        try DScript(builder).capture()
+        try DBlocks(builder).capture()
     }
 
     /// Builds and runs a script for a duration, capturing output.
     ///
     /// ```swift
-    /// let output = try DScript.capture(for: 10) {
+    /// let output = try DBlocks.capture(for: 10) {
     ///     Probe("syscall:::entry") {
     ///         Count(by: "probefunc")
     ///     }
@@ -587,16 +587,16 @@ public struct DScript: Sendable, Codable, CustomStringConvertible {
     /// - Note: Requires root privileges.
     public static func capture(
         for seconds: TimeInterval,
-        @DScriptBuilder _ builder: () -> [ProbeClause]
+        @DBlocksBuilder _ builder: () -> [ProbeClause]
     ) throws -> String {
-        try DScript(builder).capture(for: seconds)
+        try DBlocks(builder).capture(for: seconds)
     }
 }
 
 // MARK: - Errors
 
 /// Errors that can occur when building or compiling a DTrace script.
-public enum DScriptError: Error, CustomStringConvertible {
+public enum DBlocksError: Error, CustomStringConvertible {
     /// The script contains no probe clauses.
     case emptyScript
 

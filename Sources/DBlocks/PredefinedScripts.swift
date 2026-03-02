@@ -6,7 +6,7 @@
 
 // MARK: - Predefined Scripts
 
-extension DScript {
+extension DBlocks {
     /// Creates a syscall counting script.
     ///
     /// Counts all syscalls grouped by function name, optionally filtered to
@@ -14,13 +14,13 @@ extension DScript {
     ///
     /// ```swift
     /// // Count all syscalls system-wide
-    /// let script = DScript.syscallCounts()
+    /// let script = DBlocks.syscallCounts()
     ///
     /// // Count syscalls for a specific process
-    /// let script = DScript.syscallCounts(for: .execname("nginx"))
+    /// let script = DBlocks.syscallCounts(for: .execname("nginx"))
     /// ```
-    public static func syscallCounts(for target: DTraceTarget = .all) -> DScript {
-        DScript {
+    public static func syscallCounts(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
             Probe("syscall:freebsd::entry") {
                 if !target.predicate.isEmpty {
                     Target(target)
@@ -35,10 +35,10 @@ extension DScript {
     /// Prints each file open with the process name and path.
     ///
     /// ```swift
-    /// let script = DScript.fileOpens(for: .execname("myapp"))
+    /// let script = DBlocks.fileOpens(for: .execname("myapp"))
     /// ```
-    public static func fileOpens(for target: DTraceTarget = .all) -> DScript {
-        DScript {
+    public static func fileOpens(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
             Probe("syscall:freebsd:open*:entry") {
                 if !target.predicate.isEmpty {
                     Target(target)
@@ -56,10 +56,10 @@ extension DScript {
     /// - Parameter target: Process filter (default: all).
     ///
     /// ```swift
-    /// let script = DScript.cpuProfile(hz: 99, for: .execname("myapp"))
+    /// let script = DBlocks.cpuProfile(hz: 99, for: .execname("myapp"))
     /// ```
-    public static func cpuProfile(hz: Int = 997, for target: DTraceTarget = .all) -> DScript {
-        DScript {
+    public static func cpuProfile(hz: Int = 997, for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
             Probe("profile-\(hz)") {
                 if !target.predicate.isEmpty {
                     Target(target)
@@ -74,10 +74,10 @@ extension DScript {
     /// Prints when any process successfully execs a new program.
     ///
     /// ```swift
-    /// let script = DScript.processExec()
+    /// let script = DBlocks.processExec()
     /// ```
-    public static func processExec() -> DScript {
-        DScript {
+    public static func processExec() -> DBlocks {
+        DBlocks {
             Probe("proc:::exec-success") {
                 Printf("%s[%d] exec'd %s", "execname", "pid", "curpsinfo->pr_psargs")
             }
@@ -89,10 +89,10 @@ extension DScript {
     /// Sums bytes read and written by process name.
     ///
     /// ```swift
-    /// let script = DScript.ioBytes(for: .execname("nginx"))
+    /// let script = DBlocks.ioBytes(for: .execname("nginx"))
     /// ```
-    public static func ioBytes(for target: DTraceTarget = .all) -> DScript {
-        DScript {
+    public static func ioBytes(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
             Probe("syscall:freebsd:read:return") {
                 if !target.predicate.isEmpty {
                     Target(target)
@@ -115,10 +115,10 @@ extension DScript {
     /// Measures the time spent in a specific syscall and creates a histogram.
     ///
     /// ```swift
-    /// let script = DScript.syscallLatency("read", for: .execname("nginx"))
+    /// let script = DBlocks.syscallLatency("read", for: .execname("nginx"))
     /// ```
-    public static func syscallLatency(_ syscall: String, for target: DTraceTarget = .all) -> DScript {
-        DScript {
+    public static func syscallLatency(_ syscall: String, for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
             Probe("syscall:freebsd:\(syscall):entry") {
                 if !target.predicate.isEmpty {
                     Target(target)

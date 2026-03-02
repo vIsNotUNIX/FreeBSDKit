@@ -35,7 +35,7 @@ public enum DTraceTimeUnit: String, Sendable {
 /// Use it to initialize variables, print headers, or set up state.
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     BEGIN {
 ///         Printf("Starting trace at %Y", "walltimestamp")
 ///         Assign(.global("start_time"), to: "timestamp")
@@ -64,7 +64,7 @@ extension BEGIN: ProbeClauseConvertible {
 /// Use it to print final results, summaries, or cleanup.
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     Probe("syscall:::entry") {
 ///         Count(by: "probefunc", into: "calls")
 ///     }
@@ -93,7 +93,7 @@ extension END: ProbeClauseConvertible {
 /// such as an illegal memory access or invalid argument.
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     ERROR {
 ///         Printf("Error in %s: %s", "probefunc", "arg4")
 ///     }
@@ -133,7 +133,7 @@ extension ERROR: ProbeClauseConvertible {
 /// - `.hertz` / `.hz` (frequency per second)
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     Probe("syscall:::entry") {
 ///         Count(by: "probefunc", into: "calls")
 ///     }
@@ -190,7 +190,7 @@ extension Tick: ProbeClauseConvertible {
 /// Check these to determine if the sample was in kernel or userspace.
 ///
 /// ```swift
-/// let script = DScript {
+/// let script = DBlocks {
 ///     Profile(hz: 997) {
 ///         When("arg0")  // Only kernel samples
 ///         Count(by: ["stack()"], into: "stacks")
