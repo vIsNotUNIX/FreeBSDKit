@@ -100,6 +100,10 @@ let package = Package(
         .executable(
             name: "jails-demo",
             targets: ["jails-demo"]
+        ),
+        .executable(
+            name: "kqueue-demo",
+            targets: ["kqueue-demo"]
         )
     ],
     dependencies: [
@@ -414,6 +418,11 @@ let package = Package(
             name: "jails-demo",
             dependencies: ["Jails", "Descriptors"],
             path: "Examples/JailsDemo"
+        ),
+        .executableTarget(
+            name: "kqueue-demo",
+            dependencies: ["Capabilities", "Descriptors", "SignalDispatchers", "FreeBSDKit"],
+            path: "Examples/KqueueDemo"
         ),
     ]
 )
