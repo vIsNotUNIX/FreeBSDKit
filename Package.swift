@@ -1,6 +1,15 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.3
+//
+// This package requires Swift 6.3 (development snapshot) which is not yet available
+// in FreeBSD ports. You must install Swift from the CI nightly builds:
+// https://download.swift.org/tmp-ci-nightly/development/freebsd-14_ci_latest.tar.gz
+//
+// The ports version of Swift (currently 5.10) does not support the language features
+// used by this package (e.g., ~Copyable).
 
 import PackageDescription
+
+
 
 let package = Package(
     name: "FreeBSDKit",
