@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <stdatomic.h>
 
 /*
  * Netmap API version
@@ -751,57 +752,57 @@ cnm_init_opt_csb(struct nmreq_opt_csb *csb,
 static const size_t CNM_CSB_ATOK_SIZE = sizeof(struct nm_csb_atok);
 static const size_t CNM_CSB_KTOA_SIZE = sizeof(struct nm_csb_ktoa);
 
-/// Read CSB atok fields
+/// Read CSB atok fields (using relaxed atomics for cross-thread visibility)
 static inline uint32_t
 cnm_csb_atok_head(const struct nm_csb_atok *csb) {
-    return csb->head;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->head, memory_order_relaxed);
 }
 
 static inline uint32_t
 cnm_csb_atok_cur(const struct nm_csb_atok *csb) {
-    return csb->cur;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->cur, memory_order_relaxed);
 }
 
 static inline uint32_t
 cnm_csb_atok_appl_need_kick(const struct nm_csb_atok *csb) {
-    return csb->appl_need_kick;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->appl_need_kick, memory_order_relaxed);
 }
 
-/// Write CSB atok fields
+/// Write CSB atok fields (using relaxed atomics for cross-thread visibility)
 static inline void
 cnm_csb_atok_set_head(struct nm_csb_atok *csb, uint32_t head) {
-    csb->head = head;
+    atomic_store_explicit((_Atomic uint32_t *)&csb->head, head, memory_order_relaxed);
 }
 
 static inline void
 cnm_csb_atok_set_cur(struct nm_csb_atok *csb, uint32_t cur) {
-    csb->cur = cur;
+    atomic_store_explicit((_Atomic uint32_t *)&csb->cur, cur, memory_order_relaxed);
 }
 
 static inline void
 cnm_csb_atok_set_appl_need_kick(struct nm_csb_atok *csb, uint32_t need_kick) {
-    csb->appl_need_kick = need_kick;
+    atomic_store_explicit((_Atomic uint32_t *)&csb->appl_need_kick, need_kick, memory_order_relaxed);
 }
 
 static inline void
 cnm_csb_atok_set_sync_flags(struct nm_csb_atok *csb, uint32_t flags) {
-    csb->sync_flags = flags;
+    atomic_store_explicit((_Atomic uint32_t *)&csb->sync_flags, flags, memory_order_relaxed);
 }
 
-/// Read CSB ktoa fields
+/// Read CSB ktoa fields (using relaxed atomics for cross-thread visibility)
 static inline uint32_t
 cnm_csb_ktoa_hwcur(const struct nm_csb_ktoa *csb) {
-    return csb->hwcur;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->hwcur, memory_order_relaxed);
 }
 
 static inline uint32_t
 cnm_csb_ktoa_hwtail(const struct nm_csb_ktoa *csb) {
-    return csb->hwtail;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->hwtail, memory_order_relaxed);
 }
 
 static inline uint32_t
 cnm_csb_ktoa_kern_need_kick(const struct nm_csb_ktoa *csb) {
-    return csb->kern_need_kick;
+    return atomic_load_explicit((_Atomic uint32_t *)&csb->kern_need_kick, memory_order_relaxed);
 }
 
 /*

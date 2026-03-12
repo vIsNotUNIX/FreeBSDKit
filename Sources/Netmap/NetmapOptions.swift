@@ -144,7 +144,7 @@ public struct NetmapPacketOffsets: Sendable {
 /// Eventfds provide efficient notifications between the kernel sync loop
 /// and the application, useful for VM networking where the hypervisor
 /// uses eventfds for interrupt injection.
-public struct NetmapKloopEventfds: @unchecked Sendable {
+public struct NetmapKloopEventfds: Sendable {
     /// Ring eventfd entries.
     public struct RingEntry: Sendable {
         /// Eventfd for I/O events (application -> kernel).

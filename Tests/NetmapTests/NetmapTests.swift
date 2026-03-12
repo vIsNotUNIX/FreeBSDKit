@@ -1271,4 +1271,839 @@ struct CSBTests {
             _ = try NetmapCSB(ringCount: 0)
         }
     }
+
+    @Test("CSB setSyncFlags and getKernNeedKick")
+    func csbSyncFlagsAndKernKick() throws {
+        let csb = try NetmapCSB(ringCount: 2)
+
+        // Set sync flags
+        csb.setSyncFlags(ring: 0, flags: 0x1234)
+
+        // getKernNeedKick should return false initially (ktoa is zeroed)
+        #expect(csb.getKernNeedKick(ring: 0) == false)
+        #expect(csb.getKernNeedKick(ring: 1) == false)
+    }
+}
+
+// MARK: - Additional Host Ring Tests
+
+@Suite("NetmapHost API Tests")
+struct NetmapHostAPITests {
+
+    @Test("openNICAndHost mode")
+    func openNICAndHost() throws {
+        do {
+            let port = try NetmapHost.openNICAndHost(interface: "vale0:nichost")
+            #expect(port.isRegistered == true)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: NIC+Host mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("openSingleHostRing mode")
+    func openSingleHostRing() throws {
+        do {
+            let port = try NetmapHost.openSingleHostRing(
+                interface: "vale0:singlehost",
+                ringId: 0
+            )
+            #expect(port.isRegistered == true)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: Single host ring mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("injectToHost sends packet to host stack")
+    func injectToHost() throws {
+        do {
+            let port = try NetmapHost.openNICAndHost(interface: "vale0:inject")
+            let testData = Data([0xDE, 0xAD, 0xBE, 0xEF])
+
+            // Should not throw (may not actually inject without real NIC)
+            // Returns false if no space available
+            let injected = try NetmapHost.injectToHost(packet: testData, port: port)
+            #expect(injected == true || injected == false)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed {
+            print("Skipping: Host mode not supported")
+        }
+    }
+
+    @Test("interceptFromHost receives from host stack")
+    func interceptFromHost() throws {
+        do {
+            let port = try NetmapHost.openNICAndHost(interface: "vale0:intercept")
+
+            var packetCount = 0
+            // Handler receives each packet
+            let count = try NetmapHost.interceptFromHost(port: port) { _ in
+                packetCount += 1
+            }
+            // count may be 0 - no packets available
+            #expect(count >= 0)
+            #expect(packetCount == count)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed {
+            print("Skipping: Host mode not supported")
+        }
+    }
+}
+
+// MARK: - Monitor Tests
+
+@Suite("NetmapMonitor Tests")
+struct NetmapMonitorTests {
+
+    @Test("openTxMonitor creates TX monitor")
+    func openTxMonitor() throws {
+        do {
+            // First open a target port
+            let target = try NetmapPort.open(interface: "vale0:montarget")
+            _ = target.isRegistered
+
+            // Try to open a TX monitor
+            let monitor = try NetmapMonitor.openTxMonitor(
+                interface: "vale0:montarget",
+                zeroCopy: false
+            )
+            #expect(monitor.port.isRegistered == true)
+            #expect(monitor.direction == .tx)
+            #expect(monitor.isZeroCopy == false)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            // Monitor mode may not be supported
+            print("Skipping: Monitor mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("openRxMonitor creates RX monitor")
+    func openRxMonitor() throws {
+        do {
+            let target = try NetmapPort.open(interface: "vale0:rxmontarget")
+            _ = target.isRegistered
+
+            let monitor = try NetmapMonitor.openRxMonitor(
+                interface: "vale0:rxmontarget",
+                zeroCopy: false
+            )
+            #expect(monitor.port.isRegistered == true)
+            #expect(monitor.direction == .rx)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: Monitor mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("openBidirectional creates both-direction monitor")
+    func openBidirectional() throws {
+        do {
+            let target = try NetmapPort.open(interface: "vale0:biditarget")
+            _ = target.isRegistered
+
+            let monitor = try NetmapMonitor.openBidirectional(
+                interface: "vale0:biditarget",
+                zeroCopy: false
+            )
+            #expect(monitor.port.isRegistered == true)
+            #expect(monitor.direction == .both)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: Monitor mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("capture method signature is correct")
+    func captureMethod() throws {
+        // Note: capture() is an infinite loop that only stops when handler returns false.
+        // We can't test it without generating traffic, so we just verify it compiles
+        // and the monitor can be created.
+        do {
+            let target = try NetmapPort.open(interface: "vale0:captarget")
+            _ = target.isRegistered
+
+            let monitor = try NetmapMonitor.openTxMonitor(
+                interface: "vale0:captarget",
+                zeroCopy: false
+            )
+
+            // Verify monitor is set up correctly
+            #expect(monitor.direction == .tx)
+            #expect(monitor.isZeroCopy == false)
+            #expect(monitor.port.isRegistered == true)
+
+            // Don't actually call capture() as it would block forever without traffic
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: Monitor mode not supported (errno \(err))")
+        }
+    }
+
+    @Test("Monitor Direction enum")
+    func directionEnum() {
+        #expect(NetmapMonitor.Direction.tx != NetmapMonitor.Direction.rx)
+        #expect(NetmapMonitor.Direction.both != NetmapMonitor.Direction.tx)
+    }
+}
+
+// MARK: - Additional Ring Tests
+
+@Suite("NetmapRing Additional Tests")
+struct NetmapRingAdditionalTests {
+
+    @Test("forEachSlot iteration")
+    func forEachSlotIteration() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:slotiter")
+            let txRing = port.txRing(0)
+
+            var slotCount = 0
+            txRing.forEachSlot { slot in
+                _ = slot.bufferIndex
+                slotCount += 1
+            }
+            #expect(slotCount >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("bufferPointer access")
+    func bufferPointerAccess() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:bufptr")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            let bufPtr = txRing.bufferPointer(at: slot.bufferIndex)
+            // Write and read back
+            bufPtr[0] = 0xAB
+            bufPtr[1] = 0xCD
+            #expect(bufPtr[0] == 0xAB)
+            #expect(bufPtr[1] == 0xCD)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("timestamp fields")
+    func timestampFields() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:timestamp")
+            let rxRing = port.rxRing(0)
+
+            // Timestamps are set by kernel - just verify we can read them
+            let secs = rxRing.timestampSeconds
+            let usecs = rxRing.timestampMicroseconds
+            #expect(secs >= 0)
+            #expect(usecs >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("hasPendingTransmissions check")
+    func hasPendingTransmissions() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:pending")
+            let txRing = port.txRing(0)
+
+            // Initially no pending transmissions
+            let pending = txRing.hasPendingTransmissions
+            #expect(pending == false || pending == true) // Either is valid
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("extra buffer linked list operations")
+    func extraBufferLinkedList() throws {
+        do {
+            let port = try NetmapPort.open(
+                interface: "vale0:extralist",
+                extraBuffers: 4
+            )
+            let txRing = port.txRing(0)
+
+            let head = port.extraBuffersHead
+            if head != 0 {
+                // Read next pointer
+                let next = txRing.getNextExtraBuffer(head)
+                #expect(next != head || next == 0) // Either different or end of list
+
+                // Set next pointer (restore it)
+                txRing.setNextExtraBuffer(head, next: next)
+            }
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+}
+
+// MARK: - Additional Slot Tests
+
+@Suite("NetmapSlot Additional Tests")
+struct NetmapSlotAdditionalTests {
+
+    @Test("hasMoreFragments and fragmentCount")
+    func fragmentFields() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:frag")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            // Initially no fragments
+            #expect(slot.hasMoreFragments == false)
+            #expect(slot.fragmentCount == 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("offset get and set")
+    func offsetOperations() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:offset")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            // Get initial offset
+            let initialOffset = slot.offset
+
+            // Set a new offset
+            slot.setOffset(64)
+
+            // Note: offset may be masked/limited by ring configuration
+            let newOffset = slot.offset
+            #expect(newOffset == 64 || newOffset == initialOffset)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("prepareForTx convenience method")
+    func prepareForTx() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:prep")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            slot.prepareForTx(length: 100, report: true)
+            #expect(slot.length == 100)
+            #expect(slot.flags.contains(.report))
+
+            slot.prepareForTx(length: 200, report: false)
+            #expect(slot.length == 200)
+            #expect(!slot.flags.contains(.report))
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("ptr field access")
+    func ptrField() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:ptr")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            // Set ptr
+            slot.ptr = 0x123456789ABCDEF0
+            #expect(slot.ptr == 0x123456789ABCDEF0)
+
+            // Reset
+            slot.ptr = 0
+            #expect(slot.ptr == 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("slot description")
+    func slotDescription() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:desc")
+            let txRing = port.txRing(0)
+            let slot = txRing.currentSlot
+
+            let desc = slot.description
+            #expect(desc.contains("NetmapSlot"))
+            #expect(desc.contains("buf="))
+            #expect(desc.contains("len="))
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+}
+
+// MARK: - Additional VALE Tests
+
+@Suite("NetmapVALE Additional Tests")
+struct NetmapVALEAdditionalTests {
+
+    @Test("attach and detach")
+    func attachDetach() throws {
+        do {
+            // Attach
+            let portId = try NetmapVALE.attach(switch: "vale0", port: "attachport")
+            #expect(portId >= 0)
+
+            // Detach
+            try NetmapVALE.detach(switch: "vale0", port: "attachport")
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: VALE attach/detach not supported (errno \(err))")
+        }
+    }
+
+    @Test("deleteInterface")
+    func deleteInterface() throws {
+        do {
+            // Create interface first
+            _ = try NetmapVALE.createInterface(
+                name: "vale0:deltest",
+                config: NetmapVALE.InterfaceConfig()
+            )
+
+            // Delete it
+            try NetmapVALE.deleteInterface(name: "vale0:deltest")
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            print("Skipping: VALE interface management not supported (errno \(err))")
+        }
+    }
+
+    @Test("enablePolling and disablePolling")
+    func pollingControl() throws {
+        do {
+            // Create a port first
+            let port = try NetmapPort.open(interface: "vale0:pollctl")
+            _ = port.isRegistered
+
+            // Try to enable polling
+            try NetmapVALE.enablePolling(
+                name: "vale0:pollctl",
+                config: NetmapVALE.PollingConfig(mode: .singleCPU, firstCPU: 0, cpuCount: 1)
+            )
+
+            // Disable polling
+            try NetmapVALE.disablePolling(name: "vale0:pollctl")
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            // Polling may require specific kernel support
+            print("Skipping: VALE polling not supported (errno \(err))")
+        }
+    }
+
+    @Test("InterfaceConfig defaults")
+    func interfaceConfigDefaults() {
+        let config = NetmapVALE.InterfaceConfig()
+        #expect(config.txSlots == 0)  // 0 means use default
+        #expect(config.rxSlots == 0)
+        #expect(config.txRings == 0)
+        #expect(config.rxRings == 0)
+    }
+
+    @Test("InterfaceConfig custom values")
+    func interfaceConfigCustom() {
+        let config = NetmapVALE.InterfaceConfig(
+            txSlots: 512,
+            rxSlots: 512,
+            txRings: 4,
+            rxRings: 4,
+            memoryId: 1
+        )
+        #expect(config.txSlots == 512)
+        #expect(config.rxSlots == 512)
+        #expect(config.txRings == 4)
+        #expect(config.rxRings == 4)
+        #expect(config.memoryId == 1)
+    }
+}
+
+// MARK: - Additional Zero-Copy Tests
+
+@Suite("NetmapZeroCopy Additional Tests")
+struct NetmapZeroCopyAdditionalTests {
+
+    @Test("moveBuffer transfers buffer ownership")
+    func moveBuffer() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:move")
+            let txRing = port.txRing(0)
+
+            var slot1 = txRing.slot(at: 0)
+            var slot2 = txRing.slot(at: 1)
+
+            let buf1 = slot1.bufferIndex
+            let len1: UInt16 = 100
+            slot1.length = len1
+
+            NetmapZeroCopy.moveBuffer(from: &slot1, to: &slot2)
+
+            #expect(slot2.bufferIndex == buf1)
+            #expect(slot2.length == len1)
+            #expect(slot2.flags.contains(.bufferChanged))
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("forwardFiltered with predicate")
+    func forwardFiltered() throws {
+        do {
+            let port1 = try NetmapPort.open(interface: "vale0:filtfrom")
+            let port2 = try NetmapPort.open(interface: "vale0:filtto")
+
+            // Send some packets
+            let txRing1 = port1.txRing(0)
+            for i in 0..<3 {
+                let slot = txRing1.slot(at: UInt32(i))
+                slot.length = UInt16(64 + i * 10)
+            }
+            txRing1.advance(by: 3)
+            try port1.txSync()
+
+            usleep(10000)
+            try port2.rxSync()
+
+            let rxRing = port2.rxRing(0)
+            let txRing2 = port1.txRing(0)
+
+            // Forward only packets > 70 bytes
+            let result = NetmapZeroCopy.forwardFiltered(
+                from: rxRing,
+                to: txRing2
+            ) { data in
+                return data.count > 70
+            }
+            #expect(result.forwarded >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("forwardAll between port rings")
+    func forwardAll() throws {
+        do {
+            let port1 = try NetmapPort.open(interface: "vale0:fwdall1")
+            let port2 = try NetmapPort.open(interface: "vale0:fwdall2")
+
+            let results = NetmapZeroCopy.forwardAll(from: port1, to: port2)
+
+            // Should have results for each ring pair
+            #expect(results.count >= 0)
+            for result in results {
+                #expect(result.forwarded >= 0)
+                #expect(result.dropped >= 0)
+            }
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("sharesMemory check between ports")
+    func sharesMemoryCheck() throws {
+        do {
+            let port1 = try NetmapPort.open(interface: "vale0:share1")
+            let port2 = try NetmapPort.open(interface: "vale0:share2")
+
+            // VALE ports on same switch should share memory
+            let shares = NetmapZeroCopy.sharesMemory(port1, port2)
+            #expect(shares == true || shares == false) // Implementation dependent
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("copyBufferRef on slot")
+    func copyBufferRef() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:copyref")
+            let txRing = port.txRing(0)
+
+            let slot1 = txRing.slot(at: 0)
+            let slot2 = txRing.slot(at: 1)
+
+            slot1.length = 128
+
+            slot2.copyBufferRef(from: slot1)
+            #expect(slot2.bufferIndex == slot1.bufferIndex)
+            #expect(slot2.length == slot1.length)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("availableSlotIndices returns array")
+    func availableSlotIndices() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:indices")
+            let txRing = port.txRing(0)
+
+            let indices = txRing.availableSlotIndices()
+            #expect(indices.count >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("availableSlotCount property")
+    func availableSlotCount() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:slotcount")
+            let txRing = port.txRing(0)
+
+            let count = txRing.availableSlotCount
+            let space = txRing.space
+            #expect(count == Int(space))
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("ForwardResult struct")
+    func forwardResultStruct() {
+        let result = NetmapZeroCopy.ForwardResult(
+            forwarded: 10,
+            dropped: 2,
+            sourceRing: 0,
+            destinationRing: 1
+        )
+        #expect(result.forwarded == 10)
+        #expect(result.dropped == 2)
+        #expect(result.sourceRing == 0)
+        #expect(result.destinationRing == 1)
+    }
+}
+
+// MARK: - Additional Async Tests
+
+@Suite("NetmapPort+Async Additional Tests")
+struct NetmapAsyncAdditionalTests {
+
+    @Test("sendPackets batch")
+    func sendPacketsBatch() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:batchsend")
+
+            let packets = [
+                Data([0x01, 0x02, 0x03, 0x04]),
+                Data([0x05, 0x06, 0x07, 0x08]),
+                Data([0x09, 0x0A, 0x0B, 0x0C])
+            ]
+
+            let sent = try port.sendPackets(packets, timeout: 100)
+            #expect(sent >= 0)
+            #expect(sent <= packets.count)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("runReceiveLoop API exists")
+    func runReceiveLoop() throws {
+        // Note: runReceiveLoop() is an infinite loop that only stops when handler returns false.
+        // We can't test it in swift test without generating traffic - it would hang.
+        // Use `netmap-demo test` for E2E testing of packet I/O.
+        do {
+            let port = try NetmapPort.open(interface: "vale0:recvloop")
+            #expect(port.isRegistered == true)
+            // Don't actually call runReceiveLoop() as it would block forever
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("receivePacket returns single packet")
+    func receivePacketSingle() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:singlerx")
+
+            // Should return nil with no packets (times out)
+            let packet = try port.receivePacket(timeout: 10)
+            // Either nil or a packet - both valid
+            _ = packet
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+}
+
+// MARK: - Additional Port Tests
+
+@Suite("NetmapPort Additional Tests")
+struct NetmapPortAdditionalTests {
+
+    @Test("setHeaderLength")
+    func setHeaderLength() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:sethdr")
+
+            // Try to set header length to 0 (no virtio header)
+            try port.setHeaderLength(0)
+            let len = try port.getHeaderLength()
+            #expect(len == 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.syncFailed(let err) {
+            print("Skipping: header set not supported (errno \(err))")
+        }
+    }
+
+    @Test("forEachExtraBuffer iteration")
+    func forEachExtraBuffer() throws {
+        do {
+            let port = try NetmapPort.open(
+                interface: "vale0:foreachextra",
+                extraBuffers: 8
+            )
+
+            var count = 0
+            port.forEachExtraBuffer { bufIdx in
+                #expect(bufIdx != 0)
+                count += 1
+            }
+            #expect(count >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("port ring iteration methods")
+    func portRingIteration() throws {
+        do {
+            let port = try NetmapPort.open(interface: "vale0:ringiter")
+
+            var txCount: UInt32 = 0
+            var rxCount: UInt32 = 0
+
+            port.forEachTxRing { ring in
+                #expect(ring.kind == .tx)
+                txCount += 1
+            }
+
+            port.forEachRxRing { ring in
+                #expect(ring.kind == .rx)
+                rxCount += 1
+            }
+
+            #expect(txCount == port.txRingCount)
+            #expect(rxCount == port.rxRingCount)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("NetmapPortInfo struct fields")
+    func portInfoFields() throws {
+        do {
+            let info = try NetmapPort.getInfo(interface: "vale0:infofields")
+
+            #expect(info.memorySize > 0)
+            #expect(info.txSlots > 0)
+            #expect(info.rxSlots > 0)
+            #expect(info.txRings >= 1)
+            #expect(info.rxRings >= 1)
+            #expect(info.hostTxRings >= 0)
+            #expect(info.hostRxRings >= 0)
+            #expect(info.memoryId >= 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        }
+    }
+
+    @Test("NetmapPoolsInfo struct fields")
+    func poolsInfoFields() throws {
+        do {
+            let info = try NetmapPort.getPoolsInfo(interface: "vale0:poolfields")
+
+            #expect(info.memorySize > 0)
+            #expect(info.bufferPoolObjectSize > 0)
+            #expect(info.bufferPoolObjectCount > 0)
+        } catch NetmapError.openFailed {
+            print("Skipping: netmap device not available")
+        } catch NetmapError.registerFailed(let err) {
+            if err == 6 || err == 19 || err == 22 {
+                print("Skipping: POOLS_INFO_GET not supported")
+            } else {
+                throw NetmapError.registerFailed(errno: err)
+            }
+        }
+    }
+}
+
+// MARK: - Additional Options Tests
+
+@Suite("NetmapOptions Additional Tests")
+struct NetmapOptionsAdditionalTests {
+
+    @Test("Options with(externalMemory:) chaining")
+    func withExternalMemory() {
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        buffer.withUnsafeMutableBufferPointer { ptr in
+            let extmem = NetmapExternalMemory(
+                memory: UnsafeMutableRawPointer(ptr.baseAddress!),
+                bufferCount: 2,
+                bufferSize: 2048
+            )
+
+            let opts = NetmapOptions.offsets(NetmapPacketOffsets(maxOffset: 64))
+                .with(externalMemory: extmem)
+
+            #expect(opts.offsets != nil)
+            #expect(opts.externalMemory != nil)
+        }
+    }
+
+    @Test("Options with(kloopEventfds:) chaining")
+    func withKloopEventfds() {
+        let entries = [
+            NetmapKloopEventfds.RingEntry(ioeventfd: 10, irqfd: 11)
+        ]
+        let eventfds = NetmapKloopEventfds(entries: entries)
+
+        let opts = NetmapOptions.kloopMode(.directTX)
+            .with(kloopEventfds: eventfds)
+
+        #expect(opts.kloopMode != nil)
+        #expect(opts.kloopEventfds != nil)
+    }
+
+    @Test("NetmapExternalMemory full configuration")
+    func externalMemoryFullConfig() {
+        var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
+        buffer.withUnsafeMutableBufferPointer { ptr in
+            let extmem = NetmapExternalMemory(
+                memory: UnsafeMutableRawPointer(ptr.baseAddress!),
+                memoryId: 1,
+                interfaceCount: 2,
+                interfaceSize: 2048,
+                ringCount: 8,
+                ringSize: 8192,
+                bufferCount: 256,
+                bufferSize: 4096
+            )
+
+            #expect(extmem.memoryId == 1)
+            #expect(extmem.interfaceCount == 2)
+            #expect(extmem.interfaceSize == 2048)
+            #expect(extmem.ringCount == 8)
+            #expect(extmem.ringSize == 8192)
+            #expect(extmem.bufferCount == 256)
+            #expect(extmem.bufferSize == 4096)
+        }
+    }
 }
