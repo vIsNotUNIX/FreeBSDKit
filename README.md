@@ -71,10 +71,15 @@ let data = try ExtendedAttributes.get(
     namespace: .user,
     name: "myattr"
 )
+
+// Cryptographic random bytes
+let key = try BSDRandom.bytes(32)
+let nonce: UInt64 = try BSDRandom.value()
 ```
 
 **Key Types:**
 - `BSDSysctl` - Type-safe sysctl reading and writing
+- `BSDRandom` - Cryptographic random bytes via getrandom(2)
 - `ExtendedAttributes` - Extended attribute operations on files and descriptors
 - `BSDError` - Unified error handling for BSD system calls
 - `BSDSignal` - Signal enumeration with catchability checks
