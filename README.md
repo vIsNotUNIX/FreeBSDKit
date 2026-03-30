@@ -35,6 +35,9 @@ Then add the specific libraries you need to your target:
         .product(name: "Cpuset", package: "FreeBSDKit"),
         .product(name: "DTraceCore", package: "FreeBSDKit"),
         .product(name: "DBlocks", package: "FreeBSDKit"),
+        .product(name: "Netmap", package: "FreeBSDKit"),
+        .product(name: "Audit", package: "FreeBSDKit"),
+        .product(name: "AgeSignal", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -1116,6 +1119,282 @@ try Cpuset.setJailAffinity(5, to: CPUSet(cpus: [0, 1]))
 
 ---
 
+### Netmap
+
+Swift interface to FreeBSD's netmap high-performance packet I/O framework.
+
+Netmap provides direct access to NIC ring buffers, bypassing the kernel network stack for maximum performance. This is useful for packet capture, traffic generation, software switching, and network function virtualization.
+
+```swift
+import Netmap
+
+// Open a netmap port on interface em0
+var port = try NetmapPort.open(interface: "em0")
+
+// Receive packets
+let rxRing = port.rxRing(0)
+while !rxRing.isEmpty {
+    let slot = rxRing.currentSlot
+    let packet = rxRing.bufferData(for: slot)
+    // Process packet...
+    rxRing.advance()
+}
+try port.rxSync()
+
+// Transmit packets
+let txRing = port.txRing(0)
+if txRing.hasSpace {
+    var slot = txRing.currentSlot
+    txRing.setBuffer(for: &slot, data: packetData)
+    txRing.advance()
+    try port.txSync()
+}
+```
+
+**Port Types:**
+
+| Mode | Description |
+|------|-------------|
+| NIC mode | Direct access to physical NIC rings |
+| Host mode | Intercept packets to/from host stack |
+| VALE switch | Software L2 switch port |
+| Pipe mode | Zero-copy IPC channel |
+
+**VALE Switch Operations:**
+
+```swift
+import Netmap
+
+// Attach a port to a VALE switch (creates switch if needed)
+let portIndex = try NetmapVALE.attach(switch: "vale0", port: "myport")
+
+// List ports on a switch
+let ports = try NetmapVALE.listPorts(switch: "vale0")
+for port in ports {
+    print("Port \(port.index): \(port.name)")
+}
+
+// Create a persistent virtual interface
+try NetmapVALE.createInterface(
+    name: "vale0:vif0",
+    config: NetmapVALE.InterfaceConfig(txRings: 2, rxRings: 2)
+)
+
+// Enable busy-polling for low latency
+try NetmapVALE.enablePolling(
+    name: "vale0:myport",
+    config: NetmapVALE.PollingConfig(mode: .singleCPU, firstCPU: 0)
+)
+
+// Detach and cleanup
+try NetmapVALE.detach(switch: "vale0", port: "myport")
+try NetmapVALE.deleteInterface(name: "vale0:vif0")
+```
+
+**Advanced Options:**
+
+```swift
+// Open with external memory (e.g., hugepages)
+let port = try NetmapPort.open(
+    interface: "vale0:ext",
+    options: .externalMemory(NetmapExternalMemory(
+        memory: hugepagePtr,
+        bufferCount: 512,
+        bufferSize: 2048
+    ))
+)
+
+// Open with packet header room for encapsulation
+let port = try NetmapPort.open(
+    interface: "em0",
+    options: .offsets(NetmapPacketOffsets.headerRoom(64))
+)
+
+// Get port information without registering
+let info = try NetmapPort.getInfo(interface: "em0")
+print("TX rings: \(info.txRings), RX rings: \(info.rxRings)")
+```
+
+**Key Types:**
+- `NetmapPort` - Move-only port handle with ring access (~Copyable)
+- `NetmapRing` - Ring buffer access for TX/RX operations
+- `NetmapSlot` - Individual packet slot in a ring
+- `NetmapVALE` - VALE software switch management
+- `NetmapRegistrationMode` - Port registration modes
+- `NetmapPollEvents` - Poll event flags
+
+---
+
+### Audit
+
+Swift interface to FreeBSD's OpenBSM audit framework for security event logging.
+
+The audit subsystem provides comprehensive logging of security-relevant system events, commonly used for compliance (PCI-DSS, HIPAA) and intrusion detection.
+
+```swift
+import Audit
+
+// Check if auditing is enabled
+if Audit.isEnabled {
+    print("Auditing is active")
+}
+
+// Get current audit condition and policy
+let condition = try Audit.condition()
+let policy = try Audit.policy()
+
+// Get audit statistics
+let stats = try Audit.statistics()
+print("Records generated: \(stats.generated)")
+print("Records dropped: \(stats.dropped)")
+
+// Get/set queue control parameters
+var qctrl = try Audit.queueControl()
+qctrl.highWater = 200
+try Audit.set(queueControl: qctrl)
+```
+
+**Submitting Audit Records:**
+
+```swift
+import Audit
+
+// Submit a simple audit event
+try Audit.submit(
+    event: AUE_login,
+    message: "User login successful",
+    success: true
+)
+
+// Submit with custom audit ID
+try Audit.submit(
+    event: AUE_su,
+    auditID: 1000,
+    message: "Privilege escalation attempt",
+    success: false,
+    error: EPERM
+)
+```
+
+**Process Audit Information:**
+
+```swift
+import Audit
+
+// Get/set audit user ID
+let auid = try Audit.auditID()
+try Audit.set(auditID: 1000)
+
+// Get/set full audit info
+var info = try Audit.auditInfo()
+info.mask = .all  // Audit everything
+try Audit.set(auditInfo: info)
+```
+
+**Policy Flags:**
+
+| Policy | Description |
+|--------|-------------|
+| `.continueOnFailure` | Continue after audit failure |
+| `.haltOnFailure` | Halt system on audit failure |
+| `.includeArgv` | Include command line arguments in exec events |
+| `.includeEnv` | Include environment variables |
+| `.includeSequence` | Include sequence numbers |
+| `.includePath` | Include path tokens |
+
+**Key Types:**
+- `Audit` - Main namespace for audit operations
+- `Audit.Condition` - Audit subsystem state
+- `Audit.Policy` - Policy flags (OptionSet)
+- `Audit.Mask` - Preselection mask for success/failure events
+- `Audit.AuditInfo` - Process audit information
+- `Audit.Statistics` - Audit subsystem statistics
+
+---
+
+### AgeSignal
+
+Implementation of California AB-1043 age signal protocol for privacy-preserving age verification.
+
+The AgeSignal module provides a daemon (`aged`) and client library for querying user age brackets without revealing exact birthdates. Age is reported in four brackets as required by the legislation.
+
+```swift
+import AgeSignal
+
+// Query the current user's age bracket
+let client = try await AgeSignalClient.connect()
+let result = try await client.queryOwnBracket()
+
+switch result {
+case .bracket(let bracket):
+    print("Age bracket: \(bracket.humanReadable)")
+case .notSet:
+    print("Birthdate not configured")
+case .permissionDenied:
+    print("Not authorized")
+case .unknownUser:
+    print("User not found")
+case .error(let error):
+    print("Error: \(error)")
+}
+```
+
+**Age Brackets:**
+
+| Bracket | Description |
+|---------|-------------|
+| `.under13` | Under 13 years old |
+| `.age13to15` | 13-15 years old |
+| `.age16to17` | 16-17 years old |
+| `.adult` | 18 years or older |
+
+**Administrative Operations (requires root):**
+
+```swift
+import AgeSignal
+
+let client = try await AgeSignalClient.connect()
+
+// Set a user's birthdate
+try await client.setBirthdate(
+    uid: 1000,
+    birthdate: Birthdate(year: 2010, month: 6)
+)
+
+// Query another user's bracket (privileged)
+let result = try await client.queryBracket(uid: 1000)
+
+// Remove a user's birthdate
+try await client.removeBirthdate(uid: 1000)
+```
+
+**CLI Tools:**
+
+```bash
+# Query own age bracket
+agectl query
+
+# Set birthdate (requires root)
+sudo agectl set --uid 1000 --year 2010 --month 6
+
+# Start the daemon
+sudo aged
+```
+
+**Protocol Details:**
+- Uses FPC (Free Process Communication) over Unix sockets
+- Birthdates stored with year/month only (no day) for privacy
+- Daemon runs at `/var/run/aged.sock`
+- Database stored in `/var/db/aged`
+
+**Key Types:**
+- `AgeSignalClient` - Client for querying age brackets
+- `AgeBracket` - Age bracket enumeration
+- `Birthdate` - Year/month birthdate (no day for privacy)
+- `AgeSignalResult` - Query result with bracket or error
+
+---
+
 ### DTraceCore & DBlocks
 
 Swift interface to FreeBSD's DTrace dynamic tracing framework.
@@ -1466,6 +1745,8 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CSignal` | Signal handling macros |
 | `CExtendedAttributes` | Extended attribute constants |
 | `CDTrace` | DTrace libdtrace wrappers and constants (used by DTraceCore/DBlocks) |
+| `CNetmap` | Netmap ioctl wrappers and ring buffer access macros |
+| `CAudit` | OpenBSM audit syscall wrappers and constants |
 
 ---
 
