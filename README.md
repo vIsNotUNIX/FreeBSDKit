@@ -1467,6 +1467,10 @@ let plaintext = try aead.open(ciphertext, nonce: nonce, aad: header, tag: tag)
 | `.aes256GCM` | 32 bytes | AES-256-GCM |
 | `.chacha20Poly1305` | 32 bytes | ChaCha20-Poly1305 |
 
+**Requirements:**
+- `/dev/crypto` must exist (load module: `kldload cryptodev`)
+- For software fallback: `sysctl kern.cryptodevallowsoft=1`
+
 **Key Types:**
 - `OpenCrypto` - Main context for crypto operations
 - `CipherSession` - Symmetric encryption/decryption
