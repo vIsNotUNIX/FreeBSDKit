@@ -86,6 +86,10 @@ let package = Package(
             name: "Netmap",
             targets: ["Netmap"]
         ),
+        .library(
+            name: "OpenCrypto",
+            targets: ["OpenCrypto"]
+        ),
         .executable(
             name: "maclabel",
             targets: ["maclabel"]
@@ -179,6 +183,10 @@ let package = Package(
         .target(
             name: "CNetmap",
             path: "Sources/CNetmap"
+        ),
+        .target(
+            name: "COpenCrypto",
+            path: "Sources/COpenCrypto"
         ),
         .target(
             name: "CCasper",
@@ -371,6 +379,10 @@ let package = Package(
             name: "Netmap",
             dependencies: ["CNetmap", "FreeBSDKit"]
         ),
+        .target(
+            name: "OpenCrypto",
+            dependencies: ["COpenCrypto"]
+        ),
         .testTarget(
             name: "AgeSignalTests",
             dependencies: ["AgeSignal"]
@@ -378,6 +390,10 @@ let package = Package(
         .testTarget(
             name: "NetmapTests",
             dependencies: ["Netmap"]
+        ),
+        .testTarget(
+            name: "OpenCryptoTests",
+            dependencies: ["OpenCrypto"]
         ),
         .executableTarget(
             name: "maclabel",

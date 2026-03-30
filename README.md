@@ -38,6 +38,7 @@ Then add the specific libraries you need to your target:
         .product(name: "Netmap", package: "FreeBSDKit"),
         .product(name: "Audit", package: "FreeBSDKit"),
         .product(name: "AgeSignal", package: "FreeBSDKit"),
+        .product(name: "OpenCrypto", package: "FreeBSDKit"),
     ]
 )
 ```
@@ -72,14 +73,20 @@ let data = try ExtendedAttributes.get(
     name: "myattr"
 )
 
-// Cryptographic random bytes
+// Cryptographic random bytes (blocking, from kernel)
 let key = try BSDRandom.bytes(32)
 let nonce: UInt64 = try BSDRandom.value()
+
+// Fast random (arc4random, never blocks)
+let id = Arc4Random.uint32()
+let diceRoll = Arc4Random.uniform(6) + 1
+let shuffled = Arc4Random.shuffled([1, 2, 3, 4, 5])
 ```
 
 **Key Types:**
 - `BSDSysctl` - Type-safe sysctl reading and writing
 - `BSDRandom` - Cryptographic random bytes via getrandom(2)
+- `Arc4Random` - Fast CSPRNG via arc4random(3)
 - `ExtendedAttributes` - Extended attribute operations on files and descriptors
 - `BSDError` - Unified error handling for BSD system calls
 - `BSDSignal` - Signal enumeration with catchability checks
@@ -1400,6 +1407,74 @@ sudo aged
 
 ---
 
+### OpenCrypto
+
+Swift interface to FreeBSD's OpenCrypto framework for hardware-accelerated cryptography.
+
+OpenCrypto provides access to kernel cryptographic services via /dev/crypto, automatically leveraging hardware acceleration (AES-NI, SHA extensions) when available.
+
+```swift
+import OpenCrypto
+
+// Create crypto context
+let crypto = try OpenCrypto()
+
+// AES-256-CBC encryption
+let cipher = try crypto.cipher(.aes256CBC, key: key)
+let ciphertext = try cipher.encrypt(plaintext, iv: iv)
+let decrypted = try cipher.decrypt(ciphertext, iv: iv)
+
+// SHA-256 hashing
+let hasher = try crypto.hash(.sha256)
+let digest = try hasher.hash(data)
+
+// HMAC-SHA256
+let hmac = try crypto.hmac(.sha256, key: key)
+let mac = try hmac.authenticate(message)
+let valid = try hmac.verify(message, tag: mac)
+
+// AES-GCM authenticated encryption
+let aead = try crypto.aead(.aes256GCM, key: key)
+let (ciphertext, tag) = try aead.seal(plaintext, nonce: nonce, aad: header)
+let plaintext = try aead.open(ciphertext, nonce: nonce, aad: header, tag: tag)
+```
+
+**Cipher Algorithms:**
+
+| Algorithm | Key Size | Description |
+|-----------|----------|-------------|
+| `.aes128CBC` | 16 bytes | AES-128 in CBC mode |
+| `.aes256CBC` | 32 bytes | AES-256 in CBC mode |
+| `.aes128CTR` | 16 bytes | AES-128 in CTR mode |
+| `.aes256CTR` | 32 bytes | AES-256 in CTR mode |
+| `.chacha20` | 32 bytes | ChaCha20 stream cipher |
+
+**Hash Algorithms:**
+
+| Algorithm | Digest Size | Description |
+|-----------|-------------|-------------|
+| `.sha256` | 32 bytes | SHA-256 (recommended) |
+| `.sha384` | 48 bytes | SHA-384 |
+| `.sha512` | 64 bytes | SHA-512 |
+| `.blake2b` | 64 bytes | BLAKE2b |
+| `.blake2s` | 32 bytes | BLAKE2s |
+
+**AEAD Algorithms:**
+
+| Algorithm | Key Size | Description |
+|-----------|----------|-------------|
+| `.aes128GCM` | 16 bytes | AES-GCM (recommended) |
+| `.aes256GCM` | 32 bytes | AES-256-GCM |
+| `.chacha20Poly1305` | 32 bytes | ChaCha20-Poly1305 |
+
+**Key Types:**
+- `OpenCrypto` - Main context for crypto operations
+- `CipherSession` - Symmetric encryption/decryption
+- `HashSession` - Hashing and HMAC
+- `AEADSession` - Authenticated encryption
+
+---
+
 ### DTraceCore & DBlocks
 
 Swift interface to FreeBSD's DTrace dynamic tracing framework.
@@ -1752,6 +1827,7 @@ Several C modules provide access to macros and inline functions that Swift canno
 | `CDTrace` | DTrace libdtrace wrappers and constants (used by DTraceCore/DBlocks) |
 | `CNetmap` | Netmap ioctl wrappers and ring buffer access macros |
 | `CAudit` | OpenBSM audit syscall wrappers and constants |
+| `COpenCrypto` | OpenCrypto /dev/crypto ioctl wrappers |
 
 ---
 

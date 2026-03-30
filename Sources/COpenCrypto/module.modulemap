@@ -1,0 +1,4 @@
+module COpenCrypto {
+    header "include/copencrypto.h"
+    export *
+}
