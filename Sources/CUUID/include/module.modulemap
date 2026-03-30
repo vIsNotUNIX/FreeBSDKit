@@ -1,0 +1,5 @@
+module CUUID {
+    header "cuuid.h"
+    link "c"
+    export *
+}
