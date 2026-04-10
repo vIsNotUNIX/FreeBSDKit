@@ -173,6 +173,10 @@ let package = Package(
             path: "Sources/CEventDescriptor"
         ),
         .target(
+            name: "CTimerFD",
+            path: "Sources/CTimerFD"
+        ),
+        .target(
             name: "CINotify",
             path: "Sources/CINotify"
         ),
@@ -261,7 +265,7 @@ let package = Package(
             name: "Descriptors",
             dependencies: [
                 "Capsicum", "CProcessDescriptor",
-                "CEventDescriptor", "CJails", "Jails",
+                "CEventDescriptor", "CTimerFD", "CJails", "Jails",
                 "CINotify", "CDeviceIoctl"
             ]
         ),

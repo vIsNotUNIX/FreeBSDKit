@@ -1,0 +1,4 @@
+module TimerFD [system] {
+    header "include/ctimerfd.h"
+    export *
+}
