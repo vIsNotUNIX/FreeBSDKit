@@ -1,0 +1,4 @@
+module Exterr [system] {
+    header "include/cexterr.h"
+    export *
+}
