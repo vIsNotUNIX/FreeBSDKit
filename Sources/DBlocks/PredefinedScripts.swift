@@ -498,7 +498,7 @@ extension DBlocks {
             }
         }
 
-        // MARK: - kinst (FreeBSD 14+, amd64 only)
+        // MARK: - kinst (FreeBSD 14+; amd64, aarch64, riscv)
 
         /// Trace an arbitrary instruction inside a kernel function via
         /// the `kinst` provider.
@@ -518,10 +518,12 @@ extension DBlocks {
         /// let s = DBlocks.Dwatch.kinst(function: "amd64_syscall")
         /// ```
         ///
-        /// - Important: KINST is **FreeBSD 14.0+** and currently
-        ///   **amd64 only**. On older or non-amd64 hosts the script
-        ///   will compile but enabling probes will fail at runtime
-        ///   with a provider-not-available error.
+        /// - Important: KINST first appeared in **FreeBSD 14.0**.
+        ///   As of FreeBSD 15 it is implemented for **amd64,
+        ///   aarch64, and riscv** — i386, arm, and powerpc are not
+        ///   supported. The `dtrace_kinst(4)` man page on some 14.x
+        ///   and 15.x systems still says "amd64 only"; the code
+        ///   itself supports the three architectures above.
         ///
         /// - Parameters:
         ///   - function: Kernel function name.

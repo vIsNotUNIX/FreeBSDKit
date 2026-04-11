@@ -111,8 +111,7 @@ extension ProbeSpec {
     /// offset from the function start. Compared to ``fbt(module:function:_:)``,
     /// which only exposes function entry and return, `kinst` can hit
     /// any instruction in the function — at the cost of being
-    /// on-demand (no `dtrace -l -P kinst` enumeration) and amd64-only
-    /// as of FreeBSD 14.0.
+    /// on-demand (no `dtrace -l -P kinst` enumeration).
     ///
     /// Find the byte offset by disassembling the function with
     /// `kgdb`'s `disas /r`:
@@ -139,9 +138,14 @@ extension ProbeSpec {
     /// }
     /// ```
     ///
-    /// - Important: KINST is **FreeBSD 14.0+** and currently
-    ///   **amd64 only**. On older or non-amd64 hosts the script will
-    ///   compile but enabling probes will fail at runtime with a
+    /// - Important: KINST first appeared in **FreeBSD 14.0**. As of
+    ///   FreeBSD 15 the provider is implemented for **amd64,
+    ///   aarch64, and riscv**; i386, arm, and powerpc are not
+    ///   supported. The `dtrace_kinst(4)` man page on some 14.x and
+    ///   15.x systems still says "amd64 only" — that documentation
+    ///   is stale, the code itself supports the three architectures
+    ///   above. On unsupported architectures the script compiles but
+    ///   enabling probes fails at runtime with a
     ///   provider-not-available error.
     ///
     /// - Parameters:
