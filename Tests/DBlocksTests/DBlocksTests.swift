@@ -2352,6 +2352,83 @@ struct DBlocksSpeculationTests {
         #expect(typed.source == raw.source)
     }
 
+    // MARK: - DExpr typed expressions
+
+    @Test("DExpr.arg renders argN and args[N]")
+    func testDExprArg() {
+        #expect(DExpr.arg(0).rendered == "arg0")
+        #expect(DExpr.args(2).rendered == "args[2]")
+    }
+
+    @Test("DExpr operator builds predicate")
+    func testDExprComparison() {
+        let p = DExpr.arg(0) > 0
+        #expect(p.rendered == "arg0 > 0")
+    }
+
+    @Test("DExpr string equality quotes the literal")
+    func testDExprStringEquality() {
+        let p = DExpr.execname == "nginx"
+        #expect(p.rendered == "execname == \"nginx\"")
+    }
+
+    @Test("DExpr logical conjunction")
+    func testDExprConjunction() {
+        let p = (DExpr.execname == "nginx") && (DExpr.arg(0) > 0)
+        #expect(p.rendered == "(execname == \"nginx\") && (arg0 > 0)")
+    }
+
+    @Test("DExpr arithmetic")
+    func testDExprArithmetic() {
+        let elapsed = DExpr.timestamp - .threadLocal("ts")
+        #expect(elapsed.rendered == "(timestamp - self->ts)")
+    }
+
+    @Test("DExpr.copyinstr renders nested call")
+    func testDExprCopyinstr() {
+        #expect(DExpr.copyinstr(.arg(0)).rendered == "copyinstr(arg0)")
+    }
+
+    @Test("DExpr macro arguments")
+    func testDExprMacros() {
+        #expect(DExpr.target.rendered == "$target")
+        #expect(DExpr.macro(1).rendered == "$1")
+        #expect(DExpr.macroString(2).rendered == "$$2")
+    }
+
+    @Test("When can be built from a DExpr")
+    func testWhenFromDExpr() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                When(DExpr.arg(0) > 0)
+                Count()
+            }
+        }
+        #expect(script.source.contains("/(arg0 > 0)/"))
+    }
+
+    @Test("Printf can be built from typed args")
+    func testPrintfFromDExpr() {
+        let script = DBlocks {
+            Probe("syscall::open:entry") {
+                Printf("%s[%d]: %s",
+                       args: [.execname, .pid, .copyinstr(.arg(0))])
+            }
+        }
+        let source = script.source
+        #expect(source.contains("printf(\"%s[%d]: %s\\n\", execname, pid, copyinstr(arg0));"))
+    }
+
+    @Test("Trace can be built from a DExpr")
+    func testTraceFromDExpr() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Trace(DExpr.arg(0))
+            }
+        }
+        #expect(script.source.contains("trace(arg0);"))
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing
