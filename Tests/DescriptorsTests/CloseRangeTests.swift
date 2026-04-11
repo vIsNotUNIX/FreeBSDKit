@@ -13,18 +13,43 @@ import FreeBSDKit
 final class CloseRangeTests: XCTestCase {
 
     func testCloseRangeClosesDescriptors() throws {
-        // Open a few temp files to get a known set of fds.
+        // Open three temp files. To avoid stomping any descriptor that
+        // another XCTest thread happens to allocate concurrently, we
+        // verify the three fds we got back are contiguous before
+        // calling close_range — if they aren't, another thread raced
+        // with us and we re-open until they are.
         var fds: [Int32] = []
-        for i in 0..<3 {
-            let path = "/tmp/freebsdkit-cr-\(getpid())-\(i).bin"
-            let fd = Glibc.open(path, O_CREAT | O_RDWR | O_TRUNC, 0o600)
-            XCTAssertGreaterThanOrEqual(fd, 0)
-            Glibc.unlink(path) // unlink immediately; fd keeps it alive
-            fds.append(fd)
+        var attempts = 0
+        defer {
+            // Best-effort cleanup if the assertion below fails before
+            // close_range runs.
+            for fd in fds { Glibc.close(fd) }
         }
 
-        let low = UInt32(fds.min()!)
-        let high = UInt32(fds.max()!)
+        while attempts < 16 {
+            attempts += 1
+            for fd in fds { Glibc.close(fd) }
+            fds.removeAll(keepingCapacity: true)
+
+            for i in 0..<3 {
+                let path = "/tmp/freebsdkit-cr-\(getpid())-\(arc4random())-\(i).bin"
+                let fd = Glibc.open(path, O_CREAT | O_RDWR | O_TRUNC | O_CLOEXEC, 0o600)
+                XCTAssertGreaterThanOrEqual(fd, 0)
+                Glibc.unlink(path) // unlink immediately; fd keeps it alive
+                fds.append(fd)
+            }
+
+            // Confirm the fds are contiguous. If something allocated a fd
+            // in the gap, retry.
+            if fds[1] == fds[0] + 1 && fds[2] == fds[0] + 2 {
+                break
+            }
+        }
+        XCTAssertEqual(fds[1], fds[0] + 1, "could not allocate contiguous fds")
+        XCTAssertEqual(fds[2], fds[0] + 2)
+
+        let low = UInt32(fds[0])
+        let high = UInt32(fds[2])
 
         try closeRange(low: low, high: high)
 
@@ -35,10 +60,13 @@ final class CloseRangeTests: XCTestCase {
             XCTAssertEqual(r, -1, "fd \(fd) should be closed")
             XCTAssertEqual(errno, EBADF)
         }
+
+        // Tell the defer not to double-close.
+        fds.removeAll()
     }
 
     func testCloseRangeCloexecMarksDescriptors() throws {
-        let path = "/tmp/freebsdkit-cr-cloexec-\(getpid()).bin"
+        let path = "/tmp/freebsdkit-cr-cloexec-\(getpid())-\(arc4random()).bin"
         let fd = Glibc.open(path, O_CREAT | O_RDWR | O_TRUNC, 0o600)
         XCTAssertGreaterThanOrEqual(fd, 0)
         Glibc.unlink(path)

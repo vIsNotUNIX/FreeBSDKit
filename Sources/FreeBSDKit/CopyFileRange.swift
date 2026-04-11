@@ -40,14 +40,24 @@ public func copyFileRange(
     length: Int,
     flags: UInt32 = 0
 ) throws -> Int {
-    // Materialize the optional offsets into stack storage so we can pass
-    // a pointer (or nil) to the syscall.
+    // Materialize the optional offsets into local storage; the pointers
+    // we hand to the kernel are produced inline at the call site so they
+    // are guaranteed valid for the duration of the syscall.
     var inOff = inOffset ?? 0
     var outOff = outOffset ?? 0
-    let inPtr: UnsafeMutablePointer<off_t>? = (inOffset != nil) ? withUnsafeMutablePointer(to: &inOff) { $0 } : nil
-    let outPtr: UnsafeMutablePointer<off_t>? = (outOffset != nil) ? withUnsafeMutablePointer(to: &outOff) { $0 } : nil
 
-    let n = Glibc.copy_file_range(inFD, inPtr, outFD, outPtr, length, flags)
+    let n: Int
+    switch (inOffset != nil, outOffset != nil) {
+    case (true, true):
+        n = Glibc.copy_file_range(inFD, &inOff, outFD, &outOff, length, flags)
+    case (true, false):
+        n = Glibc.copy_file_range(inFD, &inOff, outFD, nil, length, flags)
+    case (false, true):
+        n = Glibc.copy_file_range(inFD, nil, outFD, &outOff, length, flags)
+    case (false, false):
+        n = Glibc.copy_file_range(inFD, nil, outFD, nil, length, flags)
+    }
+
     if n < 0 {
         try BSDError.throwErrno(errno)
     }

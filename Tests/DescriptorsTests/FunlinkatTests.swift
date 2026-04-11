@@ -13,7 +13,7 @@ import FreeBSDKit
 final class FunlinkatTests: XCTestCase {
 
     func testFunlinkatRemovesMatchingFile() throws {
-        let dirPath = "/tmp/freebsdkit-funlink-\(getpid())"
+        let dirPath = "/tmp/freebsdkit-funlink-\(getpid())-\(arc4random())"
         XCTAssertEqual(Glibc.mkdir(dirPath, 0o700), 0)
         defer { _ = Glibc.rmdir(dirPath) }
 
@@ -39,7 +39,7 @@ final class FunlinkatTests: XCTestCase {
     }
 
     func testFunlinkatRefusesStaleFile() throws {
-        let dirPath = "/tmp/freebsdkit-funlink-stale-\(getpid())"
+        let dirPath = "/tmp/freebsdkit-funlink-stale-\(getpid())-\(arc4random())"
         XCTAssertEqual(Glibc.mkdir(dirPath, 0o700), 0)
         defer { _ = Glibc.rmdir(dirPath) }
 

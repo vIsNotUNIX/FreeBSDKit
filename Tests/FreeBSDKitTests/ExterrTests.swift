@@ -11,6 +11,14 @@ import Foundation
 
 final class ExterrTests: XCTestCase {
 
+    /// Tests that toggle extended-error reporting mutate process-global
+    /// state. Restore it to a known disabled baseline after every test
+    /// so test ordering can't leak state between cases.
+    override func tearDownWithError() throws {
+        try? ExtendedError.disable(flags: .force)
+        try super.tearDownWithError()
+    }
+
     func testCurrentMessageReturnsNilWhenNoExtendedError() {
         // After a successful syscall, no extended error should be attached
         // to this thread.

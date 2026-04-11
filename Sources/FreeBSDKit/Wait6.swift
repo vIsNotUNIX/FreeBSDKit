@@ -123,10 +123,16 @@ public func wait6(
     var wru = __wrusage()
     var info = siginfo_t()
 
-    let pid = Glibc.wait6(idType.rawValue, id, &status, options.rawValue, &wru, &info)
-    if pid < 0 {
+    // Retry transparently on EINTR. Callers that genuinely want to be
+    // interruptible can use a non-blocking poll via `.noHang`.
+    var pid: pid_t = 0
+    while true {
+        pid = Glibc.wait6(idType.rawValue, id, &status, options.rawValue, &wru, &info)
+        if pid >= 0 { break }
+        if errno == EINTR { continue }
         try BSDError.throwErrno(errno)
     }
+
     if pid == 0 {
         // WNOHANG and nothing to report.
         return nil

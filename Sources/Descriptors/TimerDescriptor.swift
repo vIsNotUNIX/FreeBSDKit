@@ -15,9 +15,18 @@ import CTimerFD
 ///
 /// Only `realtime` is affected by `clock_settime(2)`/NTP step adjustments
 /// — that is the only clock for which `.cancelOnSet` is meaningful.
-public enum TimerFDClock: Int32, Sendable {
-    case realtime  = 0  // CLOCK_REALTIME
-    case monotonic = 4  // CLOCK_MONOTONIC
+public struct TimerFDClock: RawRepresentable, Sendable, Equatable {
+    public let rawValue: Int32
+    public init(rawValue: Int32) { self.rawValue = rawValue }
+
+    /// Wall-clock time. Affected by `clock_settime(2)` and NTP step
+    /// adjustments; the only clock for which `.cancelOnSet` is
+    /// meaningful.
+    public static let realtime  = TimerFDClock(rawValue: Int32(CLOCK_REALTIME))
+
+    /// Monotonic time since an unspecified starting point. Not affected
+    /// by wall-clock changes.
+    public static let monotonic = TimerFDClock(rawValue: Int32(CLOCK_MONOTONIC))
 }
 
 // MARK: - Creation flags
@@ -150,8 +159,15 @@ public extension TimerDescriptor where Self: ~Copyable {
         var value: UInt64 = 0
         let n: Int = try self.unsafe { fd in
             withUnsafeMutablePointer(to: &value) { ptr in
-                let r = Glibc.read(fd, UnsafeMutableRawPointer(ptr), MemoryLayout<UInt64>.size)
-                return r
+                // Retry on EINTR. Other errors (EAGAIN on a non-blocking
+                // timerfd, ECANCELED if .cancelOnSet fired) propagate to
+                // the caller.
+                while true {
+                    let r = Glibc.read(fd, UnsafeMutableRawPointer(ptr), MemoryLayout<UInt64>.size)
+                    if r >= 0 { return r }
+                    if errno == EINTR { continue }
+                    return r
+                }
             }
         }
         if n < 0 {

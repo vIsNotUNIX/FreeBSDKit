@@ -34,45 +34,74 @@ final class SendfileTests: XCTestCase {
     }
 
     /// Build a connected TCP pair on 127.0.0.1.
-    /// Returns (server, client) — both are stream sockets connected to each other.
+    /// Returns (server, client) — both are stream sockets connected to
+    /// each other. The intermediate listener fd is always closed, even
+    /// on failing paths, by holding it as a raw fd.
     private func makeConnectedTCPPair() throws -> (server: SystemSocketDescriptor, client: SystemSocketDescriptor) {
-        let listener = try SystemSocketDescriptor.socket(
-            domain: .inet,
-            type: .stream,
-            protocol: .default
-        )
+        // Listener is a raw fd so a throwing test path can clean it up
+        // unconditionally via defer. Wrapping it in SystemSocketDescriptor
+        // would mean an unconsumed ~Copyable on the failing path.
+        let listenerFD = Glibc.socket(AF_INET, SOCK_STREAM, 0)
+        guard listenerFD >= 0 else { throw POSIXError(.EIO) }
+        var listenerOwned = true
+        defer { if listenerOwned { Glibc.close(listenerFD) } }
 
         var reuse: Int32 = 1
-        _ = listener.unsafe { fd in
-            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
-        }
+        _ = setsockopt(listenerFD, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
 
-        let bindAddr = try IPv4SocketAddress(address: "127.0.0.1", port: 0)
-        try listener.bind(address: bindAddr)
-        try listener.listen(backlog: 1)
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr)
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Glibc.bind(listenerFD, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else { throw POSIXError(.EIO) }
+        guard Glibc.listen(listenerFD, 1) == 0 else { throw POSIXError(.EIO) }
 
         // Read back the auto-assigned port.
         var sin = sockaddr_in()
         var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let port: UInt16 = listener.unsafe { fd in
-            withUnsafeMutablePointer(to: &sin) { sinPtr -> UInt16 in
-                sinPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
-                    _ = Glibc.getsockname(fd, saPtr, &len)
-                }
-                return UInt16(bigEndian: sinPtr.pointee.sin_port)
+        _ = withUnsafeMutablePointer(to: &sin) { sinPtr in
+            sinPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                Glibc.getsockname(listenerFD, saPtr, &len)
             }
         }
+        let port = UInt16(bigEndian: sin.sin_port)
 
-        let client = try SystemSocketDescriptor.socket(
-            domain: .inet,
-            type: .stream,
-            protocol: .default
-        )
-        let connectAddr = try IPv4SocketAddress(address: "127.0.0.1", port: port)
-        try client.connect(address: connectAddr)
+        // Now create the client and connect.
+        let clientFD = Glibc.socket(AF_INET, SOCK_STREAM, 0)
+        guard clientFD >= 0 else { throw POSIXError(.EIO) }
+        var clientOwned = true
+        defer { if clientOwned { Glibc.close(clientFD) } }
 
-        let server = try listener.accept()
-        listener.close()
+        var connectAddr = sockaddr_in()
+        connectAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        connectAddr.sin_family = sa_family_t(AF_INET)
+        connectAddr.sin_port = port.bigEndian
+        inet_pton(AF_INET, "127.0.0.1", &connectAddr.sin_addr)
+
+        let connectResult = withUnsafePointer(to: &connectAddr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Glibc.connect(clientFD, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connectResult == 0 else { throw POSIXError(.EIO) }
+
+        let acceptedFD = Glibc.accept(listenerFD, nil, nil)
+        guard acceptedFD >= 0 else { throw POSIXError(.EIO) }
+
+        // Hand off ownership: wrap the accepted+client fds, release the
+        // raw-fd handles so the defers don't double-close.
+        let server = SystemSocketDescriptor(acceptedFD)
+        let client = SystemSocketDescriptor(clientFD)
+        clientOwned = false
+        Glibc.close(listenerFD)
+        listenerOwned = false
 
         return (server: server, client: client)
     }
