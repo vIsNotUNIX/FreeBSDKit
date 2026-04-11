@@ -282,6 +282,101 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
         lhs.merge(rhs)
     }
 
+    // MARK: - Merge Conflict Detection
+
+    /// Returns the set of thread-local variable names that both this
+    /// script and `other` assign to.
+    ///
+    /// Two scripts that both write to the same `self->name` for
+    /// different purposes will silently corrupt each other when merged.
+    /// This method scans both sides for `self->NAME = …` assignments
+    /// and reports the names that appear in both. The result is sorted
+    /// for stable diagnostics.
+    ///
+    /// Aggregations (e.g. `@bytes[…] = sum(…);`) are *not* reported —
+    /// shared aggregation names are usually intentional and DTrace
+    /// itself merges them sensibly.
+    ///
+    /// ```swift
+    /// let conflicts = a.threadLocalConflicts(with: b)
+    /// if !conflicts.isEmpty {
+    ///     print("conflicting thread-locals: \(conflicts)")
+    /// }
+    /// ```
+    public func threadLocalConflicts(with other: DBlocks) -> [String] {
+        let lhs = Self.threadLocalAssignments(in: clauses)
+        let rhs = Self.threadLocalAssignments(in: other.clauses)
+        return Array(lhs.intersection(rhs)).sorted()
+    }
+
+    /// Like `merge(_:)`, but throws if the two scripts assign to the
+    /// same thread-local variable.
+    ///
+    /// Use this when you're combining unrelated scripts and want a
+    /// loud failure rather than a silent corruption.
+    ///
+    /// - Throws: `DBlocksError.threadLocalConflict` listing every
+    ///   name that appears in both sides.
+    public mutating func mergeChecked(_ other: DBlocks) throws {
+        let conflicts = threadLocalConflicts(with: other)
+        if !conflicts.isEmpty {
+            throw DBlocksError.threadLocalConflict(names: conflicts)
+        }
+        merge(other)
+    }
+
+    /// Like `merging(_:)`, but throws if the two scripts assign to the
+    /// same thread-local variable.
+    ///
+    /// - Throws: `DBlocksError.threadLocalConflict` if any thread-local
+    ///   is written by both sides.
+    public func mergingChecked(_ other: DBlocks) throws -> DBlocks {
+        let conflicts = threadLocalConflicts(with: other)
+        if !conflicts.isEmpty {
+            throw DBlocksError.threadLocalConflict(names: conflicts)
+        }
+        return merging(other)
+    }
+
+    /// Scans an action string for `self->NAME = …` assignments and
+    /// returns the bare NAMEs.
+    private static func threadLocalAssignments(in clauses: [ProbeClause]) -> Set<String> {
+        var names: Set<String> = []
+        let prefix = "self->"
+        for clause in clauses {
+            for action in clause.actions {
+                var index = action.startIndex
+                while let match = action.range(of: prefix, range: index..<action.endIndex) {
+                    var nameEnd = match.upperBound
+                    while nameEnd < action.endIndex {
+                        let ch = action[nameEnd]
+                        if ch.isLetter || ch.isNumber || ch == "_" {
+                            nameEnd = action.index(after: nameEnd)
+                        } else {
+                            break
+                        }
+                    }
+                    // Skip whitespace and check for `=` (and not `==`).
+                    var afterName = nameEnd
+                    while afterName < action.endIndex, action[afterName].isWhitespace {
+                        afterName = action.index(after: afterName)
+                    }
+                    if afterName < action.endIndex, action[afterName] == "=" {
+                        let next = action.index(after: afterName)
+                        if next == action.endIndex || action[next] != "=" {
+                            let name = String(action[match.upperBound..<nameEnd])
+                            if !name.isEmpty {
+                                names.insert(name)
+                            }
+                        }
+                    }
+                    index = nameEnd
+                }
+            }
+        }
+        return names
+    }
+
     /// The generated D source code.
     public var source: String {
         clauses.map { $0.render() }.joined(separator: "\n\n")
@@ -609,6 +704,11 @@ public enum DBlocksError: Error, CustomStringConvertible {
     /// Invalid JSON format.
     case invalidJSON(String)
 
+    /// Two scripts being merged both assign to the same thread-local
+    /// variable(s) — at run time they would silently corrupt each
+    /// other's state.
+    case threadLocalConflict(names: [String])
+
     public var description: String {
         switch self {
         case .emptyScript:
@@ -619,6 +719,9 @@ public enum DBlocksError: Error, CustomStringConvertible {
             return "D script compilation failed: \(error)"
         case .invalidJSON(let message):
             return "Invalid JSON: \(message)"
+        case .threadLocalConflict(let names):
+            let list = names.map { "self->\($0)" }.joined(separator: ", ")
+            return "Conflicting thread-local assignments between merged scripts: \(list)"
         }
     }
 }

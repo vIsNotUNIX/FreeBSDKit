@@ -2075,6 +2075,131 @@ struct DBlocksSpeculationTests {
         #expect(source.contains("execname == \"nginx\""))
     }
 
+    @Test("threadLocalConflicts: empty when no overlap")
+    func testNoThreadLocalConflict() {
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("buf"), to: "arg1")
+            }
+        }
+        #expect(a.threadLocalConflicts(with: b).isEmpty)
+    }
+
+    @Test("threadLocalConflicts: detects overlap")
+    func testThreadLocalConflict() {
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("ts"), to: "vtimestamp")
+            }
+        }
+        #expect(a.threadLocalConflicts(with: b) == ["ts"])
+    }
+
+    @Test("threadLocalConflicts: ignores comparisons")
+    func testThreadLocalNoFalsePositiveOnComparison() {
+        // Reading `self->ts` (e.g. `if (self->ts == 0)`) is not an
+        // assignment and must not be flagged.
+        let a = DBlocks {
+            Probe("syscall::read:return") {
+                When("self->ts == 0")
+                Action("/* … */")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:return") {
+                When("self->ts != 0")
+                Action("/* … */")
+            }
+        }
+        #expect(a.threadLocalConflicts(with: b).isEmpty)
+    }
+
+    @Test("threadLocalConflicts: ignores aggregations")
+    func testAggregationsNotConflicts() {
+        // Both sides write to @bytes, but aggregation merges are
+        // intentional and DTrace handles them.
+        let a = DBlocks {
+            Probe("syscall::read:return") {
+                Sum("arg0", by: "execname", into: "bytes")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:return") {
+                Sum("arg0", by: "execname", into: "bytes")
+            }
+        }
+        #expect(a.threadLocalConflicts(with: b).isEmpty)
+    }
+
+    @Test("mergeChecked throws on conflict")
+    func testMergeCheckedThrows() {
+        var a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("ts"), to: "vtimestamp")
+            }
+        }
+        #expect(throws: DBlocksError.self) {
+            try a.mergeChecked(b)
+        }
+        // The original script must be unchanged on the throwing path.
+        #expect(a.clauses.count == 1)
+    }
+
+    @Test("mergeChecked succeeds on non-overlapping scripts")
+    func testMergeCheckedSucceeds() throws {
+        var a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("buf"), to: "arg1")
+            }
+        }
+        try a.mergeChecked(b)
+        #expect(a.clauses.count == 2)
+    }
+
+    @Test("mergingChecked returns a new script")
+    func testMergingCheckedSucceeds() throws {
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("buf"), to: "arg1")
+            }
+        }
+        let combined = try a.mergingChecked(b)
+        #expect(combined.clauses.count == 2)
+    }
+
+    @Test("threadLocalConflict error message lists names")
+    func testConflictErrorDescription() {
+        let err = DBlocksError.threadLocalConflict(names: ["ts", "spec"])
+        let s = err.description
+        #expect(s.contains("self->ts"))
+        #expect(s.contains("self->spec"))
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing
