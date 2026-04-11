@@ -134,4 +134,121 @@ extension DBlocks {
             }
         }
     }
+
+    /// Logs every TCP connection that is established or torn down.
+    ///
+    /// Uses the `tcp` provider's `state-change` probes. Each line shows
+    /// the previous and current TCP state along with the local and
+    /// remote addresses; pair with `Target(.execname("…"))` to scope it
+    /// to a single program.
+    ///
+    /// ```swift
+    /// let script = DBlocks.tcpConnections(for: .execname("nginx"))
+    /// ```
+    public static func tcpConnections(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
+            Probe("tcp:::state-change") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Printf("%s[%d]: %s -> %s",
+                       "execname", "pid",
+                       "tcp_state_string[args[5]->tcps_state]",
+                       "tcp_state_string[args[3]->tcps_state]")
+            }
+        }
+    }
+
+    /// Counts page faults by process.
+    ///
+    /// Major faults (`vminfo:::maj_fault`) require a disk read; minor
+    /// faults (`vminfo:::as_fault`) just need to map a page that's
+    /// already in memory. Both are returned as separate aggregations
+    /// keyed by process name.
+    ///
+    /// ```swift
+    /// let script = DBlocks.pageFaults(for: .execname("postgres"))
+    /// ```
+    public static func pageFaults(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
+            Probe("vminfo:::maj_fault") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Count(by: "execname", into: "major_faults")
+            }
+            Probe("vminfo:::as_fault") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Count(by: "execname", into: "minor_faults")
+            }
+        }
+    }
+
+    /// Builds a histogram of block-I/O sizes.
+    ///
+    /// Uses the `io` provider's `start` probe so the size is the
+    /// requested transfer length, not the kernel's after-the-fact tally.
+    /// The histogram is keyed by execname so you can compare sizes
+    /// across processes; pass a `target` to scope it.
+    ///
+    /// ```swift
+    /// let script = DBlocks.diskIOSizes(for: .execname("postgres"))
+    /// ```
+    public static func diskIOSizes(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
+            Probe("io:::start") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Quantize("args[0]->b_bcount", by: "execname", into: "io_size")
+            }
+        }
+    }
+
+    /// Logs every signal delivered to a process.
+    ///
+    /// Uses the `proc:::signal-send` probe. Each entry shows the
+    /// sending and receiving processes plus the signal number, which is
+    /// the simplest way to chase 'what just killed my daemon' bugs.
+    ///
+    /// ```swift
+    /// let script = DBlocks.signalDelivery(for: .execname("nginx"))
+    /// ```
+    public static func signalDelivery(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
+            Probe("proc:::signal-send") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Printf("%s[%d] -> %s[%d] sig=%d",
+                       "execname", "pid",
+                       "args[1]->pr_fname",
+                       "args[1]->pr_pid",
+                       "args[2]")
+            }
+        }
+    }
+
+    /// Latency histogram for kernel mutex acquisition.
+    ///
+    /// Pairs `lockstat:::adaptive-block` (the wait-time provider) into
+    /// a quantize keyed by `execname`. Useful as a quick first look at
+    /// kernel-level lock contention; for production debugging, follow
+    /// up with stack traces.
+    ///
+    /// ```swift
+    /// let script = DBlocks.mutexContention()
+    /// ```
+    public static func mutexContention(for target: DTraceTarget = .all) -> DBlocks {
+        DBlocks {
+            Probe("lockstat:::adaptive-block") {
+                if !target.predicate.isEmpty {
+                    Target(target)
+                }
+                Quantize("arg1", by: "execname", into: "mutex_wait_ns")
+            }
+        }
+    }
 }

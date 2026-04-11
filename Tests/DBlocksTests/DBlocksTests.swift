@@ -2032,6 +2032,49 @@ struct DBlocksSpeculationTests {
         #expect(script.source.contains("discard(self->spec_id);"))
     }
 
+    @Test("Predefined: tcpConnections")
+    func testPredefinedTcpConnections() {
+        let source = DBlocks.tcpConnections().source
+        #expect(source.contains("tcp:::state-change"))
+        #expect(source.contains("tcp_state_string"))
+    }
+
+    @Test("Predefined: pageFaults reports both kinds")
+    func testPredefinedPageFaults() {
+        let source = DBlocks.pageFaults().source
+        #expect(source.contains("vminfo:::maj_fault"))
+        #expect(source.contains("vminfo:::as_fault"))
+        #expect(source.contains("@major_faults[execname]"))
+        #expect(source.contains("@minor_faults[execname]"))
+    }
+
+    @Test("Predefined: diskIOSizes")
+    func testPredefinedDiskIOSizes() {
+        let source = DBlocks.diskIOSizes().source
+        #expect(source.contains("io:::start"))
+        #expect(source.contains("@io_size[execname] = quantize(args[0]->b_bcount);"))
+    }
+
+    @Test("Predefined: signalDelivery")
+    func testPredefinedSignalDelivery() {
+        let source = DBlocks.signalDelivery().source
+        #expect(source.contains("proc:::signal-send"))
+        #expect(source.contains("args[1]->pr_fname"))
+    }
+
+    @Test("Predefined: mutexContention")
+    func testPredefinedMutexContention() {
+        let source = DBlocks.mutexContention().source
+        #expect(source.contains("lockstat:::adaptive-block"))
+        #expect(source.contains("@mutex_wait_ns[execname] = quantize(arg1);"))
+    }
+
+    @Test("Predefined scripts respect a target filter")
+    func testPredefinedScriptsApplyTarget() {
+        let source = DBlocks.tcpConnections(for: .execname("nginx")).source
+        #expect(source.contains("execname == \"nginx\""))
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing
