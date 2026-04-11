@@ -5,6 +5,7 @@
  */
 
 import DTraceCore
+import CDTrace
 import Foundation
 import Glibc
 
@@ -313,6 +314,54 @@ public struct DTraceSession: ~Copyable {
     /// Clears aggregation data.
     public func clearAggregations() {
         handle.aggregateClear()
+    }
+
+    /// Snapshots the current aggregation state and returns one
+    /// ``AggregationRecord`` per row.
+    ///
+    /// This is the typed counterpart to ``printAggregations()`` —
+    /// instead of writing formatted text to a `FILE *`, it walks the
+    /// kernel's aggregation buffer and decodes each row into a Swift
+    /// value the caller can sort, filter, or report on programmatically.
+    ///
+    /// ```swift
+    /// var session = try DTraceSession.create()
+    /// session.add {
+    ///     Probe("syscall:::entry") {
+    ///         Count(by: "probefunc", into: "calls")
+    ///     }
+    /// }
+    /// try session.run(for: 5)
+    ///
+    /// for record in try session.snapshot() {
+    ///     guard let count = record.value.asInt else { continue }
+    ///     print("\(record.keys.first?.description ?? "?"): \(count)")
+    /// }
+    /// ```
+    ///
+    /// Scalar aggregations (`count`, `sum`, `min`, `max`, `avg`,
+    /// `stddev`) are decoded into typed `Int64` values; histogram
+    /// aggregations (`quantize`, `lquantize`, `llquantize`) are
+    /// surfaced as raw bytes for now and can be re-fed to libdtrace's
+    /// printers if needed.
+    ///
+    /// - Parameter sorted: Walk the kernel's aggregation buffer in
+    ///   sorted order (by value). Defaults to `true`.
+    /// - Returns: All rows for every aggregation defined by every
+    ///   script in the session.
+    /// - Throws: `DTraceCoreError.aggregateFailed` if the snap or walk
+    ///   fails.
+    public func snapshot(sorted: Bool = true) throws -> [AggregationRecord] {
+        try snapshotAggregations()
+        var records: [AggregationRecord] = []
+        try handle.aggregateWalk(sorted: sorted) { dataPtr, _ in
+            let aggdata = dataPtr.assumingMemoryBound(to: dtrace_aggdata_t.self)
+            if let record = AggregationRecord.decode(from: aggdata) {
+                records.append(record)
+            }
+            return .next
+        }
+        return records
     }
 
     // MARK: - Probe Discovery

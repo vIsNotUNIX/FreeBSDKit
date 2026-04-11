@@ -2429,6 +2429,54 @@ struct DBlocksSpeculationTests {
         #expect(script.source.contains("trace(arg0);"))
     }
 
+    // MARK: - Aggregation snapshot type surface
+    //
+    // The actual snapshot() walk needs a live DTrace handle (root), so
+    // these tests cover the typed value surface — making sure the case
+    // accessors and equality work, and that the function signature is
+    // present so callers can rely on it.
+
+    @Test("AggregationKey description renders cases")
+    func testAggregationKeyDescription() {
+        #expect(AggregationKey.int(42).description == "42")
+        #expect(AggregationKey.string("nginx").description == "nginx")
+        #expect(AggregationKey.bytes([1, 2, 3]).description == "<3 bytes>")
+    }
+
+    @Test("AggregationValue.asInt unwraps scalar cases")
+    func testAggregationValueAsInt() {
+        #expect(AggregationValue.count(5).asInt == 5)
+        #expect(AggregationValue.sum(1024).asInt == 1024)
+        #expect(AggregationValue.min(-1).asInt == -1)
+        #expect(AggregationValue.max(99).asInt == 99)
+        #expect(AggregationValue.avg(7).asInt == 7)
+        #expect(AggregationValue.stddev(2).asInt == 2)
+        #expect(AggregationValue.quantize(Data()).asInt == nil)
+        #expect(AggregationValue.lquantize(Data()).asInt == nil)
+        #expect(AggregationValue.llquantize(Data()).asInt == nil)
+        #expect(AggregationValue.unknown(action: 0, Data()).asInt == nil)
+    }
+
+    @Test("AggregationRecord stores fields as supplied")
+    func testAggregationRecordInit() {
+        let r = AggregationRecord(
+            name: "calls",
+            keys: [.string("nginx"), .int(8)],
+            value: .count(123)
+        )
+        #expect(r.name == "calls")
+        #expect(r.keys.count == 2)
+        #expect(r.value.asInt == 123)
+    }
+
+    @Test("DTraceSession.snapshot signature is exposed")
+    func testSnapshotSignature() {
+        // This test validates the API exists; calling it requires root.
+        let _: (borrowing DTraceSession, Bool) throws -> [AggregationRecord] = { session, sorted in
+            try session.snapshot(sorted: sorted)
+        }
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing

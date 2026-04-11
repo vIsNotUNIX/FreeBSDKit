@@ -399,6 +399,46 @@ static inline dtrace_aggdesc_t *cdtrace_aggdata_desc(const dtrace_aggdata_t *dat
     return data->dtada_desc;
 }
 
+/* Aggregation description helpers */
+static inline const char *cdtrace_aggdesc_name(const dtrace_aggdesc_t *desc) {
+    return desc->dtagd_name;
+}
+
+static inline int cdtrace_aggdesc_nrecs(const dtrace_aggdesc_t *desc) {
+    return desc->dtagd_nrecs;
+}
+
+static inline const dtrace_recdesc_t *cdtrace_aggdesc_rec(
+    const dtrace_aggdesc_t *desc, int index)
+{
+    return &desc->dtagd_rec[index];
+}
+
+static inline uint16_t cdtrace_recdesc_action(const dtrace_recdesc_t *rec) {
+    return (uint16_t)rec->dtrd_action;
+}
+
+static inline uint32_t cdtrace_recdesc_size(const dtrace_recdesc_t *rec) {
+    return rec->dtrd_size;
+}
+
+static inline uint32_t cdtrace_recdesc_offset(const dtrace_recdesc_t *rec) {
+    return rec->dtrd_offset;
+}
+
+/* Aggregation action constants exported to Swift. */
+typedef enum {
+    CDTRACE_AGG_COUNT     = DTRACEAGG_COUNT,
+    CDTRACE_AGG_MIN       = DTRACEAGG_MIN,
+    CDTRACE_AGG_MAX       = DTRACEAGG_MAX,
+    CDTRACE_AGG_AVG       = DTRACEAGG_AVG,
+    CDTRACE_AGG_SUM       = DTRACEAGG_SUM,
+    CDTRACE_AGG_STDDEV    = DTRACEAGG_STDDEV,
+    CDTRACE_AGG_QUANTIZE  = DTRACEAGG_QUANTIZE,
+    CDTRACE_AGG_LQUANTIZE = DTRACEAGG_LQUANTIZE,
+    CDTRACE_AGG_LLQUANTIZE = DTRACEAGG_LLQUANTIZE,
+} cdtrace_agg_action_t;
+
 /* Error data helpers */
 static inline const char *cdtrace_errdata_msg(const dtrace_errdata_t *data) {
     return data->dteda_msg;
