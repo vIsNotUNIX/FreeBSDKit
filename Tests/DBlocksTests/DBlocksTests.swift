@@ -2477,6 +2477,20 @@ struct DBlocksSpeculationTests {
         }
     }
 
+    @Test("DTraceSession.streamSnapshots signature is exposed")
+    func testStreamSnapshotsSignature() {
+        // This test validates the API exists; calling it requires root.
+        func verify(_: (borrowing DTraceSession, TimeInterval, Int?, Bool, ([AggregationRecord]) throws -> Void) async throws -> Void) {}
+        verify { session, interval, iterations, sorted, body in
+            try await session.streamSnapshots(
+                every: interval,
+                iterations: iterations,
+                sorted: sorted,
+                body
+            )
+        }
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing
