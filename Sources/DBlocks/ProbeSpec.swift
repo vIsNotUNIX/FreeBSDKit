@@ -231,6 +231,39 @@ extension ProbeSpec {
         )
     }
 
+    /// Raw-address `pid` provider probe — trace an arbitrary
+    /// instruction *address* inside a user-land binary, without
+    /// going through symbol resolution.
+    ///
+    /// This is the form to use for stripped binaries, JIT-compiled
+    /// code, or any case where there is no function symbol to name.
+    /// The `address` is the absolute virtual address inside the
+    /// target process; the rendered probe spec uses an empty
+    /// function field and the address as the probe name (libdtrace
+    /// accepts both decimal and `0x`-prefixed hex).
+    ///
+    /// ```swift
+    /// // Trace whatever is at 0x401234 in the target process.
+    /// Probe(.pid(.target, module: "a.out", address: 0x401234))
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - process: Which process to attach to.
+    ///   - module: Object file containing the address.
+    ///   - address: Absolute virtual address.
+    public static func pid(
+        _ process: PIDProcess,
+        module: String,
+        address: UInt64
+    ) -> ProbeSpec {
+        ProbeSpec(
+            provider: "pid\(process.suffix)",
+            module: module,
+            function: "",
+            name: String(format: "0x%llx", address)
+        )
+    }
+
     /// Selector for the process a `pid` probe attaches to.
     public enum PIDProcess: Sendable, Hashable {
         /// Attach via the `$target` macro — i.e. the process passed to

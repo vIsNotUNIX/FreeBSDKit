@@ -231,14 +231,56 @@ public struct DBlocksBuilder {
 ///            by: "execname", into: "latency")
 /// ```
 ///
+/// ## Preamble Declarations
+///
+/// In addition to probe clauses, a script can carry a *preamble* of
+/// top-level declarations rendered before the first clause. Use
+/// ``declare(_:)`` to attach a ``Declaration`` for any of the
+/// supported kinds:
+///
+/// - `#pragma D option …` and `#pragma D depends_on library …`
+/// - `typedef struct { … } NAME;` via ``Typedef``
+/// - `translator OUT < IN > { … };` via ``Translator``
+/// - `inline TYPE NAME = VALUE;`
+/// - `self TYPE NAME;` and `this TYPE NAME;` typed locals
+/// - A verbatim raw escape hatch
+///
+/// The "DBlocks-first" path for shipping a custom translator is to
+/// pair a ``Translator`` value with a Swift namespace conforming to
+/// ``TypedTranslator``; the protocol's `register(in:)` extension
+/// adds both the typedef and the translator to a script in one call,
+/// giving the same autocomplete-friendly accessor pattern as the
+/// system providers (``TCPArgs``, ``IOArgs``, …).
+///
+/// ## Typed Provider Args
+///
+/// Stable DTrace providers expose their arguments via translator
+/// types. ``ProcArgs``, ``IOArgs``, ``TCPArgs``, ``UDPArgs``,
+/// ``UDPLiteArgs``, ``IPArgs``, ``SchedArgs``, and ``LockstatArgs``
+/// give you per-field `DExpr` accessors so you can write the
+/// equivalent of `args[3]->tcps_lport` as `TCPArgs.localPort`.
+///
+/// ```swift
+/// Probe(ProbeSpec.tcp(.sendPacket)) {
+///     Printf("%s:%d -> %s:%d %d bytes",
+///            args: [TCPArgs.localAddr,  TCPArgs.localPort,
+///                   TCPArgs.remoteAddr, TCPArgs.remotePort,
+///                   TCPArgs.ipPacketLength])
+/// }
+/// ```
+///
 /// ## Validation, Linting, and Compilation
 ///
 /// `DBlocks` supports a multi-stage check pipeline:
-/// - ``validate()`` enforces structural rules (non-empty script, no
-///   empty clauses).
+/// - ``validate()`` enforces structural rules: a script must have
+///   at least one probe clause *or* at least one preamble
+///   declaration, and no probe clause may have an empty action body.
 /// - ``lint()`` returns advisory warnings for common pitfalls:
 ///   undefined `@aggregation` references, `Exit()` inside a
 ///   `profile-…` probe, and `printf` format/arg-count mismatches.
+///   Lint and merge-conflict scanners deliberately do *not* walk
+///   preamble declarations — translator field expressions are not
+///   action bodies and won't false-positive.
 /// - ``compile()`` invokes the real libdtrace compiler to validate
 ///   the generated D source.
 ///
@@ -252,9 +294,12 @@ public struct DBlocksBuilder {
 ///
 /// ## Serialization
 ///
-/// `DBlocks` is `Codable`, so an entire script — clauses, predicates,
-/// actions, aggregations — round-trips through JSON. Use this to
-/// store, transmit, or modify scripts as data:
+/// `DBlocks` is `Codable`, so an entire script — preamble
+/// declarations, clauses, predicates, actions, aggregations —
+/// round-trips through JSON. The wire format carries a `version`
+/// field; the current schema is v2 (added the optional
+/// `declarations` array). v1 payloads (preamble-less) decode
+/// transparently and produce a script with an empty preamble.
 ///
 /// ```swift
 /// let data    = try script.jsonData()
@@ -262,12 +307,19 @@ public struct DBlocksBuilder {
 /// ```
 public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     /// Version of the serialization format for forward compatibility.
-    private static let serializationVersion = 1
+    private static let serializationVersion = 2
+
+    /// Top-level declarations rendered as the script's preamble,
+    /// before any probe clause. See ``Declaration`` for the supported
+    /// kinds (pragmas, typedefs, translators, inline constants,
+    /// typed thread-local declarations, and a verbatim escape hatch).
+    public private(set) var declarations: [Declaration]
 
     public private(set) var clauses: [ProbeClause]
 
     private enum CodingKeys: String, CodingKey {
         case version
+        case declarations
         case clauses
     }
 
@@ -275,27 +327,72 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // Version is optional for forward compatibility - we can read older formats
         _ = try container.decodeIfPresent(Int.self, forKey: .version)
+        // Declarations didn't exist in v1; tolerate their absence so
+        // older payloads continue to decode.
+        self.declarations = try container.decodeIfPresent(
+            [Declaration].self, forKey: .declarations
+        ) ?? []
         self.clauses = try container.decode([ProbeClause].self, forKey: .clauses)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.serializationVersion, forKey: .version)
+        // Only emit declarations when the script actually has any —
+        // keeps v1-shaped payloads byte-identical for scripts that
+        // don't use the preamble feature.
+        if !declarations.isEmpty {
+            try container.encode(declarations, forKey: .declarations)
+        }
         try container.encode(clauses, forKey: .clauses)
     }
 
     public init(@DBlocksBuilder _ builder: () -> [ProbeClause]) {
+        self.declarations = []
         self.clauses = builder()
     }
 
     /// Creates an empty script for programmatic construction.
     public init() {
+        self.declarations = []
         self.clauses = []
     }
 
     /// Creates a script from an array of probe clauses.
     public init(clauses: [ProbeClause]) {
+        self.declarations = []
         self.clauses = clauses
+    }
+
+    /// Creates a script from an array of preamble declarations and
+    /// probe clauses. Programmatic counterpart to building via the
+    /// result builder + ``declare(_:)``.
+    public init(declarations: [Declaration], clauses: [ProbeClause]) {
+        self.declarations = declarations
+        self.clauses = clauses
+    }
+
+    // MARK: - Preamble
+
+    /// Adds a top-level declaration to the script's preamble.
+    /// Declarations render in insertion order, before any probe
+    /// clause.
+    ///
+    /// ```swift
+    /// var script = DBlocks { Probe("syscall:::entry") { Count() } }
+    /// script.declare(.pragma(name: "quiet", value: nil))
+    /// script.declare(.translator(myTranslator))
+    /// ```
+    public mutating func declare(_ declaration: Declaration) {
+        declarations.append(declaration)
+    }
+
+    /// Returns a new script with `declaration` appended to the
+    /// preamble. The non-mutating counterpart to ``declare(_:)``.
+    public func declaring(_ declaration: Declaration) -> DBlocks {
+        var copy = self
+        copy.declare(declaration)
+        return copy
     }
 
     // MARK: - Composing Scripts
@@ -489,8 +586,19 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     }
 
     /// The generated D source code.
+    ///
+    /// Renders preamble declarations first (pragmas, typedefs,
+    /// translators, inline constants, typed thread-local declarations),
+    /// then probe clauses, with a blank line between every entry.
     public var source: String {
-        clauses.map { $0.render() }.joined(separator: "\n\n")
+        var blocks: [String] = []
+        for d in declarations {
+            blocks.append(d.render())
+        }
+        for c in clauses {
+            blocks.append(c.render())
+        }
+        return blocks.joined(separator: "\n\n")
     }
 
     public var description: String {
@@ -571,9 +679,15 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
 
     /// Validates the script structure.
     ///
+    /// A script must have *something* to render — either at least
+    /// one probe clause, or at least one preamble declaration. The
+    /// latter case covers translator-library scripts that exist
+    /// purely to expose typed views to other consumers. Every
+    /// probe clause must have at least one action.
+    ///
     /// - Throws: `DBlocksError` if the script is invalid.
     public func validate() throws {
-        if clauses.isEmpty {
+        if clauses.isEmpty && declarations.isEmpty {
             throw DBlocksError.emptyScript
         }
         for (index, clause) in clauses.enumerated() {

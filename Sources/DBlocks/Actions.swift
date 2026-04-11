@@ -173,6 +173,33 @@ public struct Tracemem: Sendable {
     public init(_ address: String, size: Int) {
         self.component = ProbeComponent(kind: .action("tracemem(\(address), \(size));"))
     }
+
+    /// Three-argument `tracemem(addr, dsize, esize)` form.
+    ///
+    /// `dsize` is the *maximum* number of bytes to copy (a constant
+    /// known at script-compile time, i.e. the static buffer size),
+    /// and `esize` is the *runtime* expression that says how many of
+    /// those bytes are actually meaningful for this probe firing.
+    /// The trace consumer sees only the first `esize` bytes; the
+    /// remainder are zero-padded out to `dsize`. Use this when the
+    /// length of the data lives in another argument or a thread-
+    /// local variable.
+    ///
+    /// ```swift
+    /// // Trace up to 1024 bytes of arg1, but only the leading
+    /// // arg2 bytes are real data.
+    /// Tracemem("arg1", maxSize: 1024, length: "arg2")
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - address: D expression evaluating to the source address.
+    ///   - maxSize: Maximum bytes to copy (compile-time constant).
+    ///   - length: Runtime expression giving the number of valid bytes.
+    public init(_ address: String, maxSize: Int, length: String) {
+        self.component = ProbeComponent(
+            kind: .action("tracemem(\(address), \(maxSize), \(length));")
+        )
+    }
 }
 
 extension Tracemem: ProbeComponentConvertible {

@@ -594,9 +594,12 @@ struct DBlocksValidationTests {
 
         let jsonData = try script.jsonData()
 
-        // Verify it's valid JSON
+        // Verify it's valid JSON. The version field is monotonic
+        // and may bump as new optional fields are added — assert it
+        // is present and >= 1 rather than pinning a specific value.
         let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
-        #expect(parsed?["version"] as? Int == 1)
+        let version = parsed?["version"] as? Int ?? 0
+        #expect(version >= 1)
 
         let clauses = parsed?["clauses"] as? [[String: Any]]
         #expect(clauses?.count == 1)
@@ -4503,5 +4506,646 @@ struct DBlocksDwatchProfilesCanaryTests {
                     "Dwatch.\(name): target filter not threaded")
             canary(script, name: "Dwatch.\(name)(for: nginx)")
         }
+    }
+}
+
+// MARK: - DExpr extended built-ins and string functions
+
+@Suite("DBlocks DExpr Extended Built-ins")
+struct DBlocksDExprExtendedBuiltinsTests {
+
+    @Test("Process- and CPU-context built-ins")
+    func testProcessCpuBuiltins() {
+        #expect(DExpr.curpsinfo.rendered   == "curpsinfo")
+        #expect(DExpr.curlwpsinfo.rendered == "curlwpsinfo")
+        #expect(DExpr.curcpu.rendered      == "curcpu")
+        #expect(DExpr.cpuinfo.rendered     == "curcpu")
+        #expect(DExpr.errno.rendered       == "errno")
+    }
+
+    @Test("arg0..arg9 shorthand properties")
+    func testArgShorthands() {
+        #expect(DExpr.arg0.rendered == "arg0")
+        #expect(DExpr.arg5.rendered == "arg5")
+        #expect(DExpr.arg9.rendered == "arg9")
+        // Equivalent to the function form.
+        #expect(DExpr.arg0.rendered == DExpr.arg(0).rendered)
+        #expect(DExpr.arg9.rendered == DExpr.arg(9).rendered)
+    }
+
+    @Test("member(_:) renders pointer-to-struct access")
+    func testMemberAccess() {
+        #expect(DExpr.curpsinfo.member("pr_fname").rendered == "curpsinfo->pr_fname")
+        #expect(DExpr.args(1).member("pr_pid").rendered     == "args[1]->pr_pid")
+    }
+}
+
+@Suite("DBlocks DExpr String Functions")
+struct DBlocksDExprStringFunctionsTests {
+
+    @Test("strjoin / strtok / strstr")
+    func testStrjoinTokStr() {
+        #expect(DExpr.strjoin(.execname, DExpr("\"!\"")).rendered ==
+                "strjoin(execname, \"!\")")
+        #expect(DExpr.strtok(DExpr("self->path"), DExpr("\"/\"")).rendered ==
+                "strtok(self->path, \"/\")")
+        #expect(DExpr.strstr(DExpr("self->path"), DExpr("\"bin\"")).rendered ==
+                "strstr(self->path, \"bin\")")
+    }
+
+    @Test("indexOf / rindexOf")
+    func testIndexHelpers() {
+        #expect(DExpr.indexOf(.execname, DExpr("\"x\"")).rendered ==
+                "index(execname, \"x\")")
+        #expect(DExpr.rindexOf(.execname, DExpr("\"x\"")).rendered ==
+                "rindex(execname, \"x\")")
+    }
+
+    @Test("strchr / strrchr")
+    func testCharSearch() {
+        #expect(DExpr.strchr(.execname, DExpr("'/'")).rendered ==
+                "strchr(execname, '/')")
+        #expect(DExpr.strrchr(.execname, DExpr("'/'")).rendered ==
+                "strrchr(execname, '/')")
+    }
+
+    @Test("dirname / basename")
+    func testPathSplit() {
+        let path = DExpr("self->path")
+        #expect(DExpr.dirname(path).rendered  == "dirname(self->path)")
+        #expect(DExpr.basename(path).rendered == "basename(self->path)")
+    }
+
+    @Test("lltostr / inet_ntoa / inet_ntoa6 / inet_ntop")
+    func testConversionHelpers() {
+        #expect(DExpr.lltostr(.timestamp).rendered    == "lltostr(timestamp)")
+        #expect(DExpr.inetNtoa(DExpr("&self->src")).rendered ==
+                "inet_ntoa(&self->src)")
+        #expect(DExpr.inetNtoa6(DExpr("&self->src6")).rendered ==
+                "inet_ntoa6(&self->src6)")
+        #expect(DExpr.inetNtop(DExpr("AF_INET"), DExpr("&self->src")).rendered ==
+                "inet_ntop(AF_INET, &self->src)")
+    }
+
+    @Test("String functions compose into a working printf")
+    func testCompositionInPrintf() throws {
+        let script = DBlocks {
+            Probe("syscall::open:entry") {
+                Printf("%s -> %s",
+                       args: [.basename(.copyinstr(.arg(0))),
+                              .dirname(.copyinstr(.arg(0)))])
+            }
+        }
+        try script.validate()
+        #expect(script.lint().isEmpty)
+        #expect(script.source.contains("basename(copyinstr(arg0))"))
+        #expect(script.source.contains("dirname(copyinstr(arg0))"))
+    }
+}
+
+// MARK: - Raw-address pid probes and variable-size Tracemem
+
+@Suite("DBlocks pid Raw-Address Probes")
+struct DBlocksPidRawAddressTests {
+
+    @Test("Raw-address pid probe with $target renders hex address")
+    func testTargetAddress() {
+        let spec = ProbeSpec.pid(.target, module: "a.out", address: 0x401234)
+        // The function field is empty and the name is the hex address.
+        #expect(spec.rendered == "pid$target:a.out::0x401234")
+    }
+
+    @Test("Raw-address pid probe with literal PID")
+    func testLiteralAddress() {
+        let spec = ProbeSpec.pid(.literal(4242), module: "libc.so.7", address: 0xdeadbeef)
+        #expect(spec.rendered == "pid4242:libc.so.7::0xdeadbeef")
+    }
+
+    @Test("Raw-address pid probe survives validate + lint + JSON round-trip")
+    func testRoundTrip() throws {
+        let script = DBlocks {
+            Probe(.pid(.target, module: "a.out", address: 0x401234)) {
+                Printf("hit at 0x401234")
+            }
+        }
+        try script.validate()
+        #expect(script.lint().isEmpty)
+        let restored = try DBlocks(jsonData: try script.jsonData())
+        #expect(script.source == restored.source)
+    }
+}
+
+@Suite("DBlocks Tracemem Variable-Size Variant")
+struct DBlocksTracememVariableSizeTests {
+
+    @Test("Three-argument tracemem(addr, dsize, esize) form")
+    func testThreeArg() {
+        let script = DBlocks {
+            Probe("syscall::write:entry") {
+                Tracemem("arg1", maxSize: 1024, length: "arg2")
+            }
+        }
+        #expect(script.source.contains("tracemem(arg1, 1024, arg2);"))
+    }
+
+    @Test("Variable-size form coexists with the fixed-size form")
+    func testCoexistence() throws {
+        let script = DBlocks {
+            Probe("syscall::write:entry") {
+                Tracemem("arg1", size: 64)
+                Tracemem("arg1", maxSize: 1024, length: "arg2")
+            }
+        }
+        try script.validate()
+        #expect(script.source.contains("tracemem(arg1, 64);"))
+        #expect(script.source.contains("tracemem(arg1, 1024, arg2);"))
+    }
+}
+
+// MARK: - Typed args[N] per provider
+
+@Suite("DBlocks Provider Typed Args")
+struct DBlocksProviderTypedArgsTests {
+
+    @Test("ProcArgs renders the documented field paths")
+    func testProcArgs() {
+        #expect(ProcArgs.targetExecname.rendered    == "args[1]->pr_fname")
+        #expect(ProcArgs.targetCmdline.rendered     == "args[1]->pr_psargs")
+        #expect(ProcArgs.targetPid.rendered         == "args[1]->pr_pid")
+        #expect(ProcArgs.targetUid.rendered         == "args[1]->pr_uid")
+        #expect(ProcArgs.signalNumber.rendered      == "args[2]")
+        #expect(ProcArgs.execPath.rendered          == "args[0]")
+    }
+
+    @Test("IOArgs renders bufinfo / devinfo / fileinfo paths")
+    func testIOArgs() {
+        #expect(IOArgs.bufCount.rendered    == "args[0]->b_bcount")
+        #expect(IOArgs.bufFlags.rendered    == "args[0]->b_flags")
+        #expect(IOArgs.devName.rendered     == "args[1]->dev_name")
+        #expect(IOArgs.devStatname.rendered == "args[1]->dev_statname")
+        #expect(IOArgs.fileName.rendered    == "args[2]->fi_name")
+        #expect(IOArgs.filePathname.rendered == "args[2]->fi_pathname")
+    }
+
+    @Test("Shared NetArgs accessors")
+    func testNetArgs() {
+        #expect(NetArgs.ipPacketLength.rendered == "args[2]->ip_plength")
+        #expect(NetArgs.ipSrcAddr.rendered      == "args[2]->ip_saddr")
+        #expect(NetArgs.ipDstAddr.rendered      == "args[2]->ip_daddr")
+        #expect(NetArgs.connectionPid.rendered  == "args[1]->cs_pid")
+    }
+
+    @Test("TCPArgs re-exports Net + provides tcpsinfo / tcpinfo accessors")
+    func testTCPArgs() {
+        #expect(TCPArgs.ipPacketLength.rendered == "args[2]->ip_plength")
+        #expect(TCPArgs.localPort.rendered      == "args[3]->tcps_lport")
+        #expect(TCPArgs.remotePort.rendered     == "args[3]->tcps_rport")
+        #expect(TCPArgs.localAddr.rendered      == "args[3]->tcps_laddr")
+        #expect(TCPArgs.remoteAddr.rendered     == "args[3]->tcps_raddr")
+        #expect(TCPArgs.state.rendered          == "args[3]->tcps_state")
+        #expect(TCPArgs.flags.rendered          == "args[4]->tcp_flags")
+        #expect(TCPArgs.sequence.rendered       == "args[4]->tcp_seq")
+    }
+
+    @Test("UDPArgs and UDPLiteArgs accessors")
+    func testUDPArgs() {
+        #expect(UDPArgs.localPort.rendered      == "args[3]->udps_lport")
+        #expect(UDPArgs.length.rendered         == "args[4]->udp_length")
+        #expect(UDPLiteArgs.localPort.rendered  == "args[3]->udplites_lport")
+        #expect(UDPLiteArgs.coverage.rendered   == "args[4]->udplite_coverage")
+    }
+
+    @Test("IPArgs ifinfo / ipv4info / ipv6info accessors")
+    func testIPArgs() {
+        #expect(IPArgs.ifName.rendered      == "args[3]->if_name")
+        #expect(IPArgs.ipv4Protocol.rendered == "args[4]->ipv4_protocol")
+        #expect(IPArgs.ipv4Src.rendered     == "args[4]->ipv4_src")
+        #expect(IPArgs.ipv6Plen.rendered    == "args[5]->ipv6_plen")
+        #expect(IPArgs.ipv6Src.rendered     == "args[5]->ipv6_src")
+    }
+
+    @Test("SchedArgs lwpsinfo / psinfo / cpuinfo accessors")
+    func testSchedArgs() {
+        #expect(SchedArgs.targetLwpId.rendered    == "args[0]->pr_lwpid")
+        #expect(SchedArgs.targetExecname.rendered == "args[1]->pr_fname")
+        #expect(SchedArgs.targetCpuId.rendered    == "args[2]->cpu_id")
+    }
+
+    @Test("LockstatArgs raw slot accessors")
+    func testLockstatArgs() {
+        #expect(LockstatArgs.lockPointer.rendered           == "args[0]")
+        #expect(LockstatArgs.waitTimeOrSpinCount.rendered   == "args[1]")
+        #expect(LockstatArgs.rwWriterFlag.rendered          == "args[2]")
+    }
+
+    @Test("Typed args compose into a complete Printf")
+    func testTypedArgsInPrintf() throws {
+        let script = DBlocks {
+            Probe(ProbeSpec.tcp(.sendPacket)) {
+                Printf("%s:%d -> %s:%d %d bytes",
+                       args: [TCPArgs.localAddr, TCPArgs.localPort,
+                              TCPArgs.remoteAddr, TCPArgs.remotePort,
+                              TCPArgs.ipPacketLength])
+            }
+        }
+        try script.validate()
+        #expect(script.lint().isEmpty)
+        #expect(script.source.contains("args[3]->tcps_lport"))
+        #expect(script.source.contains("args[2]->ip_plength"))
+        let restored = try DBlocks(jsonData: try script.jsonData())
+        #expect(script.source == restored.source)
+    }
+
+    /// Regression: the leading-dot `Probe(.tcp(.sendPacket))` form
+    /// should resolve to `ProbeSpec.tcp(_:)` even though `Probe` also
+    /// has a raw-string overload. This test exercises the form
+    /// directly so a future overload addition that breaks inference
+    /// fails at compile time rather than silently routing through
+    /// the String overload.
+    @Test("Leading-dot ProbeSpec form resolves without explicit qualification")
+    func testLeadingDotProbeSpec() throws {
+        let script = DBlocks {
+            Probe(.tcp(.sendPacket)) { Count() }
+            Probe(.tcp(.receivePacket)) { Count() }
+            Probe(.proc(.signalSend)) { Count() }
+            Probe(.io(.start)) { Count() }
+        }
+        try script.validate()
+        let src = script.source
+        #expect(src.contains("tcp:::send"))
+        #expect(src.contains("tcp:::receive"))
+        #expect(src.contains("proc:::signal-send"))
+        #expect(src.contains("io:::start"))
+    }
+}
+
+// MARK: - Preamble (pragmas, typedefs, translators, declarations)
+
+@Suite("DBlocks Preamble Declarations")
+struct DBlocksPreambleTests {
+
+    @Test("Pragma renders #pragma D option")
+    func testPragmaRender() {
+        let p1 = Declaration.pragma(name: "quiet", value: nil)
+        let p2 = Declaration.pragma(name: "bufsize", value: "8m")
+        #expect(p1.render() == "#pragma D option quiet")
+        #expect(p2.render() == "#pragma D option bufsize=8m")
+    }
+
+    @Test("dependsOn renders #pragma D depends_on library")
+    func testDependsOnRender() {
+        let d = Declaration.dependsOn(library: "net.d")
+        #expect(d.render() == "#pragma D depends_on library net.d")
+    }
+
+    @Test("Inline constant and typed declarations render correctly")
+    func testInlineAndTypedDecl() {
+        let c = Declaration.inlineConstant(type: "int", name: "FOO", value: "42")
+        #expect(c.render() == "inline int FOO = 42;")
+
+        let tl = Declaration.threadLocalDecl(type: "int", name: "ts")
+        #expect(tl.render() == "self int ts;")
+
+        let cl = Declaration.clauseLocalDecl(type: "uint64_t", name: "start")
+        #expect(cl.render() == "this uint64_t start;")
+    }
+
+    @Test("Raw declaration is rendered verbatim")
+    func testRawDecl() {
+        let r = Declaration.raw("/* anything goes here */")
+        #expect(r.render() == "/* anything goes here */")
+    }
+
+    @Test("Preamble declarations render before clauses")
+    func testPreambleOrdering() {
+        var script = DBlocks {
+            Probe("syscall:::entry") { Count() }
+        }
+        script.declare(.pragma(name: "quiet", value: nil))
+        script.declare(.inlineConstant(type: "int", name: "MAX_DEPTH", value: "8"))
+        let src = script.source
+        // Pragma must appear before the syscall probe.
+        let pragmaRange = src.range(of: "#pragma D option quiet")
+        let probeRange  = src.range(of: "syscall:::entry")
+        #expect(pragmaRange != nil && probeRange != nil)
+        if let p = pragmaRange, let q = probeRange {
+            #expect(p.lowerBound < q.lowerBound)
+        }
+    }
+
+    @Test("Translator-only script validates without any clauses")
+    func testTranslatorOnlyValidates() throws {
+        // A library script that exists only to declare a translator.
+        let translator = Translator(output: "queryinfo_t", input: "Query *q") {
+            Translator.Field("sql",         from: "stringof(q->raw_sql)")
+            Translator.Field("duration_ns", from: "q->elapsed_nanos")
+        }
+        var script = DBlocks()
+        script.declare(.translator(translator))
+        try script.validate()
+        #expect(script.source.contains("translator queryinfo_t < Query *q >"))
+        #expect(script.source.contains("sql = stringof(q->raw_sql);"))
+    }
+
+    @Test("Empty script is still rejected")
+    func testFullyEmptyStillRejected() {
+        let empty = DBlocks()
+        do {
+            try empty.validate()
+            Issue.record("expected validate() to throw on empty script")
+        } catch DBlocksError.emptyScript {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test("Preamble survives JSON round-trip")
+    func testPreambleJSONRoundTrip() throws {
+        let typedef = Typedef(name: "queryinfo_t") {
+            Typedef.Member("sql",         type: "string")
+            Typedef.Member("duration_ns", type: "int")
+        }
+        let translator = Translator(output: "queryinfo_t", input: "Query *q") {
+            Translator.Field("sql",         from: "stringof(q->raw_sql)")
+            Translator.Field("duration_ns", from: "q->elapsed_nanos")
+        }
+        var script = DBlocks {
+            Probe("syscall:::entry") { Count() }
+        }
+        script.declare(.pragma(name: "quiet", value: nil))
+        script.declare(.dependsOn(library: "net.d"))
+        script.declare(.typedef(typedef))
+        script.declare(.translator(translator))
+        script.declare(.inlineConstant(type: "int", name: "FOO", value: "42"))
+        script.declare(.threadLocalDecl(type: "int", name: "ts"))
+        script.declare(.raw("/* trailing raw decl */"))
+
+        let restored = try DBlocks(jsonData: try script.jsonData())
+        #expect(script.source == restored.source)
+        #expect(restored.declarations.count == script.declarations.count)
+    }
+
+    @Test("Old (v1) JSON without declarations field still decodes")
+    func testV1BackwardsCompat() throws {
+        // Hand-write a v1-shape payload — version 1, no declarations
+        // field at all.
+        let v1 = """
+        {
+            "version": 1,
+            "clauses": [
+                {
+                    "probe": "syscall:::entry",
+                    "actions": ["@ = count();"]
+                }
+            ]
+        }
+        """
+        let restored = try DBlocks(jsonData: Data(v1.utf8))
+        #expect(restored.declarations.isEmpty)
+        #expect(restored.clauses.count == 1)
+        #expect(restored.source.contains("syscall:::entry"))
+    }
+
+    @Test("Lint does not walk preamble declarations")
+    func testLintIgnoresPreamble() {
+        // The translator body contains literal `args[0]` and a
+        // string-looking expression — neither should trigger any
+        // lint warning, because declarations aren't action bodies.
+        var script = DBlocks {
+            Probe("syscall:::entry") { Count() }
+        }
+        script.declare(.translator(
+            Translator(output: "fakeinfo_t", input: "void *p", fields: [
+                Translator.Field("self_x_assignment_lookalike",
+                                 from: "p->x"),  // not a real assignment
+            ])
+        ))
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("Thread-local conflict scanner does not walk preamble")
+    func testConflictScannerIgnoresPreamble() {
+        // Two scripts each declare a translator that mentions
+        // `self->ts =` inside its raw source. They each really write
+        // self->ts in their own probe action. The merge conflict
+        // detector should still find the action conflict and only
+        // the action conflict — not double-count the preamble text.
+        let a = DBlocks(
+            declarations: [.raw("/* mentions self->ts = something */")],
+            clauses: [
+                Probe("syscall::read:entry") { Action("self->ts = timestamp;") }
+            ]
+        )
+        let b = DBlocks(
+            declarations: [.raw("/* mentions self->ts = something else */")],
+            clauses: [
+                Probe("syscall::write:entry") { Action("self->ts = timestamp;") }
+            ]
+        )
+        let conflicts = a.threadLocalConflicts(with: b)
+        #expect(conflicts == ["ts"])  // exactly one conflict, not two
+    }
+}
+
+// MARK: - TypedTranslator protocol pairing
+
+@Suite("DBlocks TypedTranslator")
+struct DBlocksTypedTranslatorTests {
+
+    /// Sample namespace pairing a custom translator with static
+    /// `DExpr` accessors. Conforming an uninhabited enum to
+    /// ``TypedTranslator`` is the recommended pattern for
+    /// application authors shipping a USDT provider.
+    enum QueryArgs: TypedTranslator {
+        static let translator = Translator(output: "queryinfo_t", input: "Query *q") {
+            Translator.Field("sql",         from: "stringof(q->raw_sql)")
+            Translator.Field("duration_ns", from: "q->elapsed_nanos")
+            Translator.Field("rows",        from: "q->result_rowcount")
+        }
+
+        static let typedef: Typedef? = Typedef(name: "queryinfo_t") {
+            Typedef.Member("sql",         type: "string")
+            Typedef.Member("duration_ns", type: "int")
+            Typedef.Member("rows",        type: "int")
+        }
+
+        static var sql:        DExpr { DExpr("args[0]->sql") }
+        static var durationNs: DExpr { DExpr("args[0]->duration_ns") }
+        static var rows:       DExpr { DExpr("args[0]->rows") }
+    }
+
+    @Test("register(in:) adds the translator and its typedef to the script")
+    func testRegister() {
+        var script = DBlocks {
+            Probe("myapp$target:::query-start") {
+                Printf("%s (%d rows in %d ns)",
+                       args: [QueryArgs.sql, QueryArgs.rows, QueryArgs.durationNs])
+            }
+        }
+        QueryArgs.register(in: &script)
+
+        #expect(script.declarations.count == 2)
+        // The typedef must come before the translator so the
+        // translator's output type is known to the compiler.
+        let src = script.source
+        let typedefRange    = src.range(of: "typedef struct")
+        let translatorRange = src.range(of: "translator queryinfo_t")
+        #expect(typedefRange != nil && translatorRange != nil)
+        if let td = typedefRange, let tr = translatorRange {
+            #expect(td.lowerBound < tr.lowerBound)
+        }
+        // And the typed accessors actually appear in the action body.
+        #expect(src.contains("args[0]->sql"))
+        #expect(src.contains("args[0]->rows"))
+    }
+
+    @Test("Default typedef is nil; protocol still works")
+    func testDefaultNilTypedef() {
+        enum NoTypedef: TypedTranslator {
+            static let translator = Translator(output: "x_t", input: "X *x", fields: [
+                .init("a", from: "x->a"),
+            ])
+        }
+        // Default extension supplies typedef == nil
+        #expect(NoTypedef.typedef == nil)
+
+        var script = DBlocks { Probe("BEGIN") { Printf("hi") } }
+        NoTypedef.register(in: &script)
+        #expect(script.declarations.count == 1)
+        #expect(script.source.contains("translator x_t"))
+    }
+
+    @Test("Translator + typedef survive validate + JSON round-trip")
+    func testFullRoundTrip() throws {
+        var script = DBlocks {
+            Probe("BEGIN") { Printf("starting") }
+        }
+        QueryArgs.register(in: &script)
+        try script.validate()
+        let restored = try DBlocks(jsonData: try script.jsonData())
+        #expect(script.source == restored.source)
+        #expect(restored.declarations.count == 2)
+    }
+
+    @Test("register(in:) is idempotent — second call adds nothing")
+    func testRegisterIdempotent() {
+        var script = DBlocks {
+            Probe("BEGIN") { Printf("hi") }
+        }
+        QueryArgs.register(in: &script)
+        let firstCount = script.declarations.count
+
+        // A second call must not double the declarations.
+        QueryArgs.register(in: &script)
+        #expect(script.declarations.count == firstCount,
+                "second register added \(script.declarations.count - firstCount) extra declaration(s)")
+
+        // And the rendered source must contain exactly one
+        // translator block for queryinfo_t.
+        let occurrences = script.source.components(separatedBy: "translator queryinfo_t").count - 1
+        #expect(occurrences == 1)
+    }
+
+    @Test("Two TypedTranslators with different names both register")
+    func testTwoDistinctTranslators() {
+        enum OtherArgs: TypedTranslator {
+            static let translator = Translator(output: "otherinfo_t", input: "Other *o", fields: [
+                .init("x", from: "o->x"),
+            ])
+        }
+        var script = DBlocks { Probe("BEGIN") { Printf("hi") } }
+        QueryArgs.register(in: &script)
+        OtherArgs.register(in: &script)
+        // QueryArgs has a typedef + translator (2), OtherArgs has just
+        // a translator (1) — total 3.
+        #expect(script.declarations.count == 3)
+        #expect(script.source.contains("translator queryinfo_t"))
+        #expect(script.source.contains("translator otherinfo_t"))
+    }
+}
+
+// MARK: - Root-gated end-to-end tests
+//
+// These tests actually open libdtrace and exercise compile() / run()
+// against representative scripts. They require root, so each one is
+// gated on `getuid() == 0` and silently skips otherwise. Without the
+// gate they would poison the entire test suite on machines where
+// nobody is running it as root.
+
+private func runningAsRoot() -> Bool {
+    return getuid() == 0
+}
+
+@Suite("DBlocks End-to-End (root only)", .enabled(if: runningAsRoot()))
+struct DBlocksEndToEndTests {
+
+    /// Pull a representative slice of the extended Dwatch catalog
+    /// through the real libdtrace compiler. The static catalog has
+    /// ~280 entries; running compile() on all of them would be slow
+    /// and would noisily fail on any FreeBSD system whose vfs/proc/
+    /// sched providers don't expose every documented event. Pick a
+    /// small fixed sample of high-confidence probes that should
+    /// compile on any modern FreeBSD with DTrace enabled.
+    @Test("Representative Dwatch profiles compile via libdtrace")
+    func testRepresentativeProfilesCompile() throws {
+        let samples: [(String, DBlocks)] = [
+            ("syscallCounts",       DBlocks.syscallCounts()),
+            ("fileOpens",           DBlocks.fileOpens()),
+            ("processExec",         DBlocks.processExec()),
+            ("Dwatch.kill",         DBlocks.Dwatch.kill()),
+            ("Dwatch.open",         DBlocks.Dwatch.open()),
+            ("Dwatch.readWrite",    DBlocks.Dwatch.readWrite()),
+            ("Dwatch.tcp",          DBlocks.Dwatch.tcp()),
+            ("Dwatch.systop",       DBlocks.Dwatch.systop()),
+            ("Dwatch.sysReadEntry", DBlocks.Dwatch.sysReadEntry()),
+            ("Dwatch.procCreate",   DBlocks.Dwatch.procCreate()),
+        ]
+        for (name, script) in samples {
+            do {
+                try script.compile()
+            } catch {
+                Issue.record("\(name): compile() failed: \(error)")
+            }
+        }
+    }
+
+    /// `attach(to:)` is the root-only API used to scope a script to
+    /// a specific PID via the `$target` macro. The smoke test attaches
+    /// to PID 1 (init) — present on every running FreeBSD system —
+    /// and asserts the call doesn't throw. We don't actually run the
+    /// script; just verifying that `grab` succeeds is enough to
+    /// catch regressions in the libdtrace handle plumbing.
+    @Test("DTraceSession.attach(to:) succeeds against PID 1")
+    func testAttachToInit() throws {
+        var session = try DTraceSession.create()
+        // PID 1 always exists. attach() returns a ProcessHandle; we
+        // just need it to not throw.
+        let _ = try session.attach(to: 1)
+    }
+
+    /// `spawn(path:arguments:)` launches a child process under
+    /// DTrace control. We spawn `/bin/true` (a no-op binary that
+    /// exits with status 0) and verify the call returns a handle.
+    /// As above, we don't run the session — the value here is
+    /// catching plumbing regressions.
+    @Test("DTraceSession.spawn(path:) launches /bin/true")
+    func testSpawnTrue() throws {
+        var session = try DTraceSession.create()
+        let _ = try session.spawn(path: "/bin/true")
+    }
+
+    /// End-to-end run-and-capture against a known-good script. Uses
+    /// `Tick(1, .seconds) { Exit(0) }` so the run terminates within
+    /// a couple of seconds even if no other probes fire.
+    @Test("End-to-end capture of a tick-bounded script")
+    func testCaptureTickScript() throws {
+        let script = DBlocks {
+            BEGIN { Printf("hello from BEGIN") }
+            Tick(1, .seconds) { Exit(0) }
+        }
+        let output = try script.capture()
+        #expect(output.contains("hello from BEGIN"),
+                "expected BEGIN printf in captured output, got: \(output)")
     }
 }

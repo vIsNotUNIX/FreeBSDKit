@@ -557,23 +557,22 @@ extension DBlocks {
         // MARK: - Block I/O (io provider)
 
         /// Equivalent to `dwatch io` — log every block-I/O start/done
-        /// pair, showing the byte count and the firing probe name.
+        /// pair, showing the device, file path (when available), and
+        /// requested byte count.
         ///
-        /// The upstream `dwatch io` script walks the `bufinfo_t` /
-        /// `devinfo_t` structures to print device, partition, and flow
-        /// direction. This wrapper is intentionally simpler: it fires
-        /// the same `io:::start` / `io:::done` probes and prints the
-        /// requested transfer length, which is the field most users
-        /// actually want. Use `args[0]` directly in a custom script if
-        /// you need the full bufinfo context.
+        /// Uses the typed ``IOArgs`` accessors so the format string
+        /// references field names rather than `args[N]` literals.
         public static func io(for target: DTraceTarget = .all) -> DBlocks {
             DBlocks {
                 Probe(probes: ["io:::start", "io:::done"]) {
                     if !target.predicate.isEmpty {
                         Target(target)
                     }
-                    Printf("%s[%d]: %s %d bytes",
-                           "execname", "pid", "probename", "args[0]->b_bcount")
+                    Printf("%s[%d]: %s %s %s %d bytes",
+                           args: [.execname, .pid, .probename,
+                                  IOArgs.devStatname,
+                                  IOArgs.filePathname,
+                                  IOArgs.bufCount])
                 }
             }
         }
@@ -581,22 +580,23 @@ extension DBlocks {
         // MARK: - IPv4/IPv6 (ip provider)
 
         /// Equivalent to `dwatch ip` — log every IP packet send and
-        /// receive with the byte count.
+        /// receive with source, destination, interface, and length.
         ///
-        /// Mirrors the upstream `dwatch ip` profile, which enables
-        /// `ip:::send` and `ip:::receive`. The upstream version walks
-        /// the typed args to print the local/remote addresses; this
-        /// wrapper prints the length and direction, since the address
-        /// fields require the typed `pktinfo_t` translator that varies
-        /// across FreeBSD versions.
+        /// Uses the typed ``IPArgs`` / ``NetArgs`` accessors so the
+        /// format string references field names rather than
+        /// `args[N]->...` literals.
         public static func ip(for target: DTraceTarget = .all) -> DBlocks {
             DBlocks {
                 Probe(probes: ["ip:::send", "ip:::receive"]) {
                     if !target.predicate.isEmpty {
                         Target(target)
                     }
-                    Printf("%s[%d]: ip %s %d bytes",
-                           "execname", "pid", "probename", "args[2]->ip_plength")
+                    Printf("%s[%d]: ip %s %s %s -> %s %d bytes",
+                           args: [.execname, .pid, .probename,
+                                  IPArgs.ifName,
+                                  IPArgs.ipSrcAddr,
+                                  IPArgs.ipDstAddr,
+                                  IPArgs.ipPacketLength])
                 }
             }
         }
@@ -634,6 +634,9 @@ extension DBlocks {
         /// Equivalent to `dwatch proc-signal` — only the signal-related
         /// `proc` probes (`signal-send`, `signal-discard`,
         /// `signal-clear`).
+        ///
+        /// Uses the typed ``ProcArgs`` accessors to print the target
+        /// process name/pid and the signal number.
         public static func procSignal(for target: DTraceTarget = .all) -> DBlocks {
             DBlocks {
                 Probe(probes: [
@@ -644,8 +647,11 @@ extension DBlocks {
                     if !target.predicate.isEmpty {
                         Target(target)
                     }
-                    Printf("%s[%d]: proc %s sig=%d",
-                           "execname", "pid", "probename", "args[2]")
+                    Printf("%s[%d]: proc %s -> %s[%d] sig=%d",
+                           args: [.execname, .pid, .probename,
+                                  ProcArgs.targetExecname,
+                                  ProcArgs.targetPid,
+                                  ProcArgs.signalNumber])
                 }
             }
         }
@@ -820,15 +826,22 @@ extension DBlocks {
         // MARK: - tcp-io / udplite
 
         /// Equivalent to `dwatch tcp-io` — both directions of the
-        /// `tcp` provider with the byte count.
+        /// `tcp` provider with source/destination addresses, ports,
+        /// and length.
+        ///
+        /// Uses the typed ``TCPArgs`` accessors so each field is a
+        /// named property rather than an `args[N]->...` literal.
         public static func tcpIO(for target: DTraceTarget = .all) -> DBlocks {
             DBlocks {
                 Probe(probes: ["tcp:::send", "tcp:::receive"]) {
                     if !target.predicate.isEmpty {
                         Target(target)
                     }
-                    Printf("%s[%d]: tcp %s %d bytes",
-                           "execname", "pid", "probename", "args[2]->ip_plength")
+                    Printf("%s[%d]: tcp %s %s:%d -> %s:%d %d bytes",
+                           args: [.execname, .pid, .probename,
+                                  TCPArgs.localAddr, TCPArgs.localPort,
+                                  TCPArgs.remoteAddr, TCPArgs.remotePort,
+                                  TCPArgs.ipPacketLength])
                 }
             }
         }

@@ -89,6 +89,43 @@ extension DExpr {
     public static let gid           = DExpr("gid")
     public static let ppid          = DExpr("ppid")
     public static let curthread     = DExpr("curthread")
+
+    /// `curpsinfo` — pointer to the `psinfo_t` for the current
+    /// process, exposing fields like `pr_psargs`, `pr_fname`,
+    /// `pr_pid`, `pr_uid`, `pr_gid`. Use member access via the
+    /// rendered `->` form.
+    public static let curpsinfo     = DExpr("curpsinfo")
+
+    /// `curlwpsinfo` — pointer to the `lwpsinfo_t` for the current
+    /// LWP, exposing per-thread fields like `pr_state`, `pr_pri`,
+    /// `pr_stype`, `pr_lwpid`.
+    public static let curlwpsinfo   = DExpr("curlwpsinfo")
+
+    /// `curcpu` — pointer to the `cpuinfo_t` for the CPU on which
+    /// the current probe fired, exposing `cpu_id`, `cpu_pset`, etc.
+    public static let curcpu        = DExpr("curcpu")
+
+    /// `cpuinfo` — alias for `curcpu` in some DTrace dialects;
+    /// rendered identically. Provided for symmetry with documentation.
+    public static let cpuinfo       = DExpr("curcpu")
+
+    /// `errno` — the value of `errno` after the probe completes.
+    /// Only meaningful inside `:return` probes.
+    public static let errno         = DExpr("errno")
+
+    /// `arg0` … `arg9` shorthand for the most common argument
+    /// indices. Equivalent to ``arg(_:)`` but available as static
+    /// properties for autocomplete-friendly use in predicates.
+    public static let arg0 = DExpr("arg0")
+    public static let arg1 = DExpr("arg1")
+    public static let arg2 = DExpr("arg2")
+    public static let arg3 = DExpr("arg3")
+    public static let arg4 = DExpr("arg4")
+    public static let arg5 = DExpr("arg5")
+    public static let arg6 = DExpr("arg6")
+    public static let arg7 = DExpr("arg7")
+    public static let arg8 = DExpr("arg8")
+    public static let arg9 = DExpr("arg9")
 }
 
 // MARK: - Macro arguments
@@ -144,6 +181,112 @@ extension DExpr {
     /// `(type)expr` — explicit cast.
     public static func cast(_ expression: DExpr, to type: String) -> DExpr {
         DExpr("(\(type))\(expression.rendered)")
+    }
+
+    // MARK: - String functions
+    //
+    // The full string-manipulation family DTrace's libdtrace exposes.
+    // Each helper produces a `DExpr` whose rendered form is the literal
+    // D function call, ready to drop into a `Printf` argument or a
+    // `When` predicate.
+
+    /// `strjoin(a, b)` — concatenate two strings into a new
+    /// scratch-buffer string.
+    public static func strjoin(_ a: DExpr, _ b: DExpr) -> DExpr {
+        DExpr("strjoin(\(a.rendered), \(b.rendered))")
+    }
+
+    /// `strtok(s, delim)` — return the next token from `s` using
+    /// `delim` as the separator set, the same way `strtok(3)` does.
+    /// Pass `NULL` (or a `DExpr` rendering to `(char *)NULL`) for
+    /// continued scans within the same probe firing.
+    public static func strtok(_ s: DExpr, _ delim: DExpr) -> DExpr {
+        DExpr("strtok(\(s.rendered), \(delim.rendered))")
+    }
+
+    /// `strstr(haystack, needle)` — pointer to the first occurrence
+    /// of `needle` inside `haystack`, or `NULL` if not found.
+    public static func strstr(_ haystack: DExpr, _ needle: DExpr) -> DExpr {
+        DExpr("strstr(\(haystack.rendered), \(needle.rendered))")
+    }
+
+    /// `index(haystack, needle)` — index of the first occurrence of
+    /// `needle` in `haystack`, or `-1`. The two-argument form.
+    public static func indexOf(_ haystack: DExpr, _ needle: DExpr) -> DExpr {
+        DExpr("index(\(haystack.rendered), \(needle.rendered))")
+    }
+
+    /// `rindex(haystack, needle)` — index of the *last* occurrence
+    /// of `needle` in `haystack`, or `-1`.
+    public static func rindexOf(_ haystack: DExpr, _ needle: DExpr) -> DExpr {
+        DExpr("rindex(\(haystack.rendered), \(needle.rendered))")
+    }
+
+    /// `strchr(s, c)` — pointer to the first occurrence of character
+    /// `c` in `s`, or `NULL`.
+    public static func strchr(_ s: DExpr, _ c: DExpr) -> DExpr {
+        DExpr("strchr(\(s.rendered), \(c.rendered))")
+    }
+
+    /// `strrchr(s, c)` — pointer to the last occurrence of `c` in
+    /// `s`, or `NULL`.
+    public static func strrchr(_ s: DExpr, _ c: DExpr) -> DExpr {
+        DExpr("strrchr(\(s.rendered), \(c.rendered))")
+    }
+
+    /// `dirname(path)` — directory portion of `path`, à la
+    /// `dirname(3)`.
+    public static func dirname(_ path: DExpr) -> DExpr {
+        DExpr("dirname(\(path.rendered))")
+    }
+
+    /// `basename(path)` — final filename component of `path`.
+    public static func basename(_ path: DExpr) -> DExpr {
+        DExpr("basename(\(path.rendered))")
+    }
+
+    /// `lltostr(value)` — render an `int64_t` as its decimal string
+    /// representation in a scratch buffer.
+    public static func lltostr(_ value: DExpr) -> DExpr {
+        DExpr("lltostr(\(value.rendered))")
+    }
+
+    /// `inet_ntoa(addr)` — render an IPv4 address (as `ipaddr_t *`)
+    /// in dotted-quad form.
+    public static func inetNtoa(_ address: DExpr) -> DExpr {
+        DExpr("inet_ntoa(\(address.rendered))")
+    }
+
+    /// `inet_ntoa6(addr)` — render an IPv6 address (as
+    /// `in6_addr_t *`) in canonical form.
+    public static func inetNtoa6(_ address: DExpr) -> DExpr {
+        DExpr("inet_ntoa6(\(address.rendered))")
+    }
+
+    /// `inet_ntop(af, addr)` — render either an IPv4 or IPv6 address
+    /// based on the address family. Pass `AF_INET` or `AF_INET6` as
+    /// the first argument.
+    public static func inetNtop(_ family: DExpr, _ address: DExpr) -> DExpr {
+        DExpr("inet_ntop(\(family.rendered), \(address.rendered))")
+    }
+
+    // MARK: - Member access
+    //
+    // For typed pointers like `curpsinfo` or `args[2]`, dereferencing
+    // a struct field uses `->` in D. The Swift dot operator can't be
+    // overloaded to render that, so we provide a `member(_:)`
+    // helper that takes the field name and produces the rendered
+    // `expr->name` form.
+
+    /// `expr->member` — struct/pointer member access in D. Use this
+    /// to chain off typed pointers like `curpsinfo` or `args[N]`.
+    ///
+    /// ```swift
+    /// DExpr.curpsinfo.member("pr_fname")  // → curpsinfo->pr_fname
+    /// DExpr.args(1).member("pr_pid")      // → args[1]->pr_pid
+    /// ```
+    public func member(_ name: String) -> DExpr {
+        DExpr("\(self.rendered)->\(name)")
     }
 }
 
