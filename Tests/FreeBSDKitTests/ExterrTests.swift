@@ -41,6 +41,33 @@ final class ExterrTests: XCTestCase {
         )
     }
 
+    // MARK: - exterrctl(2)
+
+    func testEnableAndDisable() throws {
+        // Toggling extended-error reporting should always succeed for the
+        // calling process. Use .force to be tolerant of other tests in
+        // the suite that may have already enabled it.
+        XCTAssertNoThrow(try ExtendedError.enable(flags: .force))
+        XCTAssertNoThrow(try ExtendedError.disable(flags: .force))
+        XCTAssertNoThrow(try ExtendedError.enable(flags: .force))
+    }
+
+    func testEnableAfterFailingSyscallStillFetchesText() throws {
+        try ExtendedError.enable(flags: .force)
+
+        // Trigger a failing syscall — kernel may attach an extended-error
+        // record. We don't require it (only some syscalls participate),
+        // but the fetch must remain safe and well-formed.
+        let r = Glibc.open("/this/path/should/not/exist/exterrctl-test", O_RDONLY)
+        XCTAssertEqual(r, -1)
+        XCTAssertEqual(errno, ENOENT)
+
+        let message = ExtendedError.currentMessage()
+        if let m = message {
+            XCTAssertFalse(m.isEmpty)
+        }
+    }
+
     func testCurrentMessageDoesNotCrashAfterFailingSyscall() {
         // Trigger a syscall failure so the kernel has the *opportunity* to
         // attach an extended-error record. We don't assert that one is

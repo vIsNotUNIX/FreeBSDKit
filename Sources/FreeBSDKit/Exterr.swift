@@ -52,6 +52,48 @@ public enum ExtendedError {
         let message = String(cString: buf)
         return message.isEmpty ? nil : message
     }
+
+    // MARK: - exterrctl(2)
+
+    /// Flags accepted by `exterrctl(2)`.
+    public struct ControlFlags: OptionSet, Sendable {
+        public let rawValue: UInt32
+        public init(rawValue: UInt32) { self.rawValue = rawValue }
+
+        /// Override an existing setting (e.g. enable when already
+        /// enabled by another caller).
+        public static let force = ControlFlags(rawValue: UInt32(EXTERRCTLF_FORCE))
+    }
+
+    /// Enable extended-error reporting for the calling process.
+    ///
+    /// After this call, supported syscalls will populate the per-thread
+    /// extended-error record on failure, retrievable via
+    /// ``currentMessage(bufferSize:)``. The kernel verifies that the
+    /// caller's `UEXTERROR_VER` matches its own layout expectations.
+    ///
+    /// - Parameter flags: Optional flags (e.g. `.force`).
+    /// - Throws: `BSDError` on failure.
+    public static func enable(flags: ControlFlags = []) throws {
+        var version: UInt32 = UInt32(UEXTERROR_VER)
+        let r = withUnsafeMutablePointer(to: &version) { ptr -> Int32 in
+            CExterr.exterrctl(UInt32(EXTERRCTL_ENABLE), flags.rawValue, ptr)
+        }
+        if r != 0 {
+            try BSDError.throwErrno(errno)
+        }
+    }
+
+    /// Disable extended-error reporting for the calling process.
+    public static func disable(flags: ControlFlags = []) throws {
+        var version: UInt32 = UInt32(UEXTERROR_VER)
+        let r = withUnsafeMutablePointer(to: &version) { ptr -> Int32 in
+            CExterr.exterrctl(UInt32(EXTERRCTL_DISABLE), flags.rawValue, ptr)
+        }
+        if r != 0 {
+            try BSDError.throwErrno(errno)
+        }
+    }
 }
 
 // MARK: - BSDError integration
