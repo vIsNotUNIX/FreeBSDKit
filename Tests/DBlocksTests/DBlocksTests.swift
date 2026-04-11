@@ -1260,6 +1260,55 @@ struct DBlocksAggregationTests {
         let source = script.source
         #expect(source.contains("@ = count();"))
     }
+
+    @Test("Stddev with single key")
+    func testStddevSingleKey() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                Stddev("arg0", by: "execname")
+            }
+        }
+        #expect(script.source.contains("@[execname] = stddev(arg0);"))
+    }
+
+    @Test("Stddev with multi-key and name")
+    func testStddevNamedMultiKey() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                Stddev("arg0", by: ["execname", "probefunc"], into: "spread")
+            }
+        }
+        #expect(script.source.contains("@spread[execname, probefunc] = stddev(arg0);"))
+    }
+
+    @Test("Llquantize single key")
+    func testLlquantizeSingleKey() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                Llquantize("timestamp - self->ts",
+                           base: 10, low: 0, high: 9, steps: 10,
+                           by: "execname")
+            }
+        }
+        #expect(script.source.contains(
+            "@[execname] = llquantize(timestamp - self->ts, 10, 0, 9, 10);"
+        ))
+    }
+
+    @Test("Llquantize named multi-key")
+    func testLlquantizeNamedMultiKey() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                Llquantize("timestamp - self->ts",
+                           base: 2, low: 0, high: 32, steps: 4,
+                           by: ["execname", "probefunc"],
+                           into: "latency")
+            }
+        }
+        #expect(script.source.contains(
+            "@latency[execname, probefunc] = llquantize(timestamp - self->ts, 2, 0, 32, 4);"
+        ))
+    }
 }
 
 @Suite("DBlocks Variables Tests")

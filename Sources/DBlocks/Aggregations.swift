@@ -259,3 +259,105 @@ public struct Lquantize: Sendable {
 extension Lquantize: ProbeComponentConvertible {
     public func asProbeComponent() -> ProbeComponent { component }
 }
+
+/// Adds a log-linear quantize aggregation.
+///
+/// `llquantize` produces a log-linear histogram: it splits a wide value
+/// range into per-decade groups and then sub-divides each decade
+/// linearly. This is the right tool when the values you're measuring
+/// span many orders of magnitude (e.g. latencies from nanoseconds to
+/// seconds in a single histogram), since a plain `quantize` would
+/// collapse small values into a single bucket and a plain `lquantize`
+/// would explode the bucket count.
+///
+/// ```swift
+/// // Latency histogram from 1ns to 1s, 10 buckets per decade.
+/// Probe("syscall::read:return") {
+///     When("self->ts")
+///     Llquantize("timestamp - self->ts",
+///                base: 10, low: 0, high: 9, steps: 10,
+///                by: "execname", into: "latency")
+/// }
+/// ```
+public struct Llquantize: Sendable {
+    public let component: ProbeComponent
+
+    /// Creates a log-linear quantize aggregation with a single key.
+    ///
+    /// - Parameters:
+    ///   - value: The value expression to histogram.
+    ///   - base: Logarithmic base (e.g. `10` for decades, `2` for octaves).
+    ///   - low: Lowest exponent of `base` covered by the histogram.
+    ///   - high: Highest exponent of `base` covered by the histogram.
+    ///   - steps: Number of linear sub-buckets per decade.
+    ///   - key: Key expression (default: `"probefunc"`).
+    ///   - name: Optional aggregation name.
+    public init(
+        _ value: String,
+        base: Int,
+        low: Int,
+        high: Int,
+        steps: Int,
+        by key: String = "probefunc",
+        into name: String? = nil
+    ) {
+        let aggName = name ?? ""
+        self.component = ProbeComponent(
+            kind: .action("@\(aggName)[\(key)] = llquantize(\(value), \(base), \(low), \(high), \(steps));")
+        )
+    }
+
+    /// Creates a log-linear quantize aggregation with multiple keys.
+    public init(
+        _ value: String,
+        base: Int,
+        low: Int,
+        high: Int,
+        steps: Int,
+        by keys: [String],
+        into name: String? = nil
+    ) {
+        let aggName = name ?? ""
+        let keyList = keys.joined(separator: ", ")
+        self.component = ProbeComponent(
+            kind: .action("@\(aggName)[\(keyList)] = llquantize(\(value), \(base), \(low), \(high), \(steps));")
+        )
+    }
+}
+
+extension Llquantize: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Adds a standard-deviation aggregation.
+///
+/// Tracks the standard deviation of a numeric expression, grouped by one
+/// or more keys. Useful for spotting noisy distributions where a plain
+/// `Avg` would hide the spread.
+///
+/// ```swift
+/// Probe("syscall::read:return") {
+///     When("self->ts")
+///     Stddev("timestamp - self->ts", by: "execname", into: "latency")
+/// }
+/// ```
+public struct Stddev: Sendable {
+    public let component: ProbeComponent
+
+    /// Creates a standard-deviation aggregation with a single key.
+    public init(_ value: String, by key: String = "probefunc", into name: String? = nil) {
+        let aggName = name ?? ""
+        self.component = ProbeComponent(kind: .action("@\(aggName)[\(key)] = stddev(\(value));"))
+    }
+
+    /// Creates a standard-deviation aggregation with multiple keys.
+    public init(_ value: String, by keys: [String], into name: String? = nil) {
+        let aggName = name ?? ""
+        let keyList = keys.joined(separator: ", ")
+        self.component = ProbeComponent(kind: .action("@\(aggName)[\(keyList)] = stddev(\(value));"))
+    }
+}
+
+extension Stddev: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
