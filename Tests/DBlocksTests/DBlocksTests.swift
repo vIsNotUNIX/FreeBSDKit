@@ -2200,6 +2200,96 @@ struct DBlocksSpeculationTests {
         #expect(s.contains("self->spec"))
     }
 
+    // MARK: - Lint
+
+    @Test("lint: clean script returns no warnings")
+    func testLintClean() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Count(by: "probefunc", into: "calls")
+            }
+            Tick(1, .seconds) {
+                Printa("calls")
+                Clear("calls")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("lint: undefined aggregation reference")
+    func testLintUndefinedAggregation() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Count(by: "probefunc", into: "calls")
+            }
+            Tick(1, .seconds) {
+                Printa("missing")  // never defined
+            }
+        }
+        let warnings = script.lint()
+        #expect(warnings.count == 1)
+        if case .undefinedAggregation(let name) = warnings.first?.kind {
+            #expect(name == "missing")
+        } else {
+            Issue.record("expected undefinedAggregation warning, got \(warnings)")
+        }
+    }
+
+    @Test("lint: anonymous aggregation never reported")
+    func testLintAnonymousAggregationOK() {
+        // Both `@` and `printa(@)` are anonymous and should not warn.
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Count()
+            }
+            Tick(1, .seconds) {
+                Printa()
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("lint: Exit() inside profile probe")
+    func testLintExitInProfileProbe() {
+        let script = DBlocks {
+            Profile(hz: 99) {
+                Exit(0)
+            }
+        }
+        let warnings = script.lint()
+        #expect(warnings.count == 1)
+        if case .exitInProfileProbe(let probe) = warnings.first?.kind {
+            #expect(probe.hasPrefix("profile-"))
+        } else {
+            Issue.record("expected exitInProfileProbe warning, got \(warnings)")
+        }
+    }
+
+    @Test("lint: Exit() inside Tick is fine")
+    func testLintExitInTickIsFine() {
+        let script = DBlocks {
+            Tick(60, .seconds) {
+                Exit(0)
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("lint: multiple warnings reported separately")
+    func testLintMultipleWarnings() {
+        let script = DBlocks {
+            Profile(hz: 99) {
+                Exit(0)
+            }
+            Tick(1, .seconds) {
+                Printa("missing_a")
+                Clear("missing_b")
+            }
+        }
+        let warnings = script.lint()
+        #expect(warnings.count == 3)
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing

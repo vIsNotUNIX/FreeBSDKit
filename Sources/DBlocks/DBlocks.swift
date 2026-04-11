@@ -472,6 +472,180 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
         }
     }
 
+    // MARK: - Linting
+
+    /// A non-fatal advisory about a potential problem in the script.
+    public struct LintWarning: Sendable, Equatable, CustomStringConvertible {
+        /// What the warning is about.
+        public let kind: Kind
+
+        /// Index of the offending clause in `DBlocks.clauses`, or `nil`
+        /// for whole-script warnings.
+        public let clauseIndex: Int?
+
+        public enum Kind: Sendable, Equatable {
+            /// A `Printa`/`Clear`/`Trunc`/`Normalize` action references
+            /// an aggregation `@name` that no clause defines.
+            case undefinedAggregation(String)
+
+            /// `Exit()` is called inside a `profile-…` probe. Profile
+            /// probes fire on every CPU simultaneously, so the exit
+            /// race is observable and the script may exit slightly
+            /// before the user expects.
+            case exitInProfileProbe(probe: String)
+        }
+
+        public var description: String {
+            switch kind {
+            case .undefinedAggregation(let name):
+                let idx = clauseIndex.map { " (clause \($0))" } ?? ""
+                return "references undefined aggregation @\(name)\(idx)"
+            case .exitInProfileProbe(let probe):
+                let idx = clauseIndex.map { " (clause \($0))" } ?? ""
+                return "Exit() inside profile probe '\(probe)' fires on every CPU\(idx)"
+            }
+        }
+    }
+
+    /// Inspects the script for common, non-fatal pitfalls.
+    ///
+    /// Returns advisory warnings rather than throwing — none of these
+    /// stop a script from compiling, but each is the kind of mistake
+    /// that produces silent or surprising behavior at run time.
+    /// Use alongside `validate()` (which catches structural errors)
+    /// and `compile()` (which invokes the actual D parser).
+    ///
+    /// Currently detects:
+    /// - References to a named aggregation that no clause defines.
+    /// - `Exit()` actions inside `profile-…` probes (which fire on
+    ///   every CPU and so the exit race is observable).
+    ///
+    /// ```swift
+    /// for warning in script.lint() {
+    ///     print("warning:", warning)
+    /// }
+    /// ```
+    public func lint() -> [LintWarning] {
+        var warnings: [LintWarning] = []
+
+        // Build the set of aggregation names defined anywhere in the
+        // script. Anonymous aggregations (`@`) are excluded — they
+        // can be referenced as `@` and don't have a name to look up.
+        var defined: Set<String> = []
+        for clause in clauses {
+            for action in clause.actions {
+                Self.collectAggregationDefinitions(in: action, into: &defined)
+            }
+        }
+
+        for (index, clause) in clauses.enumerated() {
+            // Pitfall: Exit() inside a profile probe.
+            if clause.probe.hasPrefix("profile-") {
+                for action in clause.actions where action.contains("exit(") {
+                    warnings.append(
+                        LintWarning(
+                            kind: .exitInProfileProbe(probe: clause.probe),
+                            clauseIndex: index
+                        )
+                    )
+                    break
+                }
+            }
+
+            // Pitfall: referencing an aggregation that no clause defines.
+            for action in clause.actions {
+                let referenced = Self.aggregationReferences(in: action)
+                for name in referenced where !defined.contains(name) {
+                    warnings.append(
+                        LintWarning(
+                            kind: .undefinedAggregation(name),
+                            clauseIndex: index
+                        )
+                    )
+                }
+            }
+        }
+
+        return warnings
+    }
+
+    /// Scans an action for aggregation *definitions* of the form
+    /// `@NAME[…] = aggfn(…);` and adds the bare NAME to `into`.
+    /// `@[…] = …;` (anonymous) is intentionally skipped.
+    private static func collectAggregationDefinitions(in action: String, into set: inout Set<String>) {
+        var index = action.startIndex
+        while let at = action[index...].firstIndex(of: "@") {
+            let nameStart = action.index(after: at)
+            var nameEnd = nameStart
+            while nameEnd < action.endIndex {
+                let ch = action[nameEnd]
+                if ch.isLetter || ch.isNumber || ch == "_" {
+                    nameEnd = action.index(after: nameEnd)
+                } else {
+                    break
+                }
+            }
+            let name = String(action[nameStart..<nameEnd])
+            // To count as a definition, the next non-whitespace
+            // character past the (optional) `[…]` must be `=` (and not
+            // `==`).
+            var cursor = nameEnd
+            if cursor < action.endIndex, action[cursor] == "[" {
+                if let close = action[cursor...].firstIndex(of: "]") {
+                    cursor = action.index(after: close)
+                }
+            }
+            while cursor < action.endIndex, action[cursor].isWhitespace {
+                cursor = action.index(after: cursor)
+            }
+            if cursor < action.endIndex, action[cursor] == "=" {
+                let next = action.index(after: cursor)
+                if next == action.endIndex || action[next] != "=" {
+                    if !name.isEmpty { set.insert(name) }
+                }
+            }
+            index = nameEnd
+        }
+    }
+
+    /// Scans an action for aggregation *references* inside `printa`,
+    /// `clear`, `trunc`, `normalize`, or `denormalize` calls and
+    /// returns the bare names. Anonymous (`@`) is skipped.
+    private static func aggregationReferences(in action: String) -> [String] {
+        let funcs = ["printa(", "clear(", "trunc(", "normalize(", "denormalize("]
+        var names: [String] = []
+        for fn in funcs {
+            var search = action.startIndex
+            while let call = action.range(of: fn, range: search..<action.endIndex) {
+                // Find the matching close paren so we don't drift into
+                // the next call.
+                guard let close = action[call.upperBound...].firstIndex(of: ")") else { break }
+                let body = action[call.upperBound..<close]
+                // Inside the call, every `@NAME` is a reference.
+                var idx = body.startIndex
+                while let at = body[idx...].firstIndex(of: "@") {
+                    let nameStart = body.index(after: at)
+                    var nameEnd = nameStart
+                    while nameEnd < body.endIndex {
+                        let ch = body[nameEnd]
+                        if ch.isLetter || ch.isNumber || ch == "_" {
+                            nameEnd = body.index(after: nameEnd)
+                        } else {
+                            break
+                        }
+                    }
+                    let name = String(body[nameStart..<nameEnd])
+                    if !name.isEmpty {
+                        names.append(name)
+                    }
+                    idx = nameEnd
+                }
+                search = action.index(after: close)
+            }
+        }
+        return names
+    }
+
     /// Compiles the script using DTrace to validate D syntax.
     ///
     /// This actually invokes the DTrace compiler to check for syntax errors,
