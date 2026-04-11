@@ -2290,6 +2290,68 @@ struct DBlocksSpeculationTests {
         #expect(warnings.count == 3)
     }
 
+    // MARK: - ProbeSpec
+
+    @Test("ProbeSpec.syscall renders the freebsd module")
+    func testProbeSpecSyscall() {
+        let spec = ProbeSpec.syscall("read", .entry)
+        #expect(spec.rendered == "syscall:freebsd:read:entry")
+    }
+
+    @Test("ProbeSpec.fbt renders the four-tuple")
+    func testProbeSpecFbt() {
+        let spec = ProbeSpec.fbt(module: "kernel", function: "uipc_send", .entry)
+        #expect(spec.rendered == "fbt:kernel:uipc_send:entry")
+    }
+
+    @Test("ProbeSpec.proc renders provider+name")
+    func testProbeSpecProc() {
+        #expect(ProbeSpec.proc(.execSuccess).rendered == "proc:::exec-success")
+        #expect(ProbeSpec.proc(.signalSend).rendered == "proc:::signal-send")
+    }
+
+    @Test("ProbeSpec.io and .vm renders provider-only")
+    func testProbeSpecIOAndVM() {
+        #expect(ProbeSpec.io(.start).rendered == "io:::start")
+        #expect(ProbeSpec.vm(.majorFault).rendered == "vminfo:::maj_fault")
+    }
+
+    @Test("ProbeSpec.tcp renders state-change variants")
+    func testProbeSpecTCP() {
+        #expect(ProbeSpec.tcp(.stateChange).rendered == "tcp:::state-change")
+        #expect(ProbeSpec.tcp(.connectRequest).rendered == "tcp:::connect-request")
+    }
+
+    @Test("ProbeSpec.tick / profile / special clauses")
+    func testProbeSpecRateAndSpecial() {
+        #expect(ProbeSpec.tick(1, .seconds).rendered == "tick-1s:::")
+        #expect(ProbeSpec.profile(99, .hertz).rendered == "profile-99hz:::")
+        #expect(ProbeSpec.begin.rendered == "BEGIN:::")
+        #expect(ProbeSpec.end.rendered == "END:::")
+        #expect(ProbeSpec.error.rendered == "ERROR:::")
+    }
+
+    @Test("ProbeSpec.custom passes fields through")
+    func testProbeSpecCustom() {
+        let spec = ProbeSpec.custom(provider: "myprov", function: "*", name: "entry")
+        #expect(spec.rendered == "myprov::*:entry")
+    }
+
+    @Test("Probe(spec:) builds an equivalent clause")
+    func testProbeWithSpec() {
+        let typed = DBlocks {
+            Probe(.syscall("read", .entry)) {
+                Count()
+            }
+        }
+        let raw = DBlocks {
+            Probe("syscall:freebsd:read:entry") {
+                Count()
+            }
+        }
+        #expect(typed.source == raw.source)
+    }
+
     @Test("End-to-end speculation pattern")
     func testFullSpeculationPattern() {
         // The canonical "only keep failed reads" speculative tracing
