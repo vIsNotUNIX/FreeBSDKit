@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-import CUUID
+import CBSDUUID
 import Glibc
 
 /// A universally unique identifier (UUID) using FreeBSD's native implementation.

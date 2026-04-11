@@ -1,0 +1,10 @@
+// Module name is CBSDUUID, not CUUID, to avoid colliding with the
+// CUUID system module that Swift's stdlib glibc shim already exposes
+// (which wraps libuuid's <uuid/uuid.h>). FreeBSDKit's wrapper covers
+// the FreeBSD-native <uuid.h> API, which is a different thing — both
+// are legitimately wanted but they can't share a module name.
+module CBSDUUID {
+    header "cuuid.h"
+    link "c"
+    export *
+}

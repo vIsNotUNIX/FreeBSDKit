@@ -134,15 +134,15 @@ let package = Package(
     targets: [
         .target(
             name: "FreeBSDKit",
-            dependencies: ["CExtendedAttributes", "CUUID", "CExterr"]
+            dependencies: ["CExtendedAttributes", "CBSDUUID", "CExterr"]
         ),
         .target(
             name: "CExterr",
             path: "Sources/CExterr"
         ),
         .target(
-            name: "CUUID",
-            path: "Sources/CUUID"
+            name: "CBSDUUID",
+            path: "Sources/CBSDUUID"
         ),
         .target(
             name: "CCapsicum",
