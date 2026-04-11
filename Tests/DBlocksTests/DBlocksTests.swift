@@ -2305,6 +2305,27 @@ struct DBlocksSpeculationTests {
         #expect(spec.rendered == "fbt:kernel:uipc_send:entry")
     }
 
+    @Test("ProbeSpec.kinst with offset renders kinst::function:offset")
+    func testProbeSpecKinstWithOffset() {
+        let spec = ProbeSpec.kinst(function: "vm_fault", offset: 4)
+        #expect(spec.rendered == "kinst::vm_fault:4")
+    }
+
+    @Test("ProbeSpec.kinst without offset renders kinst::function:")
+    func testProbeSpecKinstFirehose() {
+        // Empty name field = trace every instruction in the function.
+        let spec = ProbeSpec.kinst(function: "amd64_syscall")
+        #expect(spec.rendered == "kinst::amd64_syscall:")
+    }
+
+    @Test("ProbeSpec.kinst with offset zero is distinguishable from no offset")
+    func testProbeSpecKinstOffsetZero() {
+        // offset=0 must render as ":0" (the entry instruction), NOT
+        // collapse to the empty/firehose form.
+        let spec = ProbeSpec.kinst(function: "vm_fault", offset: 0)
+        #expect(spec.rendered == "kinst::vm_fault:0")
+    }
+
     @Test("ProbeSpec.proc renders provider+name")
     func testProbeSpecProc() {
         #expect(ProbeSpec.proc(.execSuccess).rendered == "proc:::exec-success")
@@ -2756,6 +2777,32 @@ struct DBlocksSpeculationTests {
         for script in scripts {
             #expect(script.source.contains("execname == \"nginx\""))
         }
+    }
+
+    @Test("Dwatch.kinst with offset renders the kinst probe spec")
+    func testDwatchKinstWithOffset() {
+        let s = DBlocks.Dwatch.kinst(function: "vm_fault", offset: 4).source
+        #expect(s.contains("kinst::vm_fault:4"))
+        #expect(s.contains("vm_fault+4"))
+    }
+
+    @Test("Dwatch.kinst without offset renders the firehose form")
+    func testDwatchKinstFirehose() {
+        let s = DBlocks.Dwatch.kinst(function: "amd64_syscall").source
+        #expect(s.contains("kinst::amd64_syscall:"))
+        #expect(s.contains("amd64_syscall+all"))
+    }
+
+    @Test("Dwatch.kinst respects the target filter")
+    func testDwatchKinstTarget() {
+        // Kernel-side probes don't usually need a per-process filter,
+        // but it's exposed for symmetry — verify the predicate lands.
+        let s = DBlocks.Dwatch.kinst(
+            function: "vm_fault",
+            offset: 4,
+            for: .execname("nginx")
+        ).source
+        #expect(s.contains("execname == \"nginx\""))
     }
 
     // MARK: - "Tests that break things" — negative paths

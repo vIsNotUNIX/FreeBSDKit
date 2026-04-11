@@ -102,6 +102,62 @@ extension ProbeSpec {
         ProbeSpec(provider: "fbt", module: module, function: function, name: site.rawValue)
     }
 
+    // kinst provider ----------------------------------------------------
+
+    /// Kernel instruction tracing probe.
+    ///
+    /// `kinst` (kernel INSTruction tracing) lets DTrace hook an
+    /// arbitrary instruction inside a kernel function by its byte
+    /// offset from the function start. Compared to ``fbt(module:function:_:)``,
+    /// which only exposes function entry and return, `kinst` can hit
+    /// any instruction in the function — at the cost of being
+    /// on-demand (no `dtrace -l -P kinst` enumeration) and amd64-only
+    /// as of FreeBSD 14.0.
+    ///
+    /// Find the byte offset by disassembling the function with
+    /// `kgdb`'s `disas /r`:
+    ///
+    /// ```text
+    /// (kgdb) disas /r vm_fault
+    ///    <+0>:  55              push   %rbp        ← .kinst(function: "vm_fault", offset: 0)
+    ///    <+1>:  48 89 e5        mov    %rsp,%rbp   ← .kinst(function: "vm_fault", offset: 1)
+    ///    <+4>:  41 57           push   %r15        ← .kinst(function: "vm_fault", offset: 4)
+    /// ```
+    ///
+    /// Pass `offset: nil` (the default) to trace **every** instruction
+    /// in the function — useful as a firehose, dangerous on hot paths.
+    ///
+    /// ```swift
+    /// // Trace the third instruction in vm_fault and print RSI
+    /// Probe(.kinst(function: "vm_fault", offset: 4)) {
+    ///     Printf("%#x", "regs[R_RSI]")
+    /// }
+    ///
+    /// // Trace every instruction in amd64_syscall
+    /// Probe(.kinst(function: "amd64_syscall")) {
+    ///     Count(by: "probename")
+    /// }
+    /// ```
+    ///
+    /// - Important: KINST is **FreeBSD 14.0+** and currently
+    ///   **amd64 only**. On older or non-amd64 hosts the script will
+    ///   compile but enabling probes will fail at runtime with a
+    ///   provider-not-available error.
+    ///
+    /// - Parameters:
+    ///   - function: Kernel function name (no `module:` qualifier —
+    ///     `kinst` resolves the symbol against the whole kernel).
+    ///   - offset: Byte offset from the function start, or `nil` to
+    ///     trace every instruction in the function.
+    public static func kinst(function: String, offset: Int? = nil) -> ProbeSpec {
+        ProbeSpec(
+            provider: "kinst",
+            module: "",
+            function: function,
+            name: offset.map(String.init) ?? ""
+        )
+    }
+
     // proc provider -----------------------------------------------------
 
     /// Common probe names exposed by the `proc` provider.

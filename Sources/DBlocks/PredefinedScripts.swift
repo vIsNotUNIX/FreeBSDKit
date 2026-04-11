@@ -497,5 +497,54 @@ extension DBlocks {
                 }
             }
         }
+
+        // MARK: - kinst (FreeBSD 14+, amd64 only)
+
+        /// Trace an arbitrary instruction inside a kernel function via
+        /// the `kinst` provider.
+        ///
+        /// `kinst` (kernel INSTruction tracing, FreeBSD 14.0+) lets
+        /// you hook any instruction in a kernel function by its byte
+        /// offset from the function start. Find the offset by
+        /// disassembling the function with `kgdb`'s `disas /r`. Pass
+        /// `offset: nil` to trace **every** instruction in the
+        /// function (the firehose form — be careful on hot paths).
+        ///
+        /// ```swift
+        /// // Trace the third instruction in vm_fault
+        /// let s = DBlocks.Dwatch.kinst(function: "vm_fault", offset: 4)
+        ///
+        /// // Trace every instruction in amd64_syscall
+        /// let s = DBlocks.Dwatch.kinst(function: "amd64_syscall")
+        /// ```
+        ///
+        /// - Important: KINST is **FreeBSD 14.0+** and currently
+        ///   **amd64 only**. On older or non-amd64 hosts the script
+        ///   will compile but enabling probes will fail at runtime
+        ///   with a provider-not-available error.
+        ///
+        /// - Parameters:
+        ///   - function: Kernel function name.
+        ///   - offset: Byte offset from the function start, or `nil`
+        ///     to trace every instruction in the function.
+        ///   - target: Optional `DTraceTarget` filter (rarely useful
+        ///     for kernel-side probes, but supported for symmetry
+        ///     with the rest of the `Dwatch.*` set).
+        public static func kinst(
+            function: String,
+            offset: Int? = nil,
+            for target: DTraceTarget = .all
+        ) -> DBlocks {
+            let offsetLabel = offset.map(String.init) ?? "all"
+            return DBlocks {
+                Probe(.kinst(function: function, offset: offset)) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: \(function)+\(offsetLabel)",
+                           "execname", "pid")
+                }
+            }
+        }
     }
 }
