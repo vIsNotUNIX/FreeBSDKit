@@ -252,3 +252,250 @@ extension DBlocks {
         }
     }
 }
+
+// MARK: - dwatch-style profiles
+//
+// FreeBSD ships dwatch(1), a shell-script wrapper around dtrace(1) with
+// 80+ canned profiles in /usr/libexec/dwatch/. Each profile attaches a
+// printf-style "execname[pid]: details" line to a particular probe.
+// These DBlocks helpers reproduce the most useful of those profiles in
+// typed Swift form so you don't have to pipe text from dwatch when you
+// need the same result programmatically.
+//
+// All of these scripts use the canonical dwatch output format —
+//     "<execname>[<pid>]: <details>"
+// — which is why they're grouped under `Dwatch.*`.
+
+extension DBlocks {
+
+    /// dwatch-equivalent helpers grouped under one namespace.
+    ///
+    /// These mirror the most useful dwatch(1) profiles
+    /// (`/usr/libexec/dwatch/*`) but return a `DBlocks` you can run,
+    /// capture, lint, snapshot, or compose with other scripts. Each
+    /// uses the canonical `execname[pid]: …` line format dwatch
+    /// produces.
+    public enum Dwatch {
+
+        // MARK: - kill / signals
+
+        /// Equivalent to `dwatch kill` — log every kill(2) entry with
+        /// the target pid and signal number.
+        public static func kill(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall::kill:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: signal %d to pid %d",
+                           "execname", "pid", "(int)arg1", "(pid_t)arg0")
+                }
+            }
+        }
+
+        // MARK: - file open / read / write
+
+        /// Equivalent to `dwatch open` — log every open/openat with
+        /// the path argument.
+        public static func open(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall::open:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: open %s",
+                           "execname", "pid", "copyinstr(arg0)")
+                }
+                Probe("syscall::openat:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: openat %s",
+                           "execname", "pid", "copyinstr(arg1)")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch read` / `dwatch write` — print every
+        /// read or write entry with the requested byte count.
+        public static func readWrite(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall::read:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: read fd=%d nbyte=%d",
+                           "execname", "pid", "(int)arg0", "(size_t)arg2")
+                }
+                Probe("syscall::write:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: write fd=%d nbyte=%d",
+                           "execname", "pid", "(int)arg0", "(size_t)arg2")
+                }
+            }
+        }
+
+        // MARK: - chmod family
+
+        /// Equivalent to `dwatch chmod` / `dwatch fchmodat` /
+        /// `dwatch lchmod` — log every chmod-family call with its mode
+        /// argument.
+        public static func chmod(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall::chmod:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: chmod %s mode=%o",
+                           "execname", "pid", "copyinstr(arg0)", "(mode_t)arg1")
+                }
+                Probe("syscall::fchmodat:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: fchmodat %s mode=%o",
+                           "execname", "pid", "copyinstr(arg1)", "(mode_t)arg2")
+                }
+                Probe("syscall::lchmod:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: lchmod %s mode=%o",
+                           "execname", "pid", "copyinstr(arg0)", "(mode_t)arg1")
+                }
+            }
+        }
+
+        // MARK: - process life-cycle
+
+        /// Equivalent to `dwatch proc-exec-success` /
+        /// `proc-exec-failure` — log every process exec attempt and
+        /// whether it succeeded.
+        public static func procExec(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("proc:::exec-success") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: exec ok %s",
+                           "execname", "pid", "curpsinfo->pr_psargs")
+                }
+                Probe("proc:::exec-failure") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: exec FAIL errno=%d",
+                           "execname", "pid", "args[0]")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch proc-exit` — log every process exit
+        /// with reason and status.
+        public static func procExit(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("proc:::exit") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: exit reason=%d",
+                           "execname", "pid", "args[0]")
+                }
+            }
+        }
+
+        // MARK: - networking
+
+        /// Equivalent to `dwatch tcp-state-change` — log every TCP
+        /// state transition with previous and current state.
+        public static func tcp(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("tcp:::state-change") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: tcp %s -> %s",
+                           "execname", "pid",
+                           "tcp_state_string[args[5]->tcps_state]",
+                           "tcp_state_string[args[3]->tcps_state]")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch udp-receive` / `udp-send` — log every
+        /// UDP datagram in either direction.
+        public static func udp(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("udp:::receive") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: udp recv len=%d",
+                           "execname", "pid", "args[2]->ip_plength")
+                }
+                Probe("udp:::send") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: udp send len=%d",
+                           "execname", "pid", "args[2]->ip_plength")
+                }
+            }
+        }
+
+        // MARK: - sleep
+
+        /// Equivalent to `dwatch nanosleep` — log every nanosleep call
+        /// with the requested duration.
+        public static func nanosleep(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall::nanosleep:entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: nanosleep",
+                           "execname", "pid")
+                }
+            }
+        }
+
+        // MARK: - errno
+
+        /// Equivalent to `dwatch errno` — log every syscall return
+        /// that delivered a non-zero errno.
+        public static func errnoTracer(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall:::return") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    When("errno != 0")
+                    Printf("%s[%d]: %s -> errno %d",
+                           "execname", "pid", "probefunc", "errno")
+                }
+            }
+        }
+
+        // MARK: - sysstat-style top of syscalls
+
+        /// Equivalent to `dwatch systop` — count every syscall by
+        /// `execname` + `probefunc` and print the top callers when the
+        /// session exits. The output is consumable via
+        /// `DTraceSession.snapshot()` for typed access.
+        public static func systop(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("syscall:::entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Count(by: ["execname", "probefunc"], into: "syscalls")
+                }
+                END {
+                    Printa("syscalls")
+                }
+            }
+        }
+    }
+}

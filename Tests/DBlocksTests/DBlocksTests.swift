@@ -2649,6 +2649,176 @@ struct DBlocksSpeculationTests {
         #expect(reader.threadLocalConflicts(with: writer).isEmpty)
     }
 
+    // MARK: - Dwatch-style profiles
+
+    @Test("Dwatch.kill renders signal+pid printf")
+    func testDwatchKill() {
+        let s = DBlocks.Dwatch.kill().source
+        #expect(s.contains("syscall::kill:entry"))
+        #expect(s.contains("signal %d to pid %d"))
+    }
+
+    @Test("Dwatch.open covers open and openat")
+    func testDwatchOpen() {
+        let s = DBlocks.Dwatch.open().source
+        #expect(s.contains("syscall::open:entry"))
+        #expect(s.contains("syscall::openat:entry"))
+        #expect(s.contains("copyinstr(arg0)"))
+        #expect(s.contains("copyinstr(arg1)"))
+    }
+
+    @Test("Dwatch.readWrite covers both syscalls")
+    func testDwatchReadWrite() {
+        let s = DBlocks.Dwatch.readWrite().source
+        #expect(s.contains("syscall::read:entry"))
+        #expect(s.contains("syscall::write:entry"))
+        #expect(s.contains("nbyte=%d"))
+    }
+
+    @Test("Dwatch.chmod covers chmod/fchmodat/lchmod")
+    func testDwatchChmod() {
+        let s = DBlocks.Dwatch.chmod().source
+        #expect(s.contains("syscall::chmod:entry"))
+        #expect(s.contains("syscall::fchmodat:entry"))
+        #expect(s.contains("syscall::lchmod:entry"))
+        #expect(s.contains("mode=%o"))
+    }
+
+    @Test("Dwatch.procExec covers success and failure")
+    func testDwatchProcExec() {
+        let s = DBlocks.Dwatch.procExec().source
+        #expect(s.contains("proc:::exec-success"))
+        #expect(s.contains("proc:::exec-failure"))
+        #expect(s.contains("exec ok"))
+        #expect(s.contains("exec FAIL"))
+    }
+
+    @Test("Dwatch.procExit renders proc:::exit")
+    func testDwatchProcExit() {
+        let s = DBlocks.Dwatch.procExit().source
+        #expect(s.contains("proc:::exit"))
+        #expect(s.contains("exit reason=%d"))
+    }
+
+    @Test("Dwatch.tcp renders tcp:::state-change with state strings")
+    func testDwatchTCP() {
+        let s = DBlocks.Dwatch.tcp().source
+        #expect(s.contains("tcp:::state-change"))
+        #expect(s.contains("tcp_state_string"))
+    }
+
+    @Test("Dwatch.udp covers send and receive")
+    func testDwatchUDP() {
+        let s = DBlocks.Dwatch.udp().source
+        #expect(s.contains("udp:::receive"))
+        #expect(s.contains("udp:::send"))
+    }
+
+    @Test("Dwatch.nanosleep renders syscall::nanosleep:entry")
+    func testDwatchNanosleep() {
+        let s = DBlocks.Dwatch.nanosleep().source
+        #expect(s.contains("syscall::nanosleep:entry"))
+    }
+
+    @Test("Dwatch.errnoTracer adds an errno != 0 predicate")
+    func testDwatchErrnoTracer() {
+        let s = DBlocks.Dwatch.errnoTracer().source
+        #expect(s.contains("syscall:::return"))
+        #expect(s.contains("errno != 0"))
+        #expect(s.contains("errno %d"))
+    }
+
+    @Test("Dwatch.systop counts syscalls with named aggregation")
+    func testDwatchSystop() {
+        let s = DBlocks.Dwatch.systop().source
+        #expect(s.contains("syscall:::entry"))
+        #expect(s.contains("@syscalls[execname, probefunc] = count();"))
+        #expect(s.contains("END"))
+        #expect(s.contains("printa(@syscalls);"))
+    }
+
+    @Test("Dwatch profiles all respect the target filter")
+    func testDwatchProfilesApplyTarget() {
+        let target = DTraceTarget.execname("nginx")
+        let scripts = [
+            DBlocks.Dwatch.kill(for: target),
+            DBlocks.Dwatch.open(for: target),
+            DBlocks.Dwatch.readWrite(for: target),
+            DBlocks.Dwatch.chmod(for: target),
+            DBlocks.Dwatch.procExec(for: target),
+            DBlocks.Dwatch.procExit(for: target),
+            DBlocks.Dwatch.tcp(for: target),
+            DBlocks.Dwatch.udp(for: target),
+            DBlocks.Dwatch.nanosleep(for: target),
+            DBlocks.Dwatch.errnoTracer(for: target),
+            DBlocks.Dwatch.systop(for: target),
+        ]
+        for script in scripts {
+            #expect(script.source.contains("execname == \"nginx\""))
+        }
+    }
+
+    // MARK: - "Tests that break things" — negative paths
+
+    @Test("validate() throws on empty script")
+    func testValidateEmpty() {
+        let s = DBlocks()
+        #expect(throws: DBlocksError.self) { try s.validate() }
+    }
+
+    @Test("validate() throws on a clause with no actions")
+    func testValidateEmptyClause() {
+        let s = DBlocks(clauses: [
+            ProbeClause(probe: "syscall:::entry", actions: [])
+        ])
+        #expect(throws: DBlocksError.self) { try s.validate() }
+    }
+
+    @Test("DBlocks(jsonData:) rejects malformed JSON")
+    func testDBlocksRejectsMalformedJSON() {
+        let bogus = Data("{this is not json".utf8)
+        #expect(throws: (any Error).self) { _ = try DBlocks(jsonData: bogus) }
+    }
+
+    @Test("DBlocks(jsonData:) rejects valid JSON without expected fields")
+    func testDBlocksRejectsWrongShapeJSON() {
+        let wrong = Data(#"{"version":1,"unrelated":42}"#.utf8)
+        #expect(throws: (any Error).self) { _ = try DBlocks(jsonData: wrong) }
+    }
+
+    @Test("mergeChecked rejects scripts that share a thread-local")
+    func testMergeCheckedRejectsConflict() {
+        var a = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Assign(.thread("ts"), to: "vtimestamp")
+            }
+        }
+        #expect(throws: DBlocksError.self) { try a.mergeChecked(b) }
+    }
+
+    @Test("Dwatch.systop rendered script lints clean")
+    func testDwatchSystopLintsClean() {
+        // The systop script defines @syscalls and references it from
+        // the END clause. lint() must not complain.
+        #expect(DBlocks.Dwatch.systop().lint().isEmpty)
+    }
+
+    @Test("A profile clause with Exit() lints noisy")
+    func testExitInProfileLintsNoisy() {
+        let bad = DBlocks {
+            Profile(hz: 99) {
+                Exit(0)
+            }
+        }
+        let warns = bad.lint()
+        #expect(warns.count == 1)
+    }
+
     @Test("lint distinguishes definition from reference")
     func testLintScannerCorrectness() {
         // Define @calls AND reference @calls — clean.
