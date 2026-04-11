@@ -7,6 +7,7 @@
 import Testing
 import Glibc
 import Foundation
+import CDTrace
 @testable import DBlocks
 
 @Suite("DTraceTarget Tests")
@@ -2488,6 +2489,186 @@ struct DBlocksSpeculationTests {
                 sorted: sorted,
                 body
             )
+        }
+    }
+
+    // MARK: - Decoder tests (exercised without a live DTrace handle)
+
+    @Test("decodeValue: COUNT loads an int64 at the offset")
+    func testDecodeCountValue() {
+        var buf = [UInt8](repeating: 0xFF, count: 32)
+        // Place a count of 7 at offset 8.
+        buf.withUnsafeMutableBytes { ptr in
+            ptr.storeBytes(of: Int64(7), toByteOffset: 8, as: Int64.self)
+        }
+        buf.withUnsafeBytes { rawBuf in
+            let value = AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_COUNT.rawValue),
+                offset: 8,
+                size: 8,
+                buffer: rawBuf.baseAddress!
+            )
+            #expect(value == .count(7))
+        }
+    }
+
+    @Test("decodeValue: SUM/MIN/MAX dispatch correctly")
+    func testDecodeScalarKindDispatch() {
+        var buf = [UInt8](repeating: 0, count: 8)
+        buf.withUnsafeMutableBytes { ptr in
+            ptr.storeBytes(of: Int64(123), toByteOffset: 0, as: Int64.self)
+        }
+        buf.withUnsafeBytes { rawBuf in
+            let base = rawBuf.baseAddress!
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_SUM.rawValue),
+                offset: 0, size: 8, buffer: base) == .sum(123))
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_MIN.rawValue),
+                offset: 0, size: 8, buffer: base) == .min(123))
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_MAX.rawValue),
+                offset: 0, size: 8, buffer: base) == .max(123))
+        }
+    }
+
+    @Test("decodeValue: AVG computes sum/count")
+    func testDecodeAvg() {
+        // Layout (count: Int64, sum: Int64). avg = sum / count.
+        var buf = [UInt8](repeating: 0, count: 16)
+        buf.withUnsafeMutableBytes { ptr in
+            ptr.storeBytes(of: Int64(4), toByteOffset: 0, as: Int64.self)   // count
+            ptr.storeBytes(of: Int64(100), toByteOffset: 8, as: Int64.self) // sum
+        }
+        buf.withUnsafeBytes { rawBuf in
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_AVG.rawValue),
+                offset: 0, size: 16, buffer: rawBuf.baseAddress!
+            ) == .avg(25))
+        }
+    }
+
+    @Test("decodeValue: AVG with count=0 returns 0 instead of dividing")
+    func testDecodeAvgZeroCount() {
+        // Empty aggregation: count and sum both zero.
+        let buf = [UInt8](repeating: 0, count: 16)
+        buf.withUnsafeBytes { rawBuf in
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_AVG.rawValue),
+                offset: 0, size: 16, buffer: rawBuf.baseAddress!
+            ) == .avg(0))
+        }
+    }
+
+    @Test("decodeValue: unknown action falls through with raw bytes")
+    func testDecodeUnknownAction() {
+        let buf: [UInt8] = [1, 2, 3, 4]
+        buf.withUnsafeBytes { rawBuf in
+            let v = AggregationRecord.decodeValue(
+                action: 0xDEAD,
+                offset: 0, size: 4,
+                buffer: rawBuf.baseAddress!
+            )
+            guard case .unknown(let act, let bytes) = v else {
+                Issue.record("expected .unknown, got \(v)")
+                return
+            }
+            #expect(act == 0xDEAD)
+            #expect(Array(bytes) == [1, 2, 3, 4])
+        }
+    }
+
+    @Test("decodeKey: int sizes 1/2/4/8 all decode")
+    func testDecodeKeyIntSizes() {
+        var buf = [UInt8](repeating: 0, count: 16)
+        buf.withUnsafeMutableBytes { ptr in
+            ptr.storeBytes(of: Int8(-7),  toByteOffset: 0, as: Int8.self)
+            ptr.storeBytes(of: Int16(42), toByteOffset: 2, as: Int16.self)
+            ptr.storeBytes(of: Int32(1000), toByteOffset: 4, as: Int32.self)
+            ptr.storeBytes(of: Int64(-9999), toByteOffset: 8, as: Int64.self)
+        }
+        buf.withUnsafeBytes { rawBuf in
+            let base = rawBuf.baseAddress!
+            #expect(AggregationRecord.decodeKey(action: 0, offset: 0, size: 1, buffer: base) == .int(-7))
+            #expect(AggregationRecord.decodeKey(action: 0, offset: 2, size: 2, buffer: base) == .int(42))
+            #expect(AggregationRecord.decodeKey(action: 0, offset: 4, size: 4, buffer: base) == .int(1000))
+            #expect(AggregationRecord.decodeKey(action: 0, offset: 8, size: 8, buffer: base) == .int(-9999))
+        }
+    }
+
+    @Test("decodeKey: NUL-terminated string is decoded as .string")
+    func testDecodeKeyString() {
+        var buf = [UInt8](repeating: 0, count: 16)
+        let bytes = "nginx".utf8
+        for (i, b) in bytes.enumerated() { buf[i] = b }
+        buf.withUnsafeBytes { rawBuf in
+            let key = AggregationRecord.decodeKey(
+                action: 0, offset: 0, size: 16,
+                buffer: rawBuf.baseAddress!
+            )
+            #expect(key == .string("nginx"))
+        }
+    }
+
+    @Test("decodeKey: arbitrary bytes that don't form a string fall through")
+    func testDecodeKeyBytesFallthrough() {
+        // No NUL, not a useful string.
+        let buf: [UInt8] = [0x80, 0x81, 0x82]
+        buf.withUnsafeBytes { rawBuf in
+            let key = AggregationRecord.decodeKey(
+                action: 0, offset: 0, size: 3,
+                buffer: rawBuf.baseAddress!
+            )
+            guard case .bytes(let arr) = key else {
+                Issue.record("expected .bytes, got \(key)")
+                return
+            }
+            #expect(arr == [0x80, 0x81, 0x82])
+        }
+    }
+
+    // MARK: - Scanner edge cases
+
+    @Test("threadLocalConflicts ignores += and = side conditions correctly")
+    func testThreadLocalScannerCorrectness() {
+        // Both scripts mention 'self->ts' but only one ASSIGNS to it.
+        let writer = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("ts"), to: "timestamp")
+            }
+        }
+        let reader = DBlocks {
+            Probe("syscall::read:return") {
+                When("self->ts > 0")          // read, not assign
+                Trace("self->ts")              // read, not assign
+            }
+        }
+        // The reader doesn't assign self->ts, so there must be no
+        // conflict reported.
+        #expect(writer.threadLocalConflicts(with: reader).isEmpty)
+        #expect(reader.threadLocalConflicts(with: writer).isEmpty)
+    }
+
+    @Test("lint distinguishes definition from reference")
+    func testLintScannerCorrectness() {
+        // Define @calls AND reference @calls — clean.
+        let clean = DBlocks {
+            Probe("syscall:::entry") { Count(by: "probefunc", into: "calls") }
+            Tick(1, .seconds) { Printa("calls") }
+        }
+        #expect(clean.lint().isEmpty)
+
+        // Reference @other when only @calls is defined — should warn.
+        let dirty = DBlocks {
+            Probe("syscall:::entry") { Count(by: "probefunc", into: "calls") }
+            Tick(1, .seconds) { Printa("other") }
+        }
+        let warns = dirty.lint()
+        #expect(warns.count == 1)
+        if case .undefinedAggregation(let name) = warns.first?.kind {
+            #expect(name == "other")
+        } else {
+            Issue.record("expected undefinedAggregation, got \(warns)")
         }
     }
 

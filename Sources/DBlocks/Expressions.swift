@@ -22,7 +22,7 @@
 ///
 /// // Equivalent forms:
 /// Printf("%s[%d]", "execname", "pid")
-/// Printf("%s[%d]", .execname, .pid)
+/// Printf("%s[%d]", args: [.execname, .pid])
 /// ```
 ///
 /// `DExpr` is **not** a parser. It does no validation of the contained

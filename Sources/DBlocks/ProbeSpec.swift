@@ -16,8 +16,8 @@
 /// - **autocomplete in Xcode** for the common providers
 /// - **fewer typos** (no need to remember whether `read:return` is
 ///   spelled with `freebsd` or `:::`)
-/// - **safer wildcards**: `.any` is the empty field, just like the
-///   raw spec
+/// - **wildcards by omission** — any field left empty matches every
+///   value at that position, the same way the raw spec does
 ///
 /// ## Example
 ///

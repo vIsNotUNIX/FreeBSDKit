@@ -13,56 +13,42 @@ import FreeBSDKit
 final class CloseRangeTests: XCTestCase {
 
     func testCloseRangeClosesDescriptors() throws {
-        // Open three temp files. To avoid stomping any descriptor that
-        // another XCTest thread happens to allocate concurrently, we
-        // verify the three fds we got back are contiguous before
-        // calling close_range — if they aren't, another thread raced
-        // with us and we re-open until they are.
-        var fds: [Int32] = []
-        var attempts = 0
+        // Use pipe(2) to get a pair of file descriptors that the kernel
+        // is guaranteed to allocate contiguously: it calls falloc twice
+        // inside one syscall under the per-process descriptor lock, so
+        // no other thread can slip a fd in between. This sidesteps the
+        // XCTest-runner contention that broke an earlier "open three
+        // temp files and hope" approach.
+        var pipefds: [Int32] = [-1, -1]
+        let pipeResult = pipefds.withUnsafeMutableBufferPointer { buf in
+            Glibc.pipe(buf.baseAddress)
+        }
+        XCTAssertEqual(pipeResult, 0, "pipe(2) failed: errno=\(errno)")
+
+        // Defensive: belt-and-braces close in case the assertions below
+        // fail before close_range runs.
+        var owned = true
         defer {
-            // Best-effort cleanup if the assertion below fails before
-            // close_range runs.
-            for fd in fds { Glibc.close(fd) }
-        }
-
-        while attempts < 16 {
-            attempts += 1
-            for fd in fds { Glibc.close(fd) }
-            fds.removeAll(keepingCapacity: true)
-
-            for i in 0..<3 {
-                let path = "/tmp/freebsdkit-cr-\(getpid())-\(arc4random())-\(i).bin"
-                let fd = Glibc.open(path, O_CREAT | O_RDWR | O_TRUNC | O_CLOEXEC, 0o600)
-                XCTAssertGreaterThanOrEqual(fd, 0)
-                Glibc.unlink(path) // unlink immediately; fd keeps it alive
-                fds.append(fd)
-            }
-
-            // Confirm the fds are contiguous. If something allocated a fd
-            // in the gap, retry.
-            if fds[1] == fds[0] + 1 && fds[2] == fds[0] + 2 {
-                break
+            if owned {
+                for fd in pipefds where fd >= 0 { Glibc.close(fd) }
             }
         }
-        XCTAssertEqual(fds[1], fds[0] + 1, "could not allocate contiguous fds")
-        XCTAssertEqual(fds[2], fds[0] + 2)
 
-        let low = UInt32(fds[0])
-        let high = UInt32(fds[2])
+        XCTAssertGreaterThanOrEqual(pipefds[0], 0)
+        XCTAssertGreaterThanOrEqual(pipefds[1], 0)
+        XCTAssertEqual(pipefds[1], pipefds[0] + 1,
+                       "pipe(2) should hand out contiguous fds")
 
-        try closeRange(low: low, high: high)
+        try closeRange(low: UInt32(pipefds[0]), high: UInt32(pipefds[1]))
 
-        // After close_range every fd in the range must be closed.
-        for fd in fds {
-            // fcntl(F_GETFD) on a closed fd returns -1/EBADF.
+        // Both fds in the range must now report EBADF.
+        for fd in pipefds {
             let r = Glibc.fcntl(fd, F_GETFD)
             XCTAssertEqual(r, -1, "fd \(fd) should be closed")
             XCTAssertEqual(errno, EBADF)
         }
 
-        // Tell the defer not to double-close.
-        fds.removeAll()
+        owned = false
     }
 
     func testCloseRangeCloexecMarksDescriptors() throws {

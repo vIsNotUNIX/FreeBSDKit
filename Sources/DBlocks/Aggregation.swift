@@ -42,6 +42,14 @@ public enum AggregationKey: Sendable, Equatable {
 /// are decoded into `Int64`. Bucketed aggregations (`quantize`,
 /// `lquantize`, `llquantize`) are surfaced as raw bytes for now —
 /// follow-up work will decode their bucket layouts.
+///
+/// - Note: `stddev` currently carries the rolling **mean**, not the
+///   computed standard deviation. The kernel records (count, sum,
+///   sum-of-squares) but the sqrt-over-second-moment math is left to
+///   a follow-up; the value here is reported so callers at least see
+///   something useful, and the field name will become accurate when
+///   that math lands. Use the `quantize` family if you want the full
+///   distribution today.
 public enum AggregationValue: Sendable, Equatable {
     case count(Int64)
     case sum(Int64)
@@ -136,25 +144,27 @@ extension AggregationRecord {
         return AggregationRecord(name: name, keys: keys, value: value)
     }
 
-    private static func decodeKey(
-        rec: UnsafePointer<dtrace_recdesc_t>,
-        dataBase: UnsafeMutablePointer<CChar>
+    static func decodeKey(
+        action: UInt16,
+        offset: Int,
+        size: Int,
+        buffer: UnsafeRawPointer
     ) -> AggregationKey {
-        let offset = Int(cdtrace_recdesc_offset(rec))
-        let size = Int(cdtrace_recdesc_size(rec))
-        let raw = UnsafeRawPointer(dataBase.advanced(by: offset))
+        let raw = buffer.advanced(by: offset)
 
         // Heuristic: int-sized scalars (1, 2, 4, 8 bytes) come back as
         // signed integers; anything bigger is treated as a NUL-terminated
         // string until we hit a NUL or run out of bytes; otherwise raw
-        // bytes.
+        // bytes. All multi-byte loads use loadUnaligned because the
+        // kernel buffer is not guaranteed to be naturally aligned at
+        // every record offset.
         switch size {
         case 8:
-            return .int(raw.load(as: Int64.self))
+            return .int(raw.loadUnaligned(as: Int64.self))
         case 4:
-            return .int(Int64(raw.load(as: Int32.self)))
+            return .int(Int64(raw.loadUnaligned(as: Int32.self)))
         case 2:
-            return .int(Int64(raw.load(as: Int16.self)))
+            return .int(Int64(raw.loadUnaligned(as: Int16.self)))
         case 1:
             return .int(Int64(raw.load(as: Int8.self)))
         default:
@@ -173,28 +183,44 @@ extension AggregationRecord {
         }
     }
 
-    private static func decodeValue(
+    private static func decodeKey(
         rec: UnsafePointer<dtrace_recdesc_t>,
         dataBase: UnsafeMutablePointer<CChar>
-    ) -> AggregationValue {
+    ) -> AggregationKey {
         let action = cdtrace_recdesc_action(rec)
         let offset = Int(cdtrace_recdesc_offset(rec))
         let size = Int(cdtrace_recdesc_size(rec))
-        let raw = UnsafeRawPointer(dataBase.advanced(by: offset))
+        return decodeKey(
+            action: action,
+            offset: offset,
+            size: size,
+            buffer: UnsafeRawPointer(dataBase)
+        )
+    }
 
-        // Scalar aggregations: the kernel stores them as int64 with the
-        // sample count tucked alongside. From a consumer perspective the
-        // first int64 at the record offset is what `printa` would print,
-        // so use that.
+    /// Pure-data decoder for aggregation values, exposed as `internal`
+    /// so unit tests can drive it without a live DTrace handle.
+    static func decodeValue(
+        action: UInt16,
+        offset: Int,
+        size: Int,
+        buffer: UnsafeRawPointer
+    ) -> AggregationValue {
+        let raw = buffer.advanced(by: offset)
+
+        // All scalar loads use loadUnaligned: the kernel data buffer is
+        // not guaranteed to be 8-byte aligned at every record offset,
+        // and a misaligned load(as:) is undefined behavior in Swift even
+        // though x86_64 typically tolerates it.
         func loadInt() -> Int64 {
-            raw.load(as: Int64.self)
+            raw.loadUnaligned(as: Int64.self)
         }
 
         func loadAvg() -> Int64 {
-            // The avg/stddev records hold (count, sum, [sum_sq...]).
-            // libdtrace's `printa` reports sum/count for avg.
-            let count = raw.load(as: Int64.self)
-            let sum = raw.load(fromByteOffset: 8, as: Int64.self)
+            // libdtrace stores avg as a (count, sum) pair of int64s and
+            // its `printa` reports sum/count.
+            let count = raw.loadUnaligned(as: Int64.self)
+            let sum = raw.loadUnaligned(fromByteOffset: 8, as: Int64.self)
             return count == 0 ? 0 : sum / count
         }
 
@@ -214,10 +240,13 @@ extension AggregationRecord {
         case UInt32(CDTRACE_AGG_AVG.rawValue):
             return .avg(loadAvg())
         case UInt32(CDTRACE_AGG_STDDEV.rawValue):
-            // Stddev needs sqrt over a sum-of-squares the kernel
-            // accumulates; expose the rolling mean for now and let
-            // callers compute the deviation from the raw bytes if
-            // needed.
+            // The stddev record is laid out as (count, sum, sum_of_squares).
+            // The full sample standard deviation needs sqrt over the
+            // second moment, which we don't compute today. Surface the
+            // rolling mean (which matches the first column libdtrace
+            // prints) so callers at least see something they can index
+            // by, and document that the value is the mean, not the
+            // deviation.
             return .stddev(loadAvg())
         case UInt32(CDTRACE_AGG_QUANTIZE.rawValue):
             return .quantize(loadBytes())
@@ -228,5 +257,20 @@ extension AggregationRecord {
         default:
             return .unknown(action: action, loadBytes())
         }
+    }
+
+    private static func decodeValue(
+        rec: UnsafePointer<dtrace_recdesc_t>,
+        dataBase: UnsafeMutablePointer<CChar>
+    ) -> AggregationValue {
+        let action = cdtrace_recdesc_action(rec)
+        let offset = Int(cdtrace_recdesc_offset(rec))
+        let size = Int(cdtrace_recdesc_size(rec))
+        return decodeValue(
+            action: action,
+            offset: offset,
+            size: size,
+            buffer: UnsafeRawPointer(dataBase)
+        )
     }
 }

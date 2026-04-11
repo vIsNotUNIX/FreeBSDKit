@@ -6,7 +6,6 @@
 
 import DTraceCore
 import Foundation
-import Glibc
 
 // MARK: - Periodic snapshot stream
 
@@ -51,6 +50,11 @@ extension DTraceSession {
         sorted: Bool = true,
         _ body: ([AggregationRecord]) throws -> Void
     ) async throws {
+        // Reject obviously nonsensical intervals up front instead of
+        // letting them turn into a busy loop or a UInt64 trap.
+        precondition(interval > 0,
+                     "streamSnapshots interval must be a positive number of seconds")
+
         var iter = 0
         let nanoseconds = UInt64(interval * 1_000_000_000)
         while !Task.isCancelled {
