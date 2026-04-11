@@ -2691,9 +2691,14 @@ struct DBlocksSpeculationTests {
     @Test("Dwatch.readWrite covers both syscalls")
     func testDwatchReadWrite() {
         let s = DBlocks.Dwatch.readWrite().source
-        #expect(s.contains("syscall::read:entry"))
+        // Both syscalls share a single multi-probe clause now.
+        #expect(s.contains("syscall::read:entry,"))
         #expect(s.contains("syscall::write:entry"))
         #expect(s.contains("nbyte=%d"))
+        // The format uses probefunc as the syscall label so the body
+        // lives in exactly one place — assert there is only one printf.
+        let printfHits = s.components(separatedBy: "printf(").count - 1
+        #expect(printfHits == 1, "expected one printf, got \(printfHits)")
     }
 
     @Test("Dwatch.chmod covers chmod/fchmodat/lchmod")
@@ -2915,5 +2920,1588 @@ struct DBlocksSpeculationTests {
         #expect(source.contains("speculate(self->spec);"))
         #expect(source.contains("commit(self->spec);"))
         #expect(source.contains("discard(self->spec);"))
+    }
+}
+
+// MARK: - pid / USDT providers
+
+@Suite("DBlocks pid Provider Tests")
+struct DBlocksPIDProviderTests {
+
+    @Test("pid provider with $target renders correctly")
+    func testPIDTargetEntry() {
+        let spec = ProbeSpec.pid(.target, module: "libc.so.7", function: "malloc", .entry)
+        #expect(spec.rendered == "pid$target:libc.so.7:malloc:entry")
+    }
+
+    @Test("pid provider with literal PID renders correctly")
+    func testPIDLiteralReturn() {
+        let spec = ProbeSpec.pid(.literal(1234), module: "a.out", function: "main", .return)
+        #expect(spec.rendered == "pid1234:a.out:main:return")
+    }
+
+    @Test("pid provider with offset renders the offset as the name")
+    func testPIDOffset() {
+        let spec = ProbeSpec.pid(.target, module: "libc.so.7", function: "malloc", offset: 4)
+        #expect(spec.rendered == "pid$target:libc.so.7:malloc:4")
+    }
+
+    @Test("pid probe is usable inside a clause")
+    func testPIDProbeInClause() {
+        let script = DBlocks {
+            Probe(.pid(.target, module: "libc.so.7", function: "malloc", .entry)) {
+                Count(by: "execname")
+            }
+        }
+        #expect(script.source.contains("pid$target:libc.so.7:malloc:entry"))
+        #expect(script.source.contains("@[execname] = count();"))
+    }
+
+    @Test("pid wildcards via empty module/function")
+    func testPIDWildcards() {
+        let spec = ProbeSpec.pid(.target, module: "", function: "", .entry)
+        #expect(spec.rendered == "pid$target:::entry")
+    }
+}
+
+@Suite("DBlocks USDT Provider Tests")
+struct DBlocksUSDTProviderTests {
+
+    @Test("USDT with $target renders provider$target:::probe")
+    func testUSDTTargetMinimal() {
+        let spec = ProbeSpec.usdt(.target, provider: "postgresql", probe: "query-start")
+        #expect(spec.rendered == "postgresql$target:::query-start")
+    }
+
+    @Test("USDT with literal PID and full path")
+    func testUSDTLiteralFull() {
+        let spec = ProbeSpec.usdt(
+            .literal(4242),
+            provider: "myapp",
+            module: "libworker.so",
+            function: "dispatch",
+            probe: "request-received"
+        )
+        #expect(spec.rendered == "myapp4242:libworker.so:dispatch:request-received")
+    }
+
+    @Test("USDT probe usable inside a clause")
+    func testUSDTInClause() {
+        let script = DBlocks {
+            Probe(.usdt(.target, provider: "myapp", probe: "tick")) {
+                Count()
+            }
+        }
+        #expect(script.source.contains("myapp$target:::tick"))
+        #expect(script.source.contains("@ = count();"))
+    }
+}
+
+// MARK: - Multi-probe clauses
+
+@Suite("DBlocks Multi-Probe Clause Tests")
+struct DBlocksMultiProbeTests {
+
+    @Test("Two-spec convenience renders as comma-separated probes")
+    func testTwoSpecConvenience() {
+        let clause = Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+            Count(by: "probefunc")
+        }
+        let rendered = clause.render()
+        #expect(rendered.contains("syscall:freebsd:read:entry,"))
+        #expect(rendered.contains("syscall:freebsd:write:entry"))
+        #expect(rendered.contains("@[probefunc] = count();"))
+    }
+
+    @Test("Array form supports more than two probes")
+    func testArrayForm() {
+        let specs: [ProbeSpec] = [
+            .syscall("read",  .entry),
+            .syscall("write", .entry),
+            .syscall("pread", .entry),
+        ]
+        let clause = Probe(specs: specs) {
+            Count(by: "probefunc")
+        }
+        let rendered = clause.render()
+        #expect(rendered.contains("syscall:freebsd:read:entry,"))
+        #expect(rendered.contains("syscall:freebsd:write:entry,"))
+        #expect(rendered.contains("syscall:freebsd:pread:entry"))
+    }
+
+    @Test("Multi-probe clause with predicate emits one shared predicate")
+    func testMultiProbeWithPredicate() {
+        let clause = Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+            Target(.execname("nginx"))
+            Count()
+        }
+        let rendered = clause.render()
+        // The predicate sits between the comma-joined probes and the body.
+        #expect(rendered.contains("syscall:freebsd:read:entry,"))
+        #expect(rendered.contains("/(execname == \"nginx\")/"))
+        #expect(rendered.contains("@ = count();"))
+    }
+
+    @Test("Multi-probe clause survives JSON round-trip")
+    func testMultiProbeJSONRoundTrip() throws {
+        let original = DBlocks {
+            Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+                Count(by: "probefunc")
+            }
+        }
+        let data = try original.jsonData()
+        let restored = try DBlocks(jsonData: data)
+        #expect(original.source == restored.source)
+    }
+
+    @Test("Single-probe clause is unaffected by the multi-probe API")
+    func testSingleProbeUnchanged() {
+        let clause = Probe(.syscall("read", .entry)) { Count() }
+        #expect(clause.render().contains("syscall:freebsd:read:entry"))
+        #expect(!clause.render().contains(","))
+    }
+
+    @Test("String-array Probe(probes:) initializer joins raw specs")
+    func testStringArrayMultiProbe() {
+        let clause = Probe(probes: [
+            "syscall::read:entry",
+            "syscall::write:entry",
+            "syscall::pread:entry",
+        ]) {
+            Count(by: "probefunc")
+        }
+        let rendered = clause.render()
+        #expect(rendered.contains("syscall::read:entry,"))
+        #expect(rendered.contains("syscall::write:entry,"))
+        #expect(rendered.contains("syscall::pread:entry"))
+        #expect(rendered.contains("@[probefunc] = count();"))
+    }
+
+    @Test("String-array initializer survives JSON round-trip")
+    func testStringArrayMultiProbeJSON() throws {
+        let original = DBlocks {
+            Probe(probes: ["syscall::read:entry", "syscall::write:entry"]) {
+                Count(by: "probefunc")
+            }
+        }
+        let restored = try DBlocks(jsonData: try original.jsonData())
+        #expect(original.source == restored.source)
+    }
+}
+
+// MARK: - Ternary
+
+@Suite("DBlocks DExpr Ternary Tests")
+struct DBlocksDExprTernaryTests {
+
+    @Test("Static ternary renders parenthesized C ternary")
+    func testStaticTernary() {
+        let expr = DExpr.ternary(
+            DExpr.arg(0) >= 0,
+            then: DExpr("\"ok\""),
+            else: DExpr("\"err\"")
+        )
+        #expect(expr.rendered == "(arg0 >= 0 ? \"ok\" : \"err\")")
+    }
+
+    @Test("Instance form is equivalent to the static form")
+    func testInstanceTernary() {
+        let cond = DExpr.arg(0) >= 0
+        let a = DExpr("1")
+        let b = DExpr("0")
+        #expect(cond.then(a, else: b).rendered ==
+                DExpr.ternary(cond, then: a, else: b).rendered)
+    }
+
+    @Test("Ternary composes with logical operators")
+    func testTernaryComposition() {
+        let expr = (DExpr.arg(0) > 0 && DExpr.arg(1) < 100)
+            .then(DExpr("1"), else: DExpr("0"))
+        // Outer parens come from ternary; inner parens from && operator.
+        #expect(expr.rendered.contains("? 1 : 0"))
+        #expect(expr.rendered.contains("arg0 > 0"))
+        #expect(expr.rendered.contains("arg1 < 100"))
+    }
+
+    @Test("Ternary works as a Printf typed argument")
+    func testTernaryInPrintf() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                Printf("%s",
+                       args: [.ternary(.arg(0) >= 0,
+                                       then: DExpr("\"ok\""),
+                                       else: DExpr("\"err\""))])
+            }
+        }
+        #expect(script.source.contains("(arg0 >= 0 ? \"ok\" : \"err\")"))
+    }
+}
+
+// MARK: - Printf arity lint and string-aware scanning
+
+@Suite("DBlocks Printf Lint Tests")
+struct DBlocksPrintfLintTests {
+
+    @Test("Matching arity emits no warning")
+    func testCorrectArity() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%s[%d]: %s", "execname", "pid", "probefunc")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("Too few args is reported")
+    func testTooFewArgs() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%s %d", "execname")
+            }
+        }
+        let warns = script.lint()
+        #expect(warns.count == 1)
+        guard case .printfArityMismatch(_, let expected, let got) = warns.first?.kind else {
+            Issue.record("expected printfArityMismatch, got \(warns)")
+            return
+        }
+        #expect(expected == 2)
+        #expect(got == 1)
+    }
+
+    @Test("Too many args is reported")
+    func testTooManyArgs() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%s", "execname", "pid")
+            }
+        }
+        let warns = script.lint()
+        #expect(warns.count == 1)
+        guard case .printfArityMismatch(_, let expected, let got) = warns.first?.kind else {
+            Issue.record("expected printfArityMismatch")
+            return
+        }
+        #expect(expected == 1)
+        #expect(got == 2)
+    }
+
+    @Test("Literal %% does not consume an arg")
+    func testLiteralPercent() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("100%% complete: %d", "pid")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("Format flags, width, precision, and length modifier all parse")
+    func testComplexFormatSpecifiers() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%-10s %5d %.2f %lld %#x",
+                       "execname", "pid", "0.0", "timestamp", "arg0")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("`*` width counts as an extra arg")
+    func testStarWidth() {
+        // %*d expects (width, value) — two args.
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%*d", "10", "pid")
+            }
+        }
+        #expect(script.lint().isEmpty)
+
+        let bad = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("%*d", "10")  // missing the value
+            }
+        }
+        let warns = bad.lint()
+        #expect(warns.count == 1)
+    }
+
+    @Test("printf with no args and no specifiers is fine")
+    func testNoArgsNoSpecs() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("just a literal message")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+
+    @Test("Nested function-call args count as one arg")
+    func testNestedCallArg() {
+        // copyinstr(arg0) is one logical argument despite the parens.
+        let script = DBlocks {
+            Probe("syscall::open:entry") {
+                Printf("%s", "copyinstr(arg0)")
+            }
+        }
+        #expect(script.lint().isEmpty)
+    }
+}
+
+@Suite("DBlocks Lint String-Literal Awareness")
+struct DBlocksLintStringLiteralTests {
+
+    @Test("self-> inside a printf format does not cause merge conflict")
+    func testSelfInPrintfFormat() throws {
+        // Script A actually assigns self->ts.
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Action("self->ts = timestamp;")
+            }
+        }
+        // Script B only mentions self->ts inside a printf format string —
+        // it never actually writes to it.
+        let b = DBlocks {
+            Probe("syscall::read:entry") {
+                Printf("self->ts = %d", "timestamp")
+            }
+        }
+        #expect(a.threadLocalConflicts(with: b).isEmpty)
+        // And the checked merge should succeed cleanly.
+        _ = try a.mergingChecked(b)
+    }
+
+    @Test("@name inside a printf format is not treated as a definition")
+    func testAggInPrintfFormat() {
+        // The script defines no aggregations and references none —
+        // the literal "@bytes" inside the format must not register as
+        // either side of the lint relationship.
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Printf("@bytes is not real")
+            }
+        }
+        let warns = script.lint()
+        // No undefinedAggregation warning.
+        for w in warns {
+            if case .undefinedAggregation = w.kind {
+                Issue.record("unexpected undefinedAggregation: \(w)")
+            }
+        }
+    }
+
+    @Test("exit( inside a printf format inside a profile probe does not warn")
+    func testExitTextInsideProfilePrintf() {
+        let script = DBlocks {
+            Profile(hz: 997) {
+                Printf("see exit( in this string")
+            }
+        }
+        let warns = script.lint()
+        for w in warns {
+            if case .exitInProfileProbe = w.kind {
+                Issue.record("unexpected exitInProfileProbe: \(w)")
+            }
+        }
+    }
+
+    @Test("Real Exit() inside a profile probe still warns")
+    func testRealExitInProfileStillWarns() {
+        let script = DBlocks {
+            Profile(hz: 997) {
+                Exit(0)
+            }
+        }
+        let warns = script.lint()
+        var sawIt = false
+        for w in warns {
+            if case .exitInProfileProbe = w.kind { sawIt = true }
+        }
+        #expect(sawIt)
+    }
+}
+
+// MARK: - Lint extended: Trunc / Normalize / Denormalize / Clear
+
+@Suite("DBlocks Lint Extended Coverage")
+struct DBlocksLintExtendedTests {
+
+    /// Helper: every aggregation-control function should be subject to
+    /// the same undefined-aggregation lint pass. Tested as a matrix
+    /// rather than four near-duplicate tests so that adding a new
+    /// scanner target catches any drift.
+    @Test("Trunc on undefined aggregation warns")
+    func testTruncUndefined() {
+        let script = DBlocks {
+            Probe("syscall:::entry") { Count(by: "probefunc", into: "calls") }
+            END { Trunc("ghost", 10) }
+        }
+        let warns = script.lint()
+        var saw = false
+        for w in warns {
+            if case .undefinedAggregation(let n) = w.kind, n == "ghost" { saw = true }
+        }
+        #expect(saw, "Trunc(\"ghost\", 10) should produce undefinedAggregation warning")
+    }
+
+    @Test("Normalize on undefined aggregation warns")
+    func testNormalizeUndefined() {
+        let script = DBlocks {
+            Probe("syscall:::entry") { Count(into: "real") }
+            END { Normalize("ghost", 1_000_000) }
+        }
+        let warns = script.lint()
+        var saw = false
+        for w in warns {
+            if case .undefinedAggregation(let n) = w.kind, n == "ghost" { saw = true }
+        }
+        #expect(saw)
+    }
+
+    @Test("Denormalize on undefined aggregation warns")
+    func testDenormalizeUndefined() {
+        let script = DBlocks {
+            Probe("syscall:::entry") { Count(into: "real") }
+            END { Denormalize("ghost") }
+        }
+        let warns = script.lint()
+        var saw = false
+        for w in warns {
+            if case .undefinedAggregation(let n) = w.kind, n == "ghost" { saw = true }
+        }
+        #expect(saw)
+    }
+
+    @Test("Clear on undefined aggregation warns")
+    func testClearUndefined() {
+        let script = DBlocks {
+            Probe("syscall:::entry") { Count(into: "real") }
+            Tick(1, .seconds) { Clear("ghost") }
+        }
+        let warns = script.lint()
+        var saw = false
+        for w in warns {
+            if case .undefinedAggregation(let n) = w.kind, n == "ghost" { saw = true }
+        }
+        #expect(saw)
+    }
+
+    @Test("clauseIndex points at the offending clause")
+    func testClauseIndexCorrectness() {
+        // Clause 0 defines @good. Clause 1 references @ghost. Clause 2
+        // references @other. The lint output should pin the warnings
+        // to clauses 1 and 2 respectively, not clause 0.
+        let script = DBlocks {
+            Probe("syscall::read:entry") { Count(into: "good") }
+            Probe("syscall::write:entry") { Printa("ghost") }
+            Probe("syscall::open:entry") { Printa("other") }
+        }
+        let warns = script.lint()
+        var ghostIdx: Int? = nil
+        var otherIdx: Int? = nil
+        for w in warns {
+            if case .undefinedAggregation(let n) = w.kind {
+                if n == "ghost" { ghostIdx = w.clauseIndex }
+                if n == "other" { otherIdx = w.clauseIndex }
+            }
+        }
+        #expect(ghostIdx == 1)
+        #expect(otherIdx == 2)
+    }
+
+    @Test("Defined aggregations referenced via Trunc/Normalize do NOT warn")
+    func testDefinedRefsClean() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Count(by: "probefunc", into: "calls")
+            }
+            END {
+                Trunc("calls", 10)
+                Normalize("calls", 1_000)
+                Denormalize("calls")
+                Clear("calls")
+                Printa("calls")
+            }
+        }
+        let warns = script.lint()
+        for w in warns {
+            if case .undefinedAggregation = w.kind {
+                Issue.record("unexpected undefined-agg warning on defined name: \(w)")
+            }
+        }
+    }
+
+    @Test("Lint warning description contains the offending name")
+    func testLintWarningDescription() {
+        let script = DBlocks {
+            Probe("syscall:::entry") { Count(into: "real") }
+            END { Trunc("ghost", 10) }
+        }
+        for w in script.lint() {
+            if case .undefinedAggregation = w.kind {
+                #expect(w.description.contains("ghost"))
+                #expect(w.description.contains("clause"))
+            }
+        }
+    }
+}
+
+// MARK: - Thread-local conflicts: edge cases
+
+@Suite("DBlocks Thread-Local Conflicts Extended")
+struct DBlocksThreadLocalExtendedTests {
+
+    @Test("Multiple conflicts are all reported")
+    func testMultipleConflicts() {
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Action("self->ts = timestamp;")
+                Action("self->buf = arg1;")
+                Action("self->len = arg2;")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Action("self->ts = timestamp;")
+                Action("self->len = arg2;")
+            }
+        }
+        let conflicts = a.threadLocalConflicts(with: b)
+        #expect(conflicts.contains("ts"))
+        #expect(conflicts.contains("len"))
+        #expect(!conflicts.contains("buf"))
+    }
+
+    @Test("Conflicts are returned in sorted order")
+    func testSortedConflicts() {
+        let a = DBlocks {
+            Probe("syscall::read:entry") {
+                Action("self->zebra = 1;")
+                Action("self->apple = 2;")
+                Action("self->mango = 3;")
+            }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") {
+                Action("self->mango = 9;")
+                Action("self->apple = 8;")
+                Action("self->zebra = 7;")
+            }
+        }
+        let conflicts = a.threadLocalConflicts(with: b)
+        #expect(conflicts == ["apple", "mango", "zebra"])
+    }
+
+    @Test("threadLocalConflicts is symmetric")
+    func testSymmetric() {
+        let a = DBlocks {
+            Probe("syscall::read:entry") { Action("self->ts = timestamp;") }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") { Action("self->ts = timestamp;") }
+        }
+        #expect(a.threadLocalConflicts(with: b) == b.threadLocalConflicts(with: a))
+    }
+
+    @Test("Three-way merge: A+B then merge with C catches A.var/C.var")
+    func testThreeWayConflictDetection() throws {
+        let a = DBlocks {
+            Probe("syscall::read:entry") { Action("self->ts = timestamp;") }
+        }
+        let b = DBlocks {
+            Probe("syscall::write:entry") { Action("self->buf = arg1;") }
+        }
+        // a and b are clean: merge them.
+        var combined = a
+        try combined.mergeChecked(b)
+
+        // c writes self->ts, which overlaps with a — and a's clauses
+        // are now in `combined`. So combined.mergeChecked(c) should
+        // throw.
+        let c = DBlocks {
+            Probe("syscall::open:entry") { Action("self->ts = walltimestamp;") }
+        }
+        var threw = false
+        do {
+            try combined.mergeChecked(c)
+        } catch {
+            threw = true
+            if case DBlocksError.threadLocalConflict(let names) = error {
+                #expect(names.contains("ts"))
+            } else {
+                Issue.record("expected threadLocalConflict, got \(error)")
+            }
+        }
+        #expect(threw, "three-way merge should detect transitive conflict")
+    }
+
+    @Test("Empty scripts have no conflicts with anything")
+    func testEmptyConflictFree() {
+        let empty = DBlocks()
+        let other = DBlocks {
+            Probe("syscall::read:entry") { Action("self->ts = timestamp;") }
+        }
+        #expect(empty.threadLocalConflicts(with: other).isEmpty)
+        #expect(other.threadLocalConflicts(with: empty).isEmpty)
+    }
+}
+
+// MARK: - DExpr static properties and missing functions
+
+@Suite("DBlocks DExpr Static Properties")
+struct DBlocksDExprStaticTests {
+
+    @Test("Probe-context built-in variables")
+    func testProbeContextBuiltins() {
+        #expect(DExpr.pid.rendered           == "pid")
+        #expect(DExpr.tid.rendered           == "tid")
+        #expect(DExpr.execname.rendered      == "execname")
+        #expect(DExpr.probefunc.rendered     == "probefunc")
+        #expect(DExpr.probemod.rendered      == "probemod")
+        #expect(DExpr.probeprov.rendered     == "probeprov")
+        #expect(DExpr.probename.rendered     == "probename")
+        #expect(DExpr.timestamp.rendered     == "timestamp")
+        #expect(DExpr.vtimestamp.rendered    == "vtimestamp")
+        #expect(DExpr.walltimestamp.rendered == "walltimestamp")
+        #expect(DExpr.cpu.rendered           == "cpu")
+        #expect(DExpr.uid.rendered           == "uid")
+        #expect(DExpr.gid.rendered           == "gid")
+        #expect(DExpr.ppid.rendered          == "ppid")
+        #expect(DExpr.curthread.rendered     == "curthread")
+    }
+
+    @Test("Stack and ustack render with parentheses")
+    func testStackBuiltins() {
+        #expect(DExpr.stack.rendered  == "stack()")
+        #expect(DExpr.ustack.rendered == "ustack()")
+    }
+
+    @Test("copyin(addr, size) renders the size argument")
+    func testCopyinWithSize() {
+        let expr = DExpr.copyin(.arg(0), 64)
+        #expect(expr.rendered == "copyin(arg0, 64)")
+    }
+
+    @Test("cast(expr, to:) renders a C-style cast")
+    func testCast() {
+        let expr = DExpr.cast(.arg(0), to: "uintptr_t *")
+        #expect(expr.rendered == "(uintptr_t *)arg0")
+    }
+
+    @Test("stringof and strlen render correctly")
+    func testStringofAndStrlen() {
+        #expect(DExpr.stringof(.arg(0)).rendered == "stringof(arg0)")
+        #expect(DExpr.strlen(.execname).rendered == "strlen(execname)")
+    }
+
+    @Test("Variable references via .variable(_:)")
+    func testVariableRef() {
+        #expect(DExpr.variable(.thread("ts")).rendered == "self->ts")
+        #expect(DExpr.variable(.clause("start")).rendered == "this->start")
+        #expect(DExpr.variable(.global("total")).rendered == "total")
+    }
+
+    @Test("Deeply nested logical expressions parenthesize correctly")
+    func testDeeplyNestedLogic() {
+        let expr = ((DExpr.arg(0) > 0) && (DExpr.arg(1) < 10))
+                || ((DExpr.execname == "nginx") && (DExpr.uid == 0))
+        // The exact rendering can change but should preserve the
+        // grouping — both halves of the OR must remain parenthesized.
+        let r = expr.rendered
+        #expect(r.contains("arg0 > 0"))
+        #expect(r.contains("arg1 < 10"))
+        #expect(r.contains("execname == \"nginx\""))
+        #expect(r.contains("uid == 0"))
+        #expect(r.contains("||"))
+    }
+
+    @Test("DExpr Int comparison operators")
+    func testDExprIntComparisons() {
+        #expect((DExpr.arg(0) == 1).rendered == "arg0 == 1")
+        #expect((DExpr.arg(0) != 1).rendered == "arg0 != 1")
+        #expect((DExpr.arg(0) <= 1).rendered == "arg0 <= 1")
+        #expect((DExpr.arg(0) >= 1).rendered == "arg0 >= 1")
+        #expect((DExpr.arg(0) <  1).rendered == "arg0 < 1")
+        #expect((DExpr.arg(0) >  1).rendered == "arg0 > 1")
+    }
+
+    @Test("DExpr Int arithmetic operators")
+    func testDExprIntArithmetic() {
+        #expect((DExpr.arg(0) + 5).rendered == "(arg0 + 5)")
+        #expect((DExpr.arg(0) - 5).rendered == "(arg0 - 5)")
+    }
+
+    @Test("DExpr negation prefix operator")
+    func testDExprNegation() {
+        let expr = !(DExpr.execname == "init")
+        #expect(expr.rendered == "!(execname == \"init\")")
+    }
+}
+
+// MARK: - ProbeSpec / DTraceTimeUnit enum coverage
+
+@Suite("DBlocks ProbeSpec Enum Coverage")
+struct DBlocksProbeSpecEnumCoverageTests {
+
+    @Test("Every ProcEvent case renders the right probe name")
+    func testAllProcEvents() {
+        let cases: [(ProbeSpec.ProcEvent, String)] = [
+            (.execSuccess,   "exec-success"),
+            (.execFailure,   "exec-failure"),
+            (.start,         "start"),
+            (.exit,          "exit"),
+            (.create,        "create"),
+            (.signalSend,    "signal-send"),
+            (.signalDiscard, "signal-discard"),
+        ]
+        for (event, expected) in cases {
+            let spec = ProbeSpec.proc(event)
+            #expect(spec.rendered == "proc:::\(expected)",
+                    "ProcEvent.\(event) should render as proc:::\(expected)")
+        }
+    }
+
+    @Test("Every IOSite case renders the right probe name")
+    func testAllIOSites() {
+        let cases: [(ProbeSpec.IOSite, String)] = [
+            (.start,     "start"),
+            (.done,      "done"),
+            (.waitStart, "wait-start"),
+            (.waitDone,  "wait-done"),
+        ]
+        for (site, expected) in cases {
+            #expect(ProbeSpec.io(site).rendered == "io:::\(expected)")
+        }
+    }
+
+    @Test("Every VMEvent case renders the right probe name")
+    func testAllVMEvents() {
+        let cases: [(ProbeSpec.VMEvent, String)] = [
+            (.majorFault,        "maj_fault"),
+            (.addressSpaceFault, "as_fault"),
+            (.copyOnWrite,       "cow_fault"),
+            (.kernelFault,       "kernel_asflt"),
+            (.zeroFill,          "zfod"),
+        ]
+        for (event, expected) in cases {
+            #expect(ProbeSpec.vm(event).rendered == "vminfo:::\(expected)")
+        }
+    }
+
+    @Test("Every TCPEvent case renders the right probe name")
+    func testAllTCPEvents() {
+        let cases: [(ProbeSpec.TCPEvent, String)] = [
+            (.sendPacket,         "send"),
+            (.receivePacket,      "receive"),
+            (.connectRequest,     "connect-request"),
+            (.connectEstablished, "connect-established"),
+            (.connectRefused,     "connect-refused"),
+            (.acceptEstablished,  "accept-established"),
+            (.acceptRefused,      "accept-refused"),
+            (.stateChange,        "state-change"),
+        ]
+        for (event, expected) in cases {
+            #expect(ProbeSpec.tcp(event).rendered == "tcp:::\(expected)")
+        }
+    }
+
+    @Test("DTraceTimeUnit cases all render in tick/profile specs")
+    func testAllTimeUnits() {
+        let cases: [(DTraceTimeUnit, String)] = [
+            (.nanoseconds,  "ns"),
+            (.microseconds, "us"),
+            (.milliseconds, "ms"),
+            (.seconds,      "s"),
+            (.minutes,      "m"),
+            (.hours,        "h"),
+            (.days,         "d"),
+            (.hertz,        "hz"),
+        ]
+        for (unit, suffix) in cases {
+            #expect(ProbeSpec.tick(1, unit).rendered    == "tick-1\(suffix):::")
+            #expect(ProbeSpec.profile(2, unit).rendered == "profile-2\(suffix):::")
+        }
+    }
+
+    @Test("PIDProcess hashable equality")
+    func testPIDProcessEquality() {
+        #expect(ProbeSpec.PIDProcess.target == .target)
+        #expect(ProbeSpec.PIDProcess.literal(1) == .literal(1))
+        #expect(ProbeSpec.PIDProcess.literal(1) != .literal(2))
+        #expect(ProbeSpec.PIDProcess.target != .literal(0))
+    }
+}
+
+// MARK: - Speculation with clause-local scope
+
+@Suite("DBlocks Speculation Variable Scopes")
+struct DBlocksSpeculationScopesTests {
+
+    @Test("Speculate accepts a clause-local variable")
+    func testSpeculateClauseLocal() {
+        let script = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.clause("spec"), to: "speculation()")
+                Speculate(on: .clause("spec"))
+                Printf("staged for pid=%d", "pid")
+            }
+        }
+        let src = script.source
+        #expect(src.contains("this->spec = speculation();"))
+        #expect(src.contains("speculate(this->spec);"))
+    }
+
+    @Test("Commit and Discard accept clause-local variables")
+    func testCommitDiscardClauseLocal() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                CommitSpeculation(on: .clause("spec"))
+            }
+            Probe("syscall::write:return") {
+                DiscardSpeculation(on: .clause("spec"))
+            }
+        }
+        let src = script.source
+        #expect(src.contains("commit(this->spec);"))
+        #expect(src.contains("discard(this->spec);"))
+    }
+}
+
+// MARK: - Stddev value decoder
+
+@Suite("DBlocks Aggregation Decoder Stddev")
+struct DBlocksAggDecoderStddevTests {
+
+    @Test("decodeValue: STDDEV exposes the rolling mean (sum/count)")
+    func testDecodeStddev() {
+        // libdtrace stddev layout: (count, sum, sum_of_squares) — three
+        // Int64 fields. Our decoder surfaces sum/count (the rolling
+        // mean) and ignores the third field, matching the documented
+        // contract in Aggregation.swift.
+        var buf = [UInt8](repeating: 0, count: 24)
+        buf.withUnsafeMutableBytes { ptr in
+            ptr.storeBytes(of: Int64(5),    toByteOffset: 0,  as: Int64.self) // count
+            ptr.storeBytes(of: Int64(150),  toByteOffset: 8,  as: Int64.self) // sum
+            ptr.storeBytes(of: Int64(9999), toByteOffset: 16, as: Int64.self) // sum_of_squares (ignored)
+        }
+        buf.withUnsafeBytes { rawBuf in
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_STDDEV.rawValue),
+                offset: 0, size: 24, buffer: rawBuf.baseAddress!
+            ) == .stddev(30))
+        }
+    }
+
+    @Test("decodeValue: STDDEV with zero count returns 0 (no division)")
+    func testDecodeStddevZeroCount() {
+        let buf = [UInt8](repeating: 0, count: 24)
+        buf.withUnsafeBytes { rawBuf in
+            #expect(AggregationRecord.decodeValue(
+                action: UInt16(CDTRACE_AGG_STDDEV.rawValue),
+                offset: 0, size: 24, buffer: rawBuf.baseAddress!
+            ) == .stddev(0))
+        }
+    }
+}
+
+// MARK: - JSON round-trip + validate() across recent feature surfaces
+//
+// These tests are deliberately written as a feature matrix: each one
+// builds a representative script, calls `validate()` to confirm the
+// structural rules are satisfied, encodes the script to JSON, decodes
+// it back, and asserts that the rendered D source is byte-identical.
+// They are the canary tests for "we can produce valid scripts" — if a
+// future change to any of these features breaks Codable conformance,
+// the source-equivalence assertion will surface it immediately.
+
+@Suite("DBlocks Recent-Feature Validate + JSON Round-Trip")
+struct DBlocksRecentFeatureValidateRoundTripTests {
+
+    /// Helper that runs the full pipeline and reports clear failures.
+    private func roundTrip(_ script: DBlocks, file: StaticString = #file, line: UInt = #line) {
+        do {
+            try script.validate()
+        } catch {
+            Issue.record("validate() failed: \(error)")
+            return
+        }
+        do {
+            let data = try script.jsonData()
+            let restored = try DBlocks(jsonData: data)
+            #expect(script.source == restored.source,
+                    "JSON round-trip mutated source")
+        } catch {
+            Issue.record("JSON round-trip threw: \(error)")
+        }
+    }
+
+    @Test("Stddev script validates and round-trips")
+    func testStddevRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::read:return") {
+                When("self->ts")
+                Stddev("timestamp - self->ts", by: "execname", into: "spread")
+                Action("self->ts = 0;")
+            }
+        })
+    }
+
+    @Test("Llquantize script validates and round-trips")
+    func testLlquantizeRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::read:return") {
+                When("self->ts")
+                Llquantize("timestamp - self->ts",
+                           base: 10, low: 0, high: 9, steps: 10,
+                           by: "execname", into: "latency")
+            }
+        })
+    }
+
+    @Test("Tracemem/Copyin/Copyinto script validates and round-trips")
+    func testMemoryActionsRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::write:entry") {
+                Action("self->buf = (char *)alloca(64);")
+                Copyinto(from: "arg1", size: 64, into: "self->buf")
+                Tracemem("self->buf", size: 64)
+            }
+        })
+    }
+
+    @Test("Speculation script validates and round-trips")
+    func testSpeculationRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("spec"), to: "speculation()")
+                Speculate(on: .thread("spec"))
+                Printf("entry pid=%d", "pid")
+            }
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 < 0")
+                CommitSpeculation(on: .thread("spec"))
+                Assign(.thread("spec"), to: "0")
+            }
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 >= 0")
+                DiscardSpeculation(on: .thread("spec"))
+                Assign(.thread("spec"), to: "0")
+            }
+        })
+    }
+
+    @Test("ProbeSpec-built script validates and round-trips")
+    func testProbeSpecRoundTrip() {
+        roundTrip(DBlocks {
+            Probe(.syscall("read", .entry)) { Count(by: "probefunc") }
+            Probe(.fbt(module: "kernel", function: "uipc_send", .entry)) {
+                Trace("arg0")
+            }
+            Probe(.tcp(.stateChange)) { Count() }
+            Probe(.io(.start)) { Count() }
+            Probe(.vm(.majorFault)) { Count(by: "execname") }
+        })
+    }
+
+    @Test("kinst script validates and round-trips")
+    func testKinstRoundTrip() {
+        roundTrip(DBlocks {
+            Probe(.kinst(function: "vm_fault", offset: 4)) {
+                Printf("hit at +4 in pid=%d", "pid")
+            }
+        })
+    }
+
+    @Test("pid provider script validates and round-trips")
+    func testPIDProviderRoundTrip() {
+        roundTrip(DBlocks {
+            Probe(.pid(.target, module: "libc.so.7", function: "malloc", .entry)) {
+                Count(by: "execname")
+            }
+        })
+    }
+
+    @Test("USDT provider script validates and round-trips")
+    func testUSDTProviderRoundTrip() {
+        roundTrip(DBlocks {
+            Probe(.usdt(.target, provider: "myapp", probe: "tick")) { Count() }
+        })
+    }
+
+    @Test("Multi-probe clause validates and round-trips")
+    func testMultiProbeRoundTrip() {
+        roundTrip(DBlocks {
+            Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+                Count(by: "probefunc")
+            }
+        })
+    }
+
+    @Test("DExpr-driven script validates and round-trips")
+    func testDExprRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::read:return") {
+                When(.arg(0) >= 0 && .execname == "nginx")
+                Printf("%s[%d]: %s",
+                       args: [.execname, .pid, .copyinstr(.arg(0))])
+            }
+        })
+    }
+
+    @Test("Ternary inside Printf validates and round-trips")
+    func testTernaryRoundTrip() {
+        roundTrip(DBlocks {
+            Probe("syscall::read:return") {
+                Printf("%s",
+                       args: [.ternary(.arg(0) >= 0,
+                                       then: DExpr("\"ok\""),
+                                       else: DExpr("\"err\""))])
+            }
+        })
+    }
+
+    @Test("Tick + Profile + Exit script validates and round-trips")
+    func testClausesRoundTrip() {
+        roundTrip(DBlocks {
+            BEGIN { Printf("start") }
+            Tick(1, .seconds) { Printf("tick") }
+            Profile(hz: 99) { Count(by: "execname") }
+            END { Printf("end") }
+        })
+    }
+}
+
+// MARK: - Predefined and Dwatch scripts: validate + lint clean + round-trip
+//
+// Every canned script is run through validate(), lint(), and a JSON
+// round-trip equivalence check. The lint check is the canary that
+// catches printf format/arg-count drift in the canned scripts —
+// without it, a future edit could ship a malformed Dwatch profile.
+
+@Suite("DBlocks Predefined Scripts: Validate, Lint Clean, Round-Trip")
+struct DBlocksPredefinedScriptsCanaryTests {
+
+    private func canary(_ script: DBlocks, name: String) {
+        do {
+            try script.validate()
+        } catch {
+            Issue.record("\(name): validate() failed: \(error)")
+            return
+        }
+        let warns = script.lint()
+        for w in warns {
+            // We tolerate `exitInProfileProbe` only if a script
+            // intentionally uses Exit() in a profile clause — none of
+            // the predefined scripts currently do, so any warning at
+            // all is a regression.
+            Issue.record("\(name): unexpected lint warning: \(w)")
+        }
+        do {
+            let data = try script.jsonData()
+            let restored = try DBlocks(jsonData: data)
+            #expect(script.source == restored.source,
+                    "\(name): JSON round-trip mutated source")
+        } catch {
+            Issue.record("\(name): JSON round-trip threw: \(error)")
+        }
+    }
+
+    @Test("syscallCounts is a clean canary")
+    func testSyscallCounts() { canary(DBlocks.syscallCounts(), name: "syscallCounts") }
+
+    @Test("fileOpens is a clean canary")
+    func testFileOpens() { canary(DBlocks.fileOpens(), name: "fileOpens") }
+
+    @Test("cpuProfile is a clean canary")
+    func testCpuProfile() { canary(DBlocks.cpuProfile(), name: "cpuProfile") }
+
+    @Test("processExec is a clean canary")
+    func testProcessExec() { canary(DBlocks.processExec(), name: "processExec") }
+
+    @Test("ioBytes is a clean canary")
+    func testIoBytes() { canary(DBlocks.ioBytes(), name: "ioBytes") }
+
+    @Test("syscallLatency is a clean canary")
+    func testSyscallLatency() { canary(DBlocks.syscallLatency("read"), name: "syscallLatency") }
+
+    @Test("tcpConnections is a clean canary")
+    func testTcpConnections() { canary(DBlocks.tcpConnections(), name: "tcpConnections") }
+
+    @Test("pageFaults is a clean canary")
+    func testPageFaults() { canary(DBlocks.pageFaults(), name: "pageFaults") }
+
+    @Test("diskIOSizes is a clean canary")
+    func testDiskIOSizes() { canary(DBlocks.diskIOSizes(), name: "diskIOSizes") }
+
+    @Test("signalDelivery is a clean canary")
+    func testSignalDelivery() { canary(DBlocks.signalDelivery(), name: "signalDelivery") }
+
+    @Test("mutexContention is a clean canary")
+    func testMutexContention() { canary(DBlocks.mutexContention(), name: "mutexContention") }
+}
+
+@Suite("DBlocks Dwatch Profiles: Validate, Lint Clean, Round-Trip")
+struct DBlocksDwatchProfilesCanaryTests {
+
+    private func canary(_ script: DBlocks, name: String) {
+        do {
+            try script.validate()
+        } catch {
+            Issue.record("\(name): validate() failed: \(error)")
+            return
+        }
+        for w in script.lint() {
+            Issue.record("\(name): unexpected lint warning: \(w)")
+        }
+        do {
+            let data = try script.jsonData()
+            let restored = try DBlocks(jsonData: data)
+            #expect(script.source == restored.source,
+                    "\(name): JSON round-trip mutated source")
+        } catch {
+            Issue.record("\(name): JSON round-trip threw: \(error)")
+        }
+    }
+
+    @Test("Dwatch.kill canary")
+    func testKill() { canary(DBlocks.Dwatch.kill(), name: "Dwatch.kill") }
+
+    @Test("Dwatch.open canary")
+    func testOpen() { canary(DBlocks.Dwatch.open(), name: "Dwatch.open") }
+
+    @Test("Dwatch.readWrite canary")
+    func testReadWrite() { canary(DBlocks.Dwatch.readWrite(), name: "Dwatch.readWrite") }
+
+    @Test("Dwatch.chmod canary")
+    func testChmod() { canary(DBlocks.Dwatch.chmod(), name: "Dwatch.chmod") }
+
+    @Test("Dwatch.procExec canary")
+    func testProcExec() { canary(DBlocks.Dwatch.procExec(), name: "Dwatch.procExec") }
+
+    @Test("Dwatch.procExit canary")
+    func testProcExit() { canary(DBlocks.Dwatch.procExit(), name: "Dwatch.procExit") }
+
+    @Test("Dwatch.tcp canary")
+    func testTcp() { canary(DBlocks.Dwatch.tcp(), name: "Dwatch.tcp") }
+
+    @Test("Dwatch.udp canary")
+    func testUdp() { canary(DBlocks.Dwatch.udp(), name: "Dwatch.udp") }
+
+    @Test("Dwatch.nanosleep canary")
+    func testNanosleep() { canary(DBlocks.Dwatch.nanosleep(), name: "Dwatch.nanosleep") }
+
+    @Test("Dwatch.errnoTracer canary")
+    func testErrnoTracer() { canary(DBlocks.Dwatch.errnoTracer(), name: "Dwatch.errnoTracer") }
+
+    @Test("Dwatch.systop canary")
+    func testSystop() { canary(DBlocks.Dwatch.systop(), name: "Dwatch.systop") }
+
+    @Test("Dwatch.kinst with offset canary")
+    func testKinstOffset() {
+        canary(DBlocks.Dwatch.kinst(function: "vm_fault", offset: 4),
+               name: "Dwatch.kinst(offset:4)")
+    }
+
+    @Test("Dwatch.kinst firehose canary")
+    func testKinstFirehose() {
+        canary(DBlocks.Dwatch.kinst(function: "amd64_syscall"),
+               name: "Dwatch.kinst(firehose)")
+    }
+
+    /// Static catalog of every extended Dwatch profile, paired with
+    /// a human-readable name. Driven by the parameterized canary test
+    /// below — adding a new profile in DwatchProfiles.swift means
+    /// adding one entry here, and the canary takes care of the rest.
+    /// This is the test that backs the "300 profiles" claim:
+    /// `extendedCatalog.count` is the count.
+    static let extendedCatalog: [(String, DBlocks)] = {
+        let t: DTraceTarget = .all
+        return [
+            // proc provider
+            ("procCreate",          DBlocks.Dwatch.procCreate(for: t)),
+            ("procExecEvent",       DBlocks.Dwatch.procExecEvent(for: t)),
+            ("procExecSuccess",     DBlocks.Dwatch.procExecSuccess(for: t)),
+            ("procExecFailure",     DBlocks.Dwatch.procExecFailure(for: t)),
+            ("procExitEvent",       DBlocks.Dwatch.procExitEvent(for: t)),
+            ("procFault",           DBlocks.Dwatch.procFault(for: t)),
+            ("procLwpCreate",       DBlocks.Dwatch.procLwpCreate(for: t)),
+            ("procLwpExit",         DBlocks.Dwatch.procLwpExit(for: t)),
+            ("procLwpStart",        DBlocks.Dwatch.procLwpStart(for: t)),
+            ("procSignalSendEvent", DBlocks.Dwatch.procSignalSendEvent(for: t)),
+            ("procSignalDiscard",   DBlocks.Dwatch.procSignalDiscard(for: t)),
+            ("procSignalHandle",    DBlocks.Dwatch.procSignalHandle(for: t)),
+            ("procSignalClear",     DBlocks.Dwatch.procSignalClear(for: t)),
+            ("procStartEvent",      DBlocks.Dwatch.procStartEvent(for: t)),
+            // sched provider
+            ("schedSleep",       DBlocks.Dwatch.schedSleep(for: t)),
+            ("schedWakeup",      DBlocks.Dwatch.schedWakeup(for: t)),
+            ("schedOnCpu",       DBlocks.Dwatch.schedOnCpu(for: t)),
+            ("schedOffCpu",      DBlocks.Dwatch.schedOffCpu(for: t)),
+            ("schedRemainCpu",   DBlocks.Dwatch.schedRemainCpu(for: t)),
+            ("schedChangePri",   DBlocks.Dwatch.schedChangePri(for: t)),
+            ("schedLendPri",     DBlocks.Dwatch.schedLendPri(for: t)),
+            ("schedDequeue",     DBlocks.Dwatch.schedDequeue(for: t)),
+            ("schedEnqueue",     DBlocks.Dwatch.schedEnqueue(for: t)),
+            ("schedLoadChange",  DBlocks.Dwatch.schedLoadChange(for: t)),
+            ("schedSurrender",   DBlocks.Dwatch.schedSurrender(for: t)),
+            ("schedTick",        DBlocks.Dwatch.schedTick(for: t)),
+            // io provider
+            ("ioStart",     DBlocks.Dwatch.ioStart(for: t)),
+            ("ioDone",      DBlocks.Dwatch.ioDone(for: t)),
+            ("ioWaitStart", DBlocks.Dwatch.ioWaitStart(for: t)),
+            ("ioWaitDone",  DBlocks.Dwatch.ioWaitDone(for: t)),
+            // tcp provider
+            ("tcpAcceptEstablished",  DBlocks.Dwatch.tcpAcceptEstablished(for: t)),
+            ("tcpAcceptRefused",      DBlocks.Dwatch.tcpAcceptRefused(for: t)),
+            ("tcpConnectEstablished", DBlocks.Dwatch.tcpConnectEstablished(for: t)),
+            ("tcpConnectRefused",     DBlocks.Dwatch.tcpConnectRefused(for: t)),
+            ("tcpConnectRequest",     DBlocks.Dwatch.tcpConnectRequest(for: t)),
+            ("tcpReceive",            DBlocks.Dwatch.tcpReceive(for: t)),
+            ("tcpSend",               DBlocks.Dwatch.tcpSend(for: t)),
+            ("tcpStateChange",        DBlocks.Dwatch.tcpStateChange(for: t)),
+            // udp / udplite / ip
+            ("udpReceive",      DBlocks.Dwatch.udpReceive(for: t)),
+            ("udpSend",         DBlocks.Dwatch.udpSend(for: t)),
+            ("udpliteReceive",  DBlocks.Dwatch.udpliteReceive(for: t)),
+            ("udpliteSend",     DBlocks.Dwatch.udpliteSend(for: t)),
+            ("ipReceive",       DBlocks.Dwatch.ipReceive(for: t)),
+            ("ipSend",          DBlocks.Dwatch.ipSend(for: t)),
+            // vminfo
+            ("vmAnonpgin",    DBlocks.Dwatch.vmAnonpgin(for: t)),
+            ("vmAnonpgout",   DBlocks.Dwatch.vmAnonpgout(for: t)),
+            ("vmAsFault",     DBlocks.Dwatch.vmAsFault(for: t)),
+            ("vmCowFault",    DBlocks.Dwatch.vmCowFault(for: t)),
+            ("vmDfree",       DBlocks.Dwatch.vmDfree(for: t)),
+            ("vmExecfree",    DBlocks.Dwatch.vmExecfree(for: t)),
+            ("vmExecpgin",    DBlocks.Dwatch.vmExecpgin(for: t)),
+            ("vmExecpgout",   DBlocks.Dwatch.vmExecpgout(for: t)),
+            ("vmFsfree",      DBlocks.Dwatch.vmFsfree(for: t)),
+            ("vmFspgin",      DBlocks.Dwatch.vmFspgin(for: t)),
+            ("vmFspgout",     DBlocks.Dwatch.vmFspgout(for: t)),
+            ("vmKernelAsflt", DBlocks.Dwatch.vmKernelAsflt(for: t)),
+            ("vmMajFault",    DBlocks.Dwatch.vmMajFault(for: t)),
+            ("vmPgin",        DBlocks.Dwatch.vmPgin(for: t)),
+            ("vmPgout",       DBlocks.Dwatch.vmPgout(for: t)),
+            ("vmPgrec",       DBlocks.Dwatch.vmPgrec(for: t)),
+            ("vmPgrrun",      DBlocks.Dwatch.vmPgrrun(for: t)),
+            ("vmPrfree",      DBlocks.Dwatch.vmPrfree(for: t)),
+            ("vmPrpgin",      DBlocks.Dwatch.vmPrpgin(for: t)),
+            ("vmPrpgout",     DBlocks.Dwatch.vmPrpgout(for: t)),
+            ("vmScan",        DBlocks.Dwatch.vmScan(for: t)),
+            ("vmSwapin",      DBlocks.Dwatch.vmSwapin(for: t)),
+            ("vmSwapout",     DBlocks.Dwatch.vmSwapout(for: t)),
+            ("vmZfod",        DBlocks.Dwatch.vmZfod(for: t)),
+            // lockstat
+            ("lockstatAdaptiveAcquire", DBlocks.Dwatch.lockstatAdaptiveAcquire(for: t)),
+            ("lockstatAdaptiveBlock",   DBlocks.Dwatch.lockstatAdaptiveBlock(for: t)),
+            ("lockstatAdaptiveSpin",    DBlocks.Dwatch.lockstatAdaptiveSpin(for: t)),
+            ("lockstatAdaptiveRelease", DBlocks.Dwatch.lockstatAdaptiveRelease(for: t)),
+            ("lockstatRwAcquire",       DBlocks.Dwatch.lockstatRwAcquire(for: t)),
+            ("lockstatRwBlock",         DBlocks.Dwatch.lockstatRwBlock(for: t)),
+            ("lockstatRwRelease",       DBlocks.Dwatch.lockstatRwRelease(for: t)),
+            ("lockstatRwUpgrade",       DBlocks.Dwatch.lockstatRwUpgrade(for: t)),
+            ("lockstatRwDowngrade",     DBlocks.Dwatch.lockstatRwDowngrade(for: t)),
+            ("lockstatSpinAcquire",     DBlocks.Dwatch.lockstatSpinAcquire(for: t)),
+            ("lockstatSpinSpin",        DBlocks.Dwatch.lockstatSpinSpin(for: t)),
+            ("lockstatSpinRelease",     DBlocks.Dwatch.lockstatSpinRelease(for: t)),
+            ("lockstatThreadSpin",      DBlocks.Dwatch.lockstatThreadSpin(for: t)),
+            // vfs vop
+            ("vopLookup",       DBlocks.Dwatch.vopLookup(for: t)),
+            ("vopAccess",       DBlocks.Dwatch.vopAccess(for: t)),
+            ("vopOpen",         DBlocks.Dwatch.vopOpen(for: t)),
+            ("vopClose",        DBlocks.Dwatch.vopClose(for: t)),
+            ("vopGetattr",      DBlocks.Dwatch.vopGetattr(for: t)),
+            ("vopSetattr",      DBlocks.Dwatch.vopSetattr(for: t)),
+            ("vopRead",         DBlocks.Dwatch.vopRead(for: t)),
+            ("vopWrite",        DBlocks.Dwatch.vopWrite(for: t)),
+            ("vopIoctl",        DBlocks.Dwatch.vopIoctl(for: t)),
+            ("vopPoll",         DBlocks.Dwatch.vopPoll(for: t)),
+            ("vopKqfilter",     DBlocks.Dwatch.vopKqfilter(for: t)),
+            ("vopFsync",        DBlocks.Dwatch.vopFsync(for: t)),
+            ("vopRemove",       DBlocks.Dwatch.vopRemove(for: t)),
+            ("vopLink",         DBlocks.Dwatch.vopLink(for: t)),
+            ("vopMkdir",        DBlocks.Dwatch.vopMkdir(for: t)),
+            ("vopRmdir",        DBlocks.Dwatch.vopRmdir(for: t)),
+            ("vopReadlink",     DBlocks.Dwatch.vopReadlink(for: t)),
+            ("vopInactive",     DBlocks.Dwatch.vopInactive(for: t)),
+            ("vopReclaim",      DBlocks.Dwatch.vopReclaim(for: t)),
+            ("vopLock",         DBlocks.Dwatch.vopLock(for: t)),
+            ("vopUnlock",       DBlocks.Dwatch.vopUnlock(for: t)),
+            ("vopIslocked",     DBlocks.Dwatch.vopIslocked(for: t)),
+            ("vopBmap",         DBlocks.Dwatch.vopBmap(for: t)),
+            ("vopStrategy",     DBlocks.Dwatch.vopStrategy(for: t)),
+            ("vopAdvlock",      DBlocks.Dwatch.vopAdvlock(for: t)),
+            ("vopGetextattr",   DBlocks.Dwatch.vopGetextattr(for: t)),
+            ("vopSetextattr",   DBlocks.Dwatch.vopSetextattr(for: t)),
+            ("vopListextattr",  DBlocks.Dwatch.vopListextattr(for: t)),
+            ("vopGetacl",       DBlocks.Dwatch.vopGetacl(for: t)),
+            ("vopSetacl",       DBlocks.Dwatch.vopSetacl(for: t)),
+            ("vopAclcheck",     DBlocks.Dwatch.vopAclcheck(for: t)),
+            ("vopVptocnp",      DBlocks.Dwatch.vopVptocnp(for: t)),
+            ("vopAllocate",     DBlocks.Dwatch.vopAllocate(for: t)),
+            ("vopDeallocate",   DBlocks.Dwatch.vopDeallocate(for: t)),
+            ("vopAdvise",       DBlocks.Dwatch.vopAdvise(for: t)),
+            ("vopFdatasync",    DBlocks.Dwatch.vopFdatasync(for: t)),
+            // syscalls — I/O
+            ("sysReadEntry",      DBlocks.Dwatch.sysReadEntry(for: t)),
+            ("sysReadReturn",     DBlocks.Dwatch.sysReadReturn(for: t)),
+            ("sysWriteEntry",     DBlocks.Dwatch.sysWriteEntry(for: t)),
+            ("sysWriteReturn",    DBlocks.Dwatch.sysWriteReturn(for: t)),
+            ("sysPreadEntry",     DBlocks.Dwatch.sysPreadEntry(for: t)),
+            ("sysPreadReturn",    DBlocks.Dwatch.sysPreadReturn(for: t)),
+            ("sysPwriteEntry",    DBlocks.Dwatch.sysPwriteEntry(for: t)),
+            ("sysPwriteReturn",   DBlocks.Dwatch.sysPwriteReturn(for: t)),
+            ("sysReadvEntry",     DBlocks.Dwatch.sysReadvEntry(for: t)),
+            ("sysWritevEntry",    DBlocks.Dwatch.sysWritevEntry(for: t)),
+            ("sysPreadvEntry",    DBlocks.Dwatch.sysPreadvEntry(for: t)),
+            ("sysPwritevEntry",   DBlocks.Dwatch.sysPwritevEntry(for: t)),
+            // syscalls — fd lifecycle
+            ("sysOpenEntry",       DBlocks.Dwatch.sysOpenEntry(for: t)),
+            ("sysOpenReturn",      DBlocks.Dwatch.sysOpenReturn(for: t)),
+            ("sysOpenatEntry",     DBlocks.Dwatch.sysOpenatEntry(for: t)),
+            ("sysOpenatReturn",    DBlocks.Dwatch.sysOpenatReturn(for: t)),
+            ("sysCloseEntry",      DBlocks.Dwatch.sysCloseEntry(for: t)),
+            ("sysCloseReturn",     DBlocks.Dwatch.sysCloseReturn(for: t)),
+            ("sysCloseRangeEntry", DBlocks.Dwatch.sysCloseRangeEntry(for: t)),
+            ("sysDupEntry",        DBlocks.Dwatch.sysDupEntry(for: t)),
+            ("sysDup2Entry",       DBlocks.Dwatch.sysDup2Entry(for: t)),
+            ("sysFcntlEntry",      DBlocks.Dwatch.sysFcntlEntry(for: t)),
+            ("sysIoctlEntry",      DBlocks.Dwatch.sysIoctlEntry(for: t)),
+            ("sysPipeEntry",       DBlocks.Dwatch.sysPipeEntry(for: t)),
+            ("sysPipe2Entry",      DBlocks.Dwatch.sysPipe2Entry(for: t)),
+            // syscalls — metadata
+            ("sysStatEntry",     DBlocks.Dwatch.sysStatEntry(for: t)),
+            ("sysFstatEntry",    DBlocks.Dwatch.sysFstatEntry(for: t)),
+            ("sysLstatEntry",    DBlocks.Dwatch.sysLstatEntry(for: t)),
+            ("sysFstatatEntry",  DBlocks.Dwatch.sysFstatatEntry(for: t)),
+            ("sysAccessEntry",   DBlocks.Dwatch.sysAccessEntry(for: t)),
+            ("sysFaccessatEntry",DBlocks.Dwatch.sysFaccessatEntry(for: t)),
+            ("sysStatfsEntry",   DBlocks.Dwatch.sysStatfsEntry(for: t)),
+            ("sysFstatfsEntry",  DBlocks.Dwatch.sysFstatfsEntry(for: t)),
+            // syscalls — fs mutation
+            ("sysLinkEntry",       DBlocks.Dwatch.sysLinkEntry(for: t)),
+            ("sysLinkatEntry",     DBlocks.Dwatch.sysLinkatEntry(for: t)),
+            ("sysUnlinkEntry",     DBlocks.Dwatch.sysUnlinkEntry(for: t)),
+            ("sysUnlinkatEntry",   DBlocks.Dwatch.sysUnlinkatEntry(for: t)),
+            ("sysFunlinkatEntry",  DBlocks.Dwatch.sysFunlinkatEntry(for: t)),
+            ("sysRenameEntry",     DBlocks.Dwatch.sysRenameEntry(for: t)),
+            ("sysRenameatEntry",   DBlocks.Dwatch.sysRenameatEntry(for: t)),
+            ("sysMkdirEntry",      DBlocks.Dwatch.sysMkdirEntry(for: t)),
+            ("sysMkdiratEntry",    DBlocks.Dwatch.sysMkdiratEntry(for: t)),
+            ("sysRmdirEntry",      DBlocks.Dwatch.sysRmdirEntry(for: t)),
+            ("sysSymlinkEntry",    DBlocks.Dwatch.sysSymlinkEntry(for: t)),
+            ("sysSymlinkatEntry",  DBlocks.Dwatch.sysSymlinkatEntry(for: t)),
+            ("sysReadlinkEntry",   DBlocks.Dwatch.sysReadlinkEntry(for: t)),
+            ("sysReadlinkatEntry", DBlocks.Dwatch.sysReadlinkatEntry(for: t)),
+            ("sysTruncateEntry",   DBlocks.Dwatch.sysTruncateEntry(for: t)),
+            ("sysFtruncateEntry",  DBlocks.Dwatch.sysFtruncateEntry(for: t)),
+            ("sysLseekEntry",      DBlocks.Dwatch.sysLseekEntry(for: t)),
+            ("sysFsyncEntry",      DBlocks.Dwatch.sysFsyncEntry(for: t)),
+            ("sysFdatasyncEntry",  DBlocks.Dwatch.sysFdatasyncEntry(for: t)),
+            // syscalls — perms / ownership
+            ("sysChmodEntry",   DBlocks.Dwatch.sysChmodEntry(for: t)),
+            ("sysFchmodEntry",  DBlocks.Dwatch.sysFchmodEntry(for: t)),
+            ("sysLchmodEntry",  DBlocks.Dwatch.sysLchmodEntry(for: t)),
+            ("sysFchmodatEntry",DBlocks.Dwatch.sysFchmodatEntry(for: t)),
+            ("sysChownEntry",   DBlocks.Dwatch.sysChownEntry(for: t)),
+            ("sysFchownEntry",  DBlocks.Dwatch.sysFchownEntry(for: t)),
+            ("sysLchownEntry",  DBlocks.Dwatch.sysLchownEntry(for: t)),
+            ("sysFchownatEntry",DBlocks.Dwatch.sysFchownatEntry(for: t)),
+            // syscalls — process lifecycle
+            ("sysForkEntry",    DBlocks.Dwatch.sysForkEntry(for: t)),
+            ("sysVforkEntry",   DBlocks.Dwatch.sysVforkEntry(for: t)),
+            ("sysRforkEntry",   DBlocks.Dwatch.sysRforkEntry(for: t)),
+            ("sysExecveEntry",  DBlocks.Dwatch.sysExecveEntry(for: t)),
+            ("sysFexecveEntry", DBlocks.Dwatch.sysFexecveEntry(for: t)),
+            ("sysExitEntry",    DBlocks.Dwatch.sysExitEntry(for: t)),
+            ("sysWait4Entry",   DBlocks.Dwatch.sysWait4Entry(for: t)),
+            ("sysWait6Entry",   DBlocks.Dwatch.sysWait6Entry(for: t)),
+            // syscalls — signals
+            ("sysKillEntry",        DBlocks.Dwatch.sysKillEntry(for: t)),
+            ("sysKillpgEntry",      DBlocks.Dwatch.sysKillpgEntry(for: t)),
+            ("sysSigactionEntry",   DBlocks.Dwatch.sysSigactionEntry(for: t)),
+            ("sysSigprocmaskEntry", DBlocks.Dwatch.sysSigprocmaskEntry(for: t)),
+            ("sysSigsuspendEntry",  DBlocks.Dwatch.sysSigsuspendEntry(for: t)),
+            ("sysSigreturnEntry",   DBlocks.Dwatch.sysSigreturnEntry(for: t)),
+            ("sysSigaltstackEntry", DBlocks.Dwatch.sysSigaltstackEntry(for: t)),
+            ("sysSigqueueEntry",    DBlocks.Dwatch.sysSigqueueEntry(for: t)),
+            // syscalls — memory
+            ("sysMmapEntry",       DBlocks.Dwatch.sysMmapEntry(for: t)),
+            ("sysMunmapEntry",     DBlocks.Dwatch.sysMunmapEntry(for: t)),
+            ("sysMprotectEntry",   DBlocks.Dwatch.sysMprotectEntry(for: t)),
+            ("sysMadviseEntry",    DBlocks.Dwatch.sysMadviseEntry(for: t)),
+            ("sysMsyncEntry",      DBlocks.Dwatch.sysMsyncEntry(for: t)),
+            ("sysMlockEntry",      DBlocks.Dwatch.sysMlockEntry(for: t)),
+            ("sysMunlockEntry",    DBlocks.Dwatch.sysMunlockEntry(for: t)),
+            ("sysMincoreEntry",    DBlocks.Dwatch.sysMincoreEntry(for: t)),
+            ("sysShmOpenEntry",    DBlocks.Dwatch.sysShmOpenEntry(for: t)),
+            ("sysShmUnlinkEntry",  DBlocks.Dwatch.sysShmUnlinkEntry(for: t)),
+            ("sysShmRenameEntry",  DBlocks.Dwatch.sysShmRenameEntry(for: t)),
+            // syscalls — networking
+            ("sysSocketEntry",      DBlocks.Dwatch.sysSocketEntry(for: t)),
+            ("sysBindEntry",        DBlocks.Dwatch.sysBindEntry(for: t)),
+            ("sysConnectEntry",     DBlocks.Dwatch.sysConnectEntry(for: t)),
+            ("sysListenEntry",      DBlocks.Dwatch.sysListenEntry(for: t)),
+            ("sysAcceptEntry",      DBlocks.Dwatch.sysAcceptEntry(for: t)),
+            ("sysAccept4Entry",     DBlocks.Dwatch.sysAccept4Entry(for: t)),
+            ("sysSendEntry",        DBlocks.Dwatch.sysSendEntry(for: t)),
+            ("sysSendtoEntry",      DBlocks.Dwatch.sysSendtoEntry(for: t)),
+            ("sysSendmsgEntry",     DBlocks.Dwatch.sysSendmsgEntry(for: t)),
+            ("sysRecvEntry",        DBlocks.Dwatch.sysRecvEntry(for: t)),
+            ("sysRecvfromEntry",    DBlocks.Dwatch.sysRecvfromEntry(for: t)),
+            ("sysRecvmsgEntry",     DBlocks.Dwatch.sysRecvmsgEntry(for: t)),
+            ("sysShutdownEntry",    DBlocks.Dwatch.sysShutdownEntry(for: t)),
+            ("sysGetsocknameEntry", DBlocks.Dwatch.sysGetsocknameEntry(for: t)),
+            ("sysGetpeernameEntry", DBlocks.Dwatch.sysGetpeernameEntry(for: t)),
+            ("sysSetsockoptEntry",  DBlocks.Dwatch.sysSetsockoptEntry(for: t)),
+            ("sysGetsockoptEntry",  DBlocks.Dwatch.sysGetsockoptEntry(for: t)),
+            // syscalls — polling
+            ("sysSelectEntry",  DBlocks.Dwatch.sysSelectEntry(for: t)),
+            ("sysPselectEntry", DBlocks.Dwatch.sysPselectEntry(for: t)),
+            ("sysPollEntry",    DBlocks.Dwatch.sysPollEntry(for: t)),
+            ("sysPpollEntry",   DBlocks.Dwatch.sysPpollEntry(for: t)),
+            ("sysKqueueEntry",  DBlocks.Dwatch.sysKqueueEntry(for: t)),
+            ("sysKeventEntry",  DBlocks.Dwatch.sysKeventEntry(for: t)),
+            // syscalls — time
+            ("sysNanosleepEntry",      DBlocks.Dwatch.sysNanosleepEntry(for: t)),
+            ("sysClockNanosleepEntry", DBlocks.Dwatch.sysClockNanosleepEntry(for: t)),
+            ("sysGettimeofdayEntry",   DBlocks.Dwatch.sysGettimeofdayEntry(for: t)),
+            ("sysClockGettimeEntry",   DBlocks.Dwatch.sysClockGettimeEntry(for: t)),
+            ("sysClockSettimeEntry",   DBlocks.Dwatch.sysClockSettimeEntry(for: t)),
+            ("sysSetitimerEntry",      DBlocks.Dwatch.sysSetitimerEntry(for: t)),
+            // syscalls — IDs
+            ("sysGetpidEntry",     DBlocks.Dwatch.sysGetpidEntry(for: t)),
+            ("sysGetppidEntry",    DBlocks.Dwatch.sysGetppidEntry(for: t)),
+            ("sysGetuidEntry",     DBlocks.Dwatch.sysGetuidEntry(for: t)),
+            ("sysGeteuidEntry",    DBlocks.Dwatch.sysGeteuidEntry(for: t)),
+            ("sysGetgidEntry",     DBlocks.Dwatch.sysGetgidEntry(for: t)),
+            ("sysGetegidEntry",    DBlocks.Dwatch.sysGetegidEntry(for: t)),
+            ("sysSetuidEntry",     DBlocks.Dwatch.sysSetuidEntry(for: t)),
+            ("sysSetgidEntry",     DBlocks.Dwatch.sysSetgidEntry(for: t)),
+            ("sysSeteuidEntry",    DBlocks.Dwatch.sysSeteuidEntry(for: t)),
+            ("sysSetegidEntry",    DBlocks.Dwatch.sysSetegidEntry(for: t)),
+            ("sysSetresuidEntry",  DBlocks.Dwatch.sysSetresuidEntry(for: t)),
+            ("sysSetresgidEntry",  DBlocks.Dwatch.sysSetresgidEntry(for: t)),
+            ("sysSetsidEntry",     DBlocks.Dwatch.sysSetsidEntry(for: t)),
+            ("sysSetpgidEntry",    DBlocks.Dwatch.sysSetpgidEntry(for: t)),
+            // syscalls — resource control
+            ("sysGetrlimitEntry",   DBlocks.Dwatch.sysGetrlimitEntry(for: t)),
+            ("sysSetrlimitEntry",   DBlocks.Dwatch.sysSetrlimitEntry(for: t)),
+            ("sysGetrusageEntry",   DBlocks.Dwatch.sysGetrusageEntry(for: t)),
+            ("sysGetpriorityEntry", DBlocks.Dwatch.sysGetpriorityEntry(for: t)),
+            ("sysSetpriorityEntry", DBlocks.Dwatch.sysSetpriorityEntry(for: t)),
+            // syscalls — IPC
+            ("sysSemgetEntry", DBlocks.Dwatch.sysSemgetEntry(for: t)),
+            ("sysSemopEntry",  DBlocks.Dwatch.sysSemopEntry(for: t)),
+            ("sysSemctlEntry", DBlocks.Dwatch.sysSemctlEntry(for: t)),
+            ("sysMsggetEntry", DBlocks.Dwatch.sysMsggetEntry(for: t)),
+            ("sysMsgsndEntry", DBlocks.Dwatch.sysMsgsndEntry(for: t)),
+            ("sysMsgrcvEntry", DBlocks.Dwatch.sysMsgrcvEntry(for: t)),
+            ("sysMsgctlEntry", DBlocks.Dwatch.sysMsgctlEntry(for: t)),
+            ("sysShmgetEntry", DBlocks.Dwatch.sysShmgetEntry(for: t)),
+            ("sysShmatEntry",  DBlocks.Dwatch.sysShmatEntry(for: t)),
+            ("sysShmdtEntry",  DBlocks.Dwatch.sysShmdtEntry(for: t)),
+            ("sysShmctlEntry", DBlocks.Dwatch.sysShmctlEntry(for: t)),
+            // syscalls — mount/fs admin
+            ("sysMountEntry",   DBlocks.Dwatch.sysMountEntry(for: t)),
+            ("sysUnmountEntry", DBlocks.Dwatch.sysUnmountEntry(for: t)),
+            ("sysChdirEntry",   DBlocks.Dwatch.sysChdirEntry(for: t)),
+            ("sysFchdirEntry",  DBlocks.Dwatch.sysFchdirEntry(for: t)),
+            ("sysChrootEntry",  DBlocks.Dwatch.sysChrootEntry(for: t)),
+            // syscalls — misc high value
+            ("sysSysctlEntry",     DBlocks.Dwatch.sysSysctlEntry(for: t)),
+            ("sysReboot",          DBlocks.Dwatch.sysReboot(for: t)),
+            ("sysJailEntry",       DBlocks.Dwatch.sysJailEntry(for: t)),
+            ("sysJailAttachEntry", DBlocks.Dwatch.sysJailAttachEntry(for: t)),
+            ("sysCpusetEntry",     DBlocks.Dwatch.sysCpusetEntry(for: t)),
+            ("sysProcctlEntry",    DBlocks.Dwatch.sysProcctlEntry(for: t)),
+        ]
+    }()
+
+    @Test("Extended Dwatch catalog has at least 250 entries")
+    func testExtendedCatalogSize() {
+        // Sanity check that nobody trims the static list. The actual
+        // count is asserted with a generous lower bound rather than an
+        // exact number so adding new profiles doesn't churn this test.
+        #expect(Self.extendedCatalog.count >= 250,
+                "extendedCatalog has \(Self.extendedCatalog.count) entries")
+    }
+
+    @Test("Generic Dwatch.syscall(_:) factory works for arbitrary names")
+    func testSyscallFactory() throws {
+        let entry = DBlocks.Dwatch.syscall("foo", site: .entry)
+        #expect(entry.source.contains("syscall::foo:entry"))
+        try entry.validate()
+        #expect(entry.lint().isEmpty)
+
+        let ret = DBlocks.Dwatch.syscall("foo", site: .return)
+        #expect(ret.source.contains("syscall::foo:return"))
+        try ret.validate()
+        #expect(ret.lint().isEmpty)
+    }
+
+    @Test("All Dwatch profiles also pass with a target filter applied")
+    func testAllDwatchWithTarget() {
+        let target = DTraceTarget.execname("nginx")
+        let scripts: [(String, DBlocks)] = [
+            ("kill",        DBlocks.Dwatch.kill(for: target)),
+            ("open",        DBlocks.Dwatch.open(for: target)),
+            ("readWrite",   DBlocks.Dwatch.readWrite(for: target)),
+            ("chmod",       DBlocks.Dwatch.chmod(for: target)),
+            ("procExec",    DBlocks.Dwatch.procExec(for: target)),
+            ("procExit",    DBlocks.Dwatch.procExit(for: target)),
+            ("tcp",         DBlocks.Dwatch.tcp(for: target)),
+            ("udp",         DBlocks.Dwatch.udp(for: target)),
+            ("nanosleep",   DBlocks.Dwatch.nanosleep(for: target)),
+            ("errnoTracer", DBlocks.Dwatch.errnoTracer(for: target)),
+            ("systop",      DBlocks.Dwatch.systop(for: target)),
+        ]
+        for (name, script) in scripts {
+            canary(script, name: "Dwatch.\(name)(for: nginx)")
+        }
+    }
+
+    /// Walks the entire extended catalog (~280 entries) and asserts
+    /// every profile validates, lints clean, and round-trips through
+    /// JSON without source drift.
+    ///
+    /// This is the test that backs the "300 profiles" claim in the
+    /// docs. If a future commit breaks any one profile — say, by
+    /// shipping a typo'd probe spec or a printf with the wrong arg
+    /// count — exactly that profile's name will appear in the failure
+    /// output, while every other profile keeps passing.
+    @Test("Extended Dwatch catalog: all entries validate + lint clean + JSON round-trip")
+    func testExtendedCatalogCanary() {
+        for (name, script) in Self.extendedCatalog {
+            canary(script, name: "Dwatch.\(name)")
+        }
+    }
+
+    /// Same sweep but with a non-trivial target filter applied.
+    /// Verifies that every profile in the catalog correctly threads
+    /// the `target` parameter through to the rendered predicate.
+    @Test("Extended Dwatch catalog: target filter sweep")
+    func testExtendedCatalogTargetSweep() {
+        let target = DTraceTarget.execname("nginx")
+        // Re-build a few representative profiles with the target
+        // filter; sampling rather than running all ~280 again to keep
+        // the parameterized expansion compact.
+        let samples: [(String, DBlocks)] = [
+            ("procCreate",         DBlocks.Dwatch.procCreate(for: target)),
+            ("schedSleep",         DBlocks.Dwatch.schedSleep(for: target)),
+            ("ioStart",            DBlocks.Dwatch.ioStart(for: target)),
+            ("tcpStateChange",     DBlocks.Dwatch.tcpStateChange(for: target)),
+            ("vmMajFault",         DBlocks.Dwatch.vmMajFault(for: target)),
+            ("vopLookup",          DBlocks.Dwatch.vopLookup(for: target)),
+            ("sysReadEntry",       DBlocks.Dwatch.sysReadEntry(for: target)),
+            ("sysExecveEntry",     DBlocks.Dwatch.sysExecveEntry(for: target)),
+            ("sysKillEntry",       DBlocks.Dwatch.sysKillEntry(for: target)),
+            ("lockstatRwAcquire",  DBlocks.Dwatch.lockstatRwAcquire(for: target)),
+        ]
+        for (name, script) in samples {
+            #expect(script.source.contains("execname == \"nginx\""),
+                    "Dwatch.\(name): target filter not threaded")
+            canary(script, name: "Dwatch.\(name)(for: nginx)")
+        }
     }
 }

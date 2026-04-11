@@ -196,6 +196,13 @@ extension DBlocks {
     /// ```swift
     /// let script = DBlocks.diskIOSizes(for: .execname("postgres"))
     /// ```
+    ///
+    /// - Note: This uses ``Quantize(_:by:into:)``, which produces a
+    ///   power-of-2 histogram. If you want finer-grained buckets over
+    ///   a wide value range (e.g. 512 B requests up to multi-MB
+    ///   transfers), build a custom script with ``Llquantize(_:base:low:high:steps:by:into:)``
+    ///   instead — its log-linear bucketing gives more usable
+    ///   resolution at the small end.
     public static func diskIOSizes(for target: DTraceTarget = .all) -> DBlocks {
         DBlocks {
             Probe("io:::start") {
@@ -318,21 +325,19 @@ extension DBlocks {
 
         /// Equivalent to `dwatch read` / `dwatch write` — print every
         /// read or write entry with the requested byte count.
+        ///
+        /// Folds the two syscalls into a single multi-probe clause and
+        /// uses the built-in `probefunc` variable to label each line,
+        /// so the action body lives in exactly one place.
         public static func readWrite(for target: DTraceTarget = .all) -> DBlocks {
             DBlocks {
-                Probe("syscall::read:entry") {
+                Probe(probes: ["syscall::read:entry", "syscall::write:entry"]) {
                     if !target.predicate.isEmpty {
                         Target(target)
                     }
-                    Printf("%s[%d]: read fd=%d nbyte=%d",
-                           "execname", "pid", "(int)arg0", "(size_t)arg2")
-                }
-                Probe("syscall::write:entry") {
-                    if !target.predicate.isEmpty {
-                        Target(target)
-                    }
-                    Printf("%s[%d]: write fd=%d nbyte=%d",
-                           "execname", "pid", "(int)arg0", "(size_t)arg2")
+                    Printf("%s[%d]: %s fd=%d nbyte=%d",
+                           "execname", "pid", "probefunc",
+                           "(int)arg0", "(size_t)arg2")
                 }
             }
         }
@@ -545,6 +550,345 @@ extension DBlocks {
                     }
                     Printf("%s[%d]: \(function)+\(offsetLabel)",
                            "execname", "pid")
+                }
+            }
+        }
+
+        // MARK: - Block I/O (io provider)
+
+        /// Equivalent to `dwatch io` — log every block-I/O start/done
+        /// pair, showing the byte count and the firing probe name.
+        ///
+        /// The upstream `dwatch io` script walks the `bufinfo_t` /
+        /// `devinfo_t` structures to print device, partition, and flow
+        /// direction. This wrapper is intentionally simpler: it fires
+        /// the same `io:::start` / `io:::done` probes and prints the
+        /// requested transfer length, which is the field most users
+        /// actually want. Use `args[0]` directly in a custom script if
+        /// you need the full bufinfo context.
+        public static func io(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: ["io:::start", "io:::done"]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: %s %d bytes",
+                           "execname", "pid", "probename", "args[0]->b_bcount")
+                }
+            }
+        }
+
+        // MARK: - IPv4/IPv6 (ip provider)
+
+        /// Equivalent to `dwatch ip` — log every IP packet send and
+        /// receive with the byte count.
+        ///
+        /// Mirrors the upstream `dwatch ip` profile, which enables
+        /// `ip:::send` and `ip:::receive`. The upstream version walks
+        /// the typed args to print the local/remote addresses; this
+        /// wrapper prints the length and direction, since the address
+        /// fields require the typed `pktinfo_t` translator that varies
+        /// across FreeBSD versions.
+        public static func ip(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: ["ip:::send", "ip:::receive"]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: ip %s %d bytes",
+                           "execname", "pid", "probename", "args[2]->ip_plength")
+                }
+            }
+        }
+
+        // MARK: - proc provider (full + signal/status sub-aliases)
+
+        /// Equivalent to `dwatch proc` — log every process lifecycle
+        /// event the `proc` provider exposes (create, exec attempts,
+        /// exit, and signal-send/discard/clear).
+        ///
+        /// Use ``procExec(for:)`` or ``procExit(for:)`` for the
+        /// existing single-event subsets, or ``procSignal(for:)`` /
+        /// ``procStatus(for:)`` for the dwatch CLI sub-aliases.
+        public static func proc(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "proc:::create",
+                    "proc:::exec",
+                    "proc:::exec-success",
+                    "proc:::exec-failure",
+                    "proc:::exit",
+                    "proc:::signal-send",
+                    "proc:::signal-discard",
+                    "proc:::signal-clear",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: proc %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch proc-signal` — only the signal-related
+        /// `proc` probes (`signal-send`, `signal-discard`,
+        /// `signal-clear`).
+        public static func procSignal(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "proc:::signal-send",
+                    "proc:::signal-discard",
+                    "proc:::signal-clear",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: proc %s sig=%d",
+                           "execname", "pid", "probename", "args[2]")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch proc-status` — process lifecycle
+        /// transitions (`create`, `exec`, `exec-success`,
+        /// `exec-failure`, `exit`).
+        public static func procStatus(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "proc:::create",
+                    "proc:::exec",
+                    "proc:::exec-success",
+                    "proc:::exec-failure",
+                    "proc:::exit",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: proc %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        // MARK: - sched provider
+
+        /// Equivalent to `dwatch sched` — log every scheduler event the
+        /// `sched` provider exposes.
+        ///
+        /// Sched probes fire on every CPU and at high frequency, so
+        /// scope this to a target process when possible. The narrower
+        /// helpers (``schedCpu(for:)``, ``schedExec(for:)``,
+        /// ``schedPri(for:)``, ``schedQueue(for:)``) match the
+        /// dwatch CLI sub-aliases.
+        public static func sched(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe("sched:::") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: sched %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch sched-cpu` — CPU scheduling
+        /// transitions (`on-cpu`, `off-cpu`, `remain-cpu`).
+        public static func schedCpu(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "sched:::on-cpu",
+                    "sched:::off-cpu",
+                    "sched:::remain-cpu",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: sched %s cpu=%d",
+                           "execname", "pid", "probename", "cpu")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch sched-exec` — sleep / wakeup
+        /// transitions, useful for spotting blocked threads.
+        public static func schedExec(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "sched:::sleep",
+                    "sched:::wakeup",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: sched %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch sched-pri` — thread priority changes
+        /// (`change-pri`, `lend-pri`).
+        public static func schedPri(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "sched:::change-pri",
+                    "sched:::lend-pri",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: sched %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch sched-queue` — runqueue
+        /// enqueue/dequeue and load-change events.
+        public static func schedQueue(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "sched:::enqueue",
+                    "sched:::dequeue",
+                    "sched:::load-change",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: sched %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        // MARK: - Network syscalls (sendrecv / send / recv)
+
+        /// Equivalent to `dwatch sendrecv` — log every send/recv-family
+        /// syscall (`sendto`, `sendmsg` on entry; `recvfrom`,
+        /// `recvmsg` on return).
+        public static func sendrecv(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "syscall::sendto:entry",
+                    "syscall::sendmsg:entry",
+                    "syscall::recvfrom:return",
+                    "syscall::recvmsg:return",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: %s",
+                           "execname", "pid", "probefunc")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch send` — `sendto`/`sendmsg` entries.
+        public static func send(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "syscall::sendto:entry",
+                    "syscall::sendmsg:entry",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: %s",
+                           "execname", "pid", "probefunc")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch recv` — `recvfrom`/`recvmsg` returns.
+        public static func recv(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: [
+                    "syscall::recvfrom:return",
+                    "syscall::recvmsg:return",
+                ]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: %s",
+                           "execname", "pid", "probefunc")
+                }
+            }
+        }
+
+        // MARK: - tcp-io / udplite
+
+        /// Equivalent to `dwatch tcp-io` — both directions of the
+        /// `tcp` provider with the byte count.
+        public static func tcpIO(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: ["tcp:::send", "tcp:::receive"]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: tcp %s %d bytes",
+                           "execname", "pid", "probename", "args[2]->ip_plength")
+                }
+            }
+        }
+
+        /// Equivalent to `dwatch udplite` — UDP-Lite send/receive.
+        public static func udplite(for target: DTraceTarget = .all) -> DBlocks {
+            DBlocks {
+                Probe(probes: ["udplite:::send", "udplite:::receive"]) {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: udplite %s",
+                           "execname", "pid", "probename")
+                }
+            }
+        }
+
+        // MARK: - VFS vnode-operation probes
+        //
+        // The upstream dwatch vop_* profiles trace the corresponding
+        // `vfs:vop:vop_NAME:entry` probe (matching FreeBSD's vfs SDT
+        // provider) and reconstruct the full filesystem path by walking
+        // the vnode cache. We faithfully enable the same probe but
+        // print the bare execname/pid context — full path
+        // reconstruction is too provider-specific to encode here, and
+        // users who want it should write a custom script with the
+        // typed `args[]` accessors.
+
+        /// Equivalent to `dwatch vop_create` — fires on every
+        /// `VOP_CREATE` entry across the kernel.
+        public static func vopCreate(for target: DTraceTarget = .all) -> DBlocks {
+            vop("vop_create", for: target)
+        }
+
+        /// Equivalent to `dwatch vop_readdir`.
+        public static func vopReaddir(for target: DTraceTarget = .all) -> DBlocks {
+            vop("vop_readdir", for: target)
+        }
+
+        /// Equivalent to `dwatch vop_rename`.
+        public static func vopRename(for target: DTraceTarget = .all) -> DBlocks {
+            vop("vop_rename", for: target)
+        }
+
+        /// Equivalent to `dwatch vop_symlink`.
+        public static func vopSymlink(for target: DTraceTarget = .all) -> DBlocks {
+            vop("vop_symlink", for: target)
+        }
+
+        /// Shared implementation for the `vop_*` profile family. Each
+        /// public wrapper above is a one-line call into this helper so
+        /// the action body lives in exactly one place.
+        private static func vop(_ name: String, for target: DTraceTarget) -> DBlocks {
+            DBlocks {
+                Probe("vfs:vop:\(name):entry") {
+                    if !target.predicate.isEmpty {
+                        Target(target)
+                    }
+                    Printf("%s[%d]: %s",
+                           "execname", "pid", "probefunc")
                 }
             }
         }

@@ -162,6 +162,140 @@ extension ProbeSpec {
         )
     }
 
+    // pid provider ------------------------------------------------------
+
+    /// User-land function tracing site.
+    public enum PIDSite: String, Sendable {
+        case entry
+        case `return`
+    }
+
+    /// User-land function-boundary tracing probe (`pid` provider).
+    ///
+    /// The `pid` provider attaches to a running user process and lets you
+    /// trace function entry, function return, or arbitrary instruction
+    /// offsets inside its text segment. Unlike `fbt`, which is system-wide,
+    /// `pid` probes are scoped to a single PID — typically the one DTrace
+    /// is told about via `$target` (i.e. `dtrace -p PID …` or
+    /// `DTraceSession.attach(to:)` / `spawn(path:arguments:)`).
+    ///
+    /// ```swift
+    /// // Trace every libc malloc entry in the target process.
+    /// Probe(.pid(.target, module: "libc.so.7", function: "malloc", .entry))
+    ///
+    /// // Trace return from a specific app function in pid 1234.
+    /// Probe(.pid(.literal(1234), module: "a.out", function: "handle_request", .return))
+    ///
+    /// // Trace an arbitrary instruction offset (4 bytes into malloc).
+    /// Probe(.pid(.target, module: "libc.so.7", function: "malloc", offset: 4))
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - process: Which process the probe attaches to. Use
+    ///     ``PIDProcess/target`` for the standard `$target` macro, or
+    ///     ``PIDProcess/literal(_:)`` for a hardcoded PID.
+    ///   - module: Object file containing the function (e.g.
+    ///     `"libc.so.7"`, `"a.out"`). Pass `""` to wildcard.
+    ///   - function: Function name in `module`. Pass `""` to wildcard.
+    ///   - site: `.entry` or `.return`.
+    public static func pid(
+        _ process: PIDProcess,
+        module: String,
+        function: String,
+        _ site: PIDSite
+    ) -> ProbeSpec {
+        ProbeSpec(
+            provider: "pid\(process.suffix)",
+            module: module,
+            function: function,
+            name: site.rawValue
+        )
+    }
+
+    /// User-land instruction-offset tracing probe (`pid` provider).
+    ///
+    /// Identical to ``pid(_:module:function:_:)`` but selects a specific
+    /// byte offset inside the function rather than its entry/return.
+    /// This is the user-space analogue of ``kinst(function:offset:)``.
+    public static func pid(
+        _ process: PIDProcess,
+        module: String,
+        function: String,
+        offset: Int
+    ) -> ProbeSpec {
+        ProbeSpec(
+            provider: "pid\(process.suffix)",
+            module: module,
+            function: function,
+            name: String(offset)
+        )
+    }
+
+    /// Selector for the process a `pid` probe attaches to.
+    public enum PIDProcess: Sendable, Hashable {
+        /// Attach via the `$target` macro — i.e. the process passed to
+        /// `DTraceSession.attach(to:)` / `spawn(path:arguments:)` or to
+        /// `dtrace -p` / `dtrace -c` on the command line.
+        case target
+
+        /// Attach to a literal numeric PID. Bakes the PID into the
+        /// rendered probe name and so is not portable across runs.
+        case literal(Int32)
+
+        fileprivate var suffix: String {
+            switch self {
+            case .target:           return "$target"
+            case .literal(let pid): return "\(pid)"
+            }
+        }
+    }
+
+    // USDT (user statically-defined tracing) ----------------------------
+
+    /// User statically-defined tracing probe.
+    ///
+    /// USDT probes are compiled into a user-land binary by the application
+    /// author (via `dtrace -h`/`-G` and `DTRACE_PROBE` macros). They are
+    /// addressed by the *application's* provider name, scoped to a process
+    /// the same way ``pid(_:module:function:_:)`` is.
+    ///
+    /// ```swift
+    /// // Every postgres query-start probe in the attached target.
+    /// Probe(.usdt(.target, provider: "postgresql", probe: "query-start"))
+    ///
+    /// // A specific function inside a specific module of pid 4242.
+    /// Probe(.usdt(
+    ///     .literal(4242),
+    ///     provider: "myapp",
+    ///     module: "libworker.so",
+    ///     function: "dispatch",
+    ///     probe: "request-received"
+    /// ))
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - process: Which process to attach to.
+    ///   - provider: The application-level provider name as declared in
+    ///     the `*.d` provider file (without any `$pid` suffix — that's
+    ///     added automatically based on `process`).
+    ///   - module: Optional object file filter. Defaults to wildcard.
+    ///   - function: Optional function filter. Defaults to wildcard.
+    ///   - probe: The probe name as declared in the provider file.
+    public static func usdt(
+        _ process: PIDProcess,
+        provider: String,
+        module: String = "",
+        function: String = "",
+        probe: String
+    ) -> ProbeSpec {
+        ProbeSpec(
+            provider: "\(provider)\(process.suffix)",
+            module: module,
+            function: function,
+            name: probe
+        )
+    }
+
     // proc provider -----------------------------------------------------
 
     /// Common probe names exposed by the `proc` provider.
@@ -295,5 +429,75 @@ extension ProbeClause {
     /// ```
     public init(_ spec: ProbeSpec, @ProbeClauseBuilder _ builder: () -> [ProbeComponent]) {
         self.init(spec.rendered, builder)
+    }
+
+    /// Builds a single probe clause that fires for *any* of the supplied
+    /// probe specs, sharing one predicate-and-action body.
+    ///
+    /// DTrace allows a clause to list multiple probes separated by commas:
+    ///
+    /// ```d
+    /// syscall::read:entry,
+    /// syscall::write:entry
+    /// {
+    ///     @[probefunc] = count();
+    /// }
+    /// ```
+    ///
+    /// This initializer is the typed Swift form of that pattern.
+    ///
+    /// ```swift
+    /// let specs: [ProbeSpec] = [
+    ///     .syscall("read",  .entry),
+    ///     .syscall("write", .entry),
+    ///     .syscall("pread", .entry),
+    /// ]
+    /// Probe(specs: specs) {
+    ///     Count(by: "probefunc")
+    /// }
+    /// ```
+    ///
+    /// For the common two-probe case, ``init(_:_:_:)-(ProbeSpec,ProbeSpec,_)``
+    /// is a more concise form.
+    ///
+    /// - Precondition: `specs` must not be empty.
+    public init(specs: [ProbeSpec], @ProbeClauseBuilder _ builder: () -> [ProbeComponent]) {
+        precondition(!specs.isEmpty, "Probe(specs:) requires at least one ProbeSpec")
+        self.init(specs.map(\.rendered).joined(separator: ",\n"), builder)
+    }
+
+    /// Builds a single probe clause that fires for either of two probe
+    /// specs, sharing one body. Convenience for the common two-probe
+    /// case; for more, use ``init(specs:_:)``.
+    ///
+    /// ```swift
+    /// Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+    ///     Count(by: "probefunc")
+    /// }
+    /// ```
+    public init(
+        _ first: ProbeSpec,
+        _ second: ProbeSpec,
+        @ProbeClauseBuilder _ builder: () -> [ProbeComponent]
+    ) {
+        self.init(specs: [first, second], builder)
+    }
+
+    /// Builds a single probe clause from an array of raw probe spec
+    /// strings sharing one body. This is the string-based counterpart
+    /// to ``init(specs:_:)`` — useful for callers that already have
+    /// raw `"syscall::read:entry"` style strings (for example because
+    /// they were read from a config file or constructed at runtime).
+    ///
+    /// ```swift
+    /// Probe(probes: ["syscall::read:entry", "syscall::write:entry"]) {
+    ///     Count(by: "probefunc")
+    /// }
+    /// ```
+    ///
+    /// - Precondition: `probes` must not be empty.
+    public init(probes: [String], @ProbeClauseBuilder _ builder: () -> [ProbeComponent]) {
+        precondition(!probes.isEmpty, "Probe(probes:) requires at least one probe")
+        self.init(probes.joined(separator: ",\n"), builder)
     }
 }

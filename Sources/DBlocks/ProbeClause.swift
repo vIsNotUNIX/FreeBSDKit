@@ -6,7 +6,19 @@
 
 // MARK: - Probe Clause Builder
 
-/// A result builder for constructing the contents of a probe clause.
+/// A result builder for the body of a probe clause.
+///
+/// `ProbeClauseBuilder` is what makes the `Probe(...) { … }` block
+/// syntax work. Inside the braces you can list any mix of predicates
+/// (`Target`, `When`) and actions (`Count`, `Printf`, `Stack`,
+/// `Assign`, `Speculate`, `Exit`, …) — anything that conforms to
+/// ``ProbeComponentConvertible``. The builder flattens those
+/// expressions, including ones produced by `if`/`else` branches and
+/// `for` loops, into the ordered `predicates` and `actions` arrays
+/// that ``ProbeClause`` stores.
+///
+/// You normally never write `@ProbeClauseBuilder` yourself; it's the
+/// attribute that lets `Probe(...) { … }` look like ordinary Swift.
 @resultBuilder
 public struct ProbeClauseBuilder {
     public static func buildBlock(_ components: [ProbeComponent]...) -> [ProbeComponent] {

@@ -168,6 +168,15 @@ extension DExpr {
 }
 
 // MARK: - Comparison operators
+//
+// All comparison operators take a left-hand `DExpr` and either another
+// `DExpr`, an `Int`, or a `String` on the right. The result is a
+// `DExpr` that renders as the corresponding D-language comparison
+// (`==`, `!=`, `<`, `<=`, `>`, `>=`). String literals on the right
+// are automatically quoted, so `DExpr.execname == "nginx"` renders as
+// `execname == "nginx"`. These operators do not introduce extra
+// parentheses around their operands; group with parentheses in Swift
+// when needed.
 
 public func == (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("\(lhs.rendered) == \(rhs.rendered)") }
 public func != (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("\(lhs.rendered) != \(rhs.rendered)") }
@@ -187,6 +196,12 @@ public func == (lhs: DExpr, rhs: String) -> DExpr { DExpr("\(lhs.rendered) == \"
 public func != (lhs: DExpr, rhs: String) -> DExpr { DExpr("\(lhs.rendered) != \"\(rhs)\"") }
 
 // MARK: - Arithmetic
+//
+// `+`, `-`, `*`, `/` produce a `DExpr` whose rendered form wraps the
+// operands in parentheses (`(lhs OP rhs)`). The parentheses preserve
+// the intended grouping when the result is then composed into a
+// larger expression — without them, naive concatenation would mis-
+// associate against D's own operator precedence.
 
 public func + (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("(\(lhs.rendered) + \(rhs.rendered))") }
 public func - (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("(\(lhs.rendered) - \(rhs.rendered))") }
@@ -197,10 +212,52 @@ public func + (lhs: DExpr, rhs: Int) -> DExpr { DExpr("(\(lhs.rendered) + \(rhs)
 public func - (lhs: DExpr, rhs: Int) -> DExpr { DExpr("(\(lhs.rendered) - \(rhs))") }
 
 // MARK: - Logical
+//
+// `&&`, `||`, and the prefix `!` produce a `DExpr` whose rendered
+// form fully parenthesizes both operands so the result composes
+// safely inside larger predicates. `When(.a && .b)` and
+// `When(!(.a == 1))` are the typical entry points.
 
 public func && (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("(\(lhs.rendered)) && (\(rhs.rendered))") }
 public func || (lhs: DExpr, rhs: DExpr) -> DExpr { DExpr("(\(lhs.rendered)) || (\(rhs.rendered))") }
 public prefix func ! (rhs: DExpr) -> DExpr { DExpr("!(\(rhs.rendered))") }
+
+// MARK: - Ternary
+//
+// DTrace's D language has no `if`/`else`, but it does have C's ternary
+// operator (`cond ? a : b`). This is the only way to embed conditional
+// logic inside an action body, and it shows up constantly in real
+// scripts (e.g. classifying a syscall return as success/failure before
+// aggregating it). Swift does not let us overload `?:`, so we expose
+// the operation as a static helper plus an instance shorthand.
+
+extension DExpr {
+
+    /// Builds a C-style ternary expression: `condition ? then : else`.
+    ///
+    /// All three operands are arbitrary `DExpr` fragments. The result is
+    /// fully parenthesized so it composes safely inside larger
+    /// expressions.
+    ///
+    /// ```swift
+    /// // Classify a read return as "ok" or "err" before aggregating it.
+    /// Printf("%s",
+    ///        args: [.ternary(.arg(0) >= 0, then: DExpr("\"ok\""), else: DExpr("\"err\""))])
+    /// ```
+    public static func ternary(_ condition: DExpr, then a: DExpr, else b: DExpr) -> DExpr {
+        DExpr("(\(condition.rendered) ? \(a.rendered) : \(b.rendered))")
+    }
+
+    /// Instance form of ``ternary(_:then:else:)`` — reads as
+    /// "this condition `?` a `:` b".
+    ///
+    /// ```swift
+    /// let status = (DExpr.arg(0) >= 0).then(DExpr("\"ok\""), else: DExpr("\"err\""))
+    /// ```
+    public func then(_ a: DExpr, else b: DExpr) -> DExpr {
+        DExpr.ternary(self, then: a, else: b)
+    }
+}
 
 // MARK: - When / Printf bridges
 

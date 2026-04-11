@@ -36,6 +36,19 @@ import Glibc
 ///     }
 /// }
 /// ```
+/// A result builder for the top-level `DBlocks { … }` script body.
+///
+/// `DBlocksBuilder` is the attribute that lets a `DBlocks { … }` block
+/// look like ordinary Swift. Inside the braces you can list any
+/// number of probe clauses — `Probe(...)`, `BEGIN`, `END`, `ERROR`,
+/// `Tick`, `Profile`, or any other ``ProbeClauseConvertible`` value
+/// — including ones produced by `if`/`else` branches and `for` loops.
+/// The builder flattens those expressions into the ordered
+/// `[ProbeClause]` array that ``DBlocks`` stores.
+///
+/// You almost never write `@DBlocksBuilder` yourself; it's only
+/// surfaced because the ``DBlocks/init(_:)`` initializer needs to
+/// declare the closure parameter.
 @resultBuilder
 public struct DBlocksBuilder {
     public static func buildBlock(_ components: [ProbeClause]...) -> [ProbeClause] {
@@ -152,6 +165,100 @@ public struct DBlocksBuilder {
 ///         Printa()
 ///     }
 /// }
+/// ```
+///
+/// ## Typed Probe Specs
+///
+/// Raw `"syscall::read:entry"` strings work, but ``ProbeSpec`` exposes
+/// typed builders for the common providers — they autocomplete in the
+/// IDE and remove a class of typos:
+///
+/// ```swift
+/// Probe(.syscall("read", .entry))                       { Count() }
+/// Probe(.fbt(module: "kernel", function: "uipc_send", .entry)) { Trace("arg0") }
+/// Probe(.kinst(function: "vm_fault", offset: 4))        { Printf("hit") }
+/// Probe(.proc(.execSuccess))                            { Printf("%s", "execname") }
+/// Probe(.tcp(.stateChange))                             { Count() }
+/// Probe(.io(.start))                                    { Count() }
+/// Probe(.vm(.majorFault))                               { Count(by: "execname") }
+///
+/// // User-land tracing
+/// Probe(.pid(.target, module: "libc.so.7", function: "malloc", .entry)) {
+///     Count(by: "execname")
+/// }
+/// Probe(.usdt(.target, provider: "postgresql", probe: "query-start")) { Count() }
+/// ```
+///
+/// ## Multi-Probe Clauses
+///
+/// A single clause can fire on multiple probes that share one body:
+///
+/// ```swift
+/// Probe(.syscall("read", .entry), .syscall("write", .entry)) {
+///     Count(by: "probefunc")
+/// }
+/// // or, for raw-string callers:
+/// Probe(probes: ["syscall::read:entry", "syscall::write:entry"]) {
+///     Count(by: "probefunc")
+/// }
+/// ```
+///
+/// ## Typed Expressions (DExpr)
+///
+/// `DExpr` is a thin wrapper that lets you build predicates and printf
+/// arguments with Swift operators instead of raw strings, including a
+/// ternary helper for inline conditionals:
+///
+/// ```swift
+/// Probe("syscall::read:return") {
+///     When(.arg(0) >= 0 && .execname == "nginx")
+///     Printf("%s",
+///            args: [.ternary(.arg(0) >= 0,
+///                            then: DExpr("\"ok\""),
+///                            else: DExpr("\"err\""))])
+/// }
+/// ```
+///
+/// ## Aggregations
+///
+/// All standard aggregation functions are available, including
+/// `Stddev` and `Llquantize` for log-linear histograms over wide
+/// ranges (e.g. nanosecond to second-scale latencies).
+///
+/// ```swift
+/// Llquantize("timestamp - self->ts",
+///            base: 10, low: 0, high: 9, steps: 10,
+///            by: "execname", into: "latency")
+/// ```
+///
+/// ## Validation, Linting, and Compilation
+///
+/// `DBlocks` supports a multi-stage check pipeline:
+/// - ``validate()`` enforces structural rules (non-empty script, no
+///   empty clauses).
+/// - ``lint()`` returns advisory warnings for common pitfalls:
+///   undefined `@aggregation` references, `Exit()` inside a
+///   `profile-…` probe, and `printf` format/arg-count mismatches.
+/// - ``compile()`` invokes the real libdtrace compiler to validate
+///   the generated D source.
+///
+/// ## Composing and Merging Scripts
+///
+/// Scripts compose with `+`, `+=`, and the ``merge(_:)`` family. Use
+/// ``mergeChecked(_:)`` / ``mergingChecked(_:)`` when you want a
+/// loud failure if two scripts assign to the same `self->name`
+/// thread-local — by default merging silently appends and the two
+/// sides will corrupt each other at runtime.
+///
+/// ## Serialization
+///
+/// `DBlocks` is `Codable`, so an entire script — clauses, predicates,
+/// actions, aggregations — round-trips through JSON. Use this to
+/// store, transmit, or modify scripts as data:
+///
+/// ```swift
+/// let data    = try script.jsonData()
+/// let restore = try DBlocks(jsonData: data)
 /// ```
 public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     /// Version of the serialization format for forward compatibility.
@@ -339,12 +446,16 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     }
 
     /// Scans an action string for `self->NAME = …` assignments and
-    /// returns the bare NAMEs.
+    /// returns the bare NAMEs. The action is run through
+    /// ``stripStringLiterals(_:)`` first so that an occurrence of the
+    /// pattern inside a printf format or system command string does
+    /// not produce a false-positive merge conflict.
     private static func threadLocalAssignments(in clauses: [ProbeClause]) -> Set<String> {
         var names: Set<String> = []
         let prefix = "self->"
         for clause in clauses {
-            for action in clause.actions {
+            for raw in clause.actions {
+                let action = stripStringLiterals(raw)
                 var index = action.startIndex
                 while let match = action.range(of: prefix, range: index..<action.endIndex) {
                     var nameEnd = match.upperBound
@@ -493,6 +604,15 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
             /// race is observable and the script may exit slightly
             /// before the user expects.
             case exitInProfileProbe(probe: String)
+
+            /// A `printf(...)` call's format string has a different
+            /// number of conversion specifiers than the number of
+            /// arguments supplied. This is the single most common
+            /// printf bug; libdtrace catches it at compile time, but
+            /// catching it pre-compile gives a faster feedback loop and
+            /// keeps the test suite from needing to invoke the real
+            /// compiler.
+            case printfArityMismatch(format: String, expected: Int, got: Int)
         }
 
         public var description: String {
@@ -503,6 +623,9 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
             case .exitInProfileProbe(let probe):
                 let idx = clauseIndex.map { " (clause \($0))" } ?? ""
                 return "Exit() inside profile probe '\(probe)' fires on every CPU\(idx)"
+            case .printfArityMismatch(let format, let expected, let got):
+                let idx = clauseIndex.map { " (clause \($0))" } ?? ""
+                return "printf(\"\(format)\") expects \(expected) argument(s), got \(got)\(idx)"
             }
         }
     }
@@ -519,6 +642,9 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
     /// - References to a named aggregation that no clause defines.
     /// - `Exit()` actions inside `profile-…` probes (which fire on
     ///   every CPU and so the exit race is observable).
+    /// - `printf(...)` calls whose format string has a different
+    ///   number of conversion specifiers than the number of
+    ///   arguments supplied.
     ///
     /// ```swift
     /// for warning in script.lint() {
@@ -531,30 +657,40 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
         // Build the set of aggregation names defined anywhere in the
         // script. Anonymous aggregations (`@`) are excluded — they
         // can be referenced as `@` and don't have a name to look up.
+        // We scan a string-literal-stripped copy of each action so that
+        // a literal `@name` inside a `printf("@bytes")` format does not
+        // accidentally count as a definition or reference.
         var defined: Set<String> = []
         for clause in clauses {
             for action in clause.actions {
-                Self.collectAggregationDefinitions(in: action, into: &defined)
+                let sanitized = Self.stripStringLiterals(action)
+                Self.collectAggregationDefinitions(in: sanitized, into: &defined)
             }
         }
 
         for (index, clause) in clauses.enumerated() {
-            // Pitfall: Exit() inside a profile probe.
+            // Pitfall: Exit() inside a profile probe. Strip string
+            // literals before searching so that a printf format string
+            // containing the bytes `exit(` is not misread.
             if clause.probe.hasPrefix("profile-") {
-                for action in clause.actions where action.contains("exit(") {
-                    warnings.append(
-                        LintWarning(
-                            kind: .exitInProfileProbe(probe: clause.probe),
-                            clauseIndex: index
+                for action in clause.actions {
+                    let sanitized = Self.stripStringLiterals(action)
+                    if sanitized.contains("exit(") {
+                        warnings.append(
+                            LintWarning(
+                                kind: .exitInProfileProbe(probe: clause.probe),
+                                clauseIndex: index
+                            )
                         )
-                    )
-                    break
+                        break
+                    }
                 }
             }
 
             // Pitfall: referencing an aggregation that no clause defines.
             for action in clause.actions {
-                let referenced = Self.aggregationReferences(in: action)
+                let sanitized = Self.stripStringLiterals(action)
+                let referenced = Self.aggregationReferences(in: sanitized)
                 for name in referenced where !defined.contains(name) {
                     warnings.append(
                         LintWarning(
@@ -564,9 +700,235 @@ public struct DBlocks: Sendable, Codable, CustomStringConvertible {
                     )
                 }
             }
+
+            // Pitfall: printf format/arg-count mismatch. This one
+            // intentionally runs against the *original* action because
+            // the format string lives inside the literal we'd otherwise
+            // strip.
+            for action in clause.actions {
+                for mismatch in Self.printfArityMismatches(in: action) {
+                    warnings.append(
+                        LintWarning(
+                            kind: .printfArityMismatch(
+                                format: mismatch.format,
+                                expected: mismatch.expected,
+                                got: mismatch.got
+                            ),
+                            clauseIndex: index
+                        )
+                    )
+                }
+            }
         }
 
         return warnings
+    }
+
+    /// Returns a copy of `s` with the contents of every double-quoted
+    /// string literal replaced by spaces of equal length, preserving
+    /// the surrounding quotes and overall character count. Honors `\"`
+    /// escapes inside strings. Used so that the lint and merge-conflict
+    /// scanners do not match D-code patterns that happen to occur
+    /// inside printf format strings, freopen paths, or system command
+    /// strings.
+    ///
+    /// Example: `printf("self->ts = %d", self->ts);` becomes
+    /// `printf("                  ", self->ts);` — the inner `self->ts`
+    /// inside the format string is hidden, but the assignment-style
+    /// usage outside the literal is preserved.
+    private static func stripStringLiterals(_ s: String) -> String {
+        var out: [Character] = []
+        out.reserveCapacity(s.count)
+        var inString = false
+        var escaped = false
+        for ch in s {
+            if inString {
+                if escaped {
+                    out.append(" ")
+                    escaped = false
+                } else if ch == "\\" {
+                    out.append(" ")
+                    escaped = true
+                } else if ch == "\"" {
+                    out.append("\"")
+                    inString = false
+                } else {
+                    out.append(" ")
+                }
+            } else {
+                if ch == "\"" {
+                    out.append("\"")
+                    inString = true
+                } else {
+                    out.append(ch)
+                }
+            }
+        }
+        return String(out)
+    }
+
+    /// Walks an action looking for `printf("...", a, b, …)` calls and
+    /// returns each call where the format string's specifier count
+    /// disagrees with the number of supplied arguments.
+    ///
+    /// Specifier counting handles `%%` (literal percent), the standard
+    /// flag/width/precision/length-modifier prelude, and the `*` width
+    /// or precision form (which consumes an extra argument). Argument
+    /// counting honors nested parentheses and string literals so that
+    /// `printf("%s", foo(a, b))` is read as a single argument.
+    ///
+    /// Calls whose format string is not an inline string literal
+    /// (e.g. `printf(fmt, a, b)` where `fmt` is a variable) are
+    /// silently skipped — there's nothing to validate against.
+    fileprivate static func printfArityMismatches(
+        in action: String
+    ) -> [(format: String, expected: Int, got: Int)] {
+        var results: [(String, Int, Int)] = []
+        let needle = "printf("
+        var search = action.startIndex
+        while let call = action.range(of: needle, range: search..<action.endIndex) {
+            // Move past whitespace to the format-string position.
+            var i = call.upperBound
+            while i < action.endIndex, action[i].isWhitespace {
+                i = action.index(after: i)
+            }
+            guard i < action.endIndex, action[i] == "\"" else {
+                search = call.upperBound
+                continue
+            }
+            // Walk the format literal, honoring \" escapes.
+            let fmtStart = action.index(after: i)
+            var j = fmtStart
+            var escaped = false
+            while j < action.endIndex {
+                let ch = action[j]
+                if escaped {
+                    escaped = false
+                } else if ch == "\\" {
+                    escaped = true
+                } else if ch == "\"" {
+                    break
+                }
+                j = action.index(after: j)
+            }
+            guard j < action.endIndex else { break }
+            let format = String(action[fmtStart..<j])
+
+            // Now count top-level commas after the format literal until
+            // the printf call's matching close paren.
+            var k = action.index(after: j)
+            var depth = 1
+            var inStr = false
+            var strEsc = false
+            var sawComma = false
+            var argCount = 0
+            while k < action.endIndex {
+                let ch = action[k]
+                if inStr {
+                    if strEsc {
+                        strEsc = false
+                    } else if ch == "\\" {
+                        strEsc = true
+                    } else if ch == "\"" {
+                        inStr = false
+                    }
+                } else {
+                    switch ch {
+                    case "\"":
+                        inStr = true
+                    case "(":
+                        depth += 1
+                    case ")":
+                        depth -= 1
+                        if depth == 0 {
+                            break
+                        }
+                    case ",":
+                        if depth == 1 {
+                            if !sawComma {
+                                sawComma = true
+                                argCount = 1
+                            } else {
+                                argCount += 1
+                            }
+                        }
+                    default:
+                        break
+                    }
+                    if depth == 0 { break }
+                }
+                k = action.index(after: k)
+            }
+
+            let expected = countFormatSpecifiers(format)
+            // The Printf builder always emits a `\n` literal at the end
+            // of the format. That trailing escape is not a specifier,
+            // so it does not affect the count.
+            if expected != argCount {
+                results.append((format, expected, argCount))
+            }
+
+            search = action.index(after: j)
+        }
+        return results
+    }
+
+    /// Counts printf-style conversion specifiers in `format`, treating
+    /// `%%` as a literal percent and adding one for each `*` width or
+    /// precision (which consumes an extra runtime argument).
+    private static func countFormatSpecifiers(_ format: String) -> Int {
+        var specs = 0
+        var stars = 0
+        var i = format.startIndex
+        while i < format.endIndex {
+            if format[i] != "%" {
+                i = format.index(after: i)
+                continue
+            }
+            let next = format.index(after: i)
+            if next == format.endIndex { break }
+            if format[next] == "%" {
+                i = format.index(after: next)
+                continue
+            }
+            var j = next
+            // Flags
+            while j < format.endIndex, "+-# 0".contains(format[j]) {
+                j = format.index(after: j)
+            }
+            // Width — number or `*`
+            if j < format.endIndex, format[j] == "*" {
+                stars += 1
+                j = format.index(after: j)
+            } else {
+                while j < format.endIndex, format[j].isNumber {
+                    j = format.index(after: j)
+                }
+            }
+            // .precision — number or `*`
+            if j < format.endIndex, format[j] == "." {
+                j = format.index(after: j)
+                if j < format.endIndex, format[j] == "*" {
+                    stars += 1
+                    j = format.index(after: j)
+                } else {
+                    while j < format.endIndex, format[j].isNumber {
+                        j = format.index(after: j)
+                    }
+                }
+            }
+            // Length modifier
+            while j < format.endIndex, "hlLjzt".contains(format[j]) {
+                j = format.index(after: j)
+            }
+            // Conversion character
+            if j < format.endIndex {
+                specs += 1
+                j = format.index(after: j)
+            }
+            i = j
+        }
+        return specs + stars
     }
 
     /// Scans an action for aggregation *definitions* of the form
