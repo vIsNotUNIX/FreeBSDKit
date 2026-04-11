@@ -1884,3 +1884,87 @@ struct DBlocksComposableAPITests {
         #expect(error.description.contains("test message"))
     }
 }
+
+@Suite("DBlocks Memory and Buffer Action Tests")
+struct DBlocksMemoryActionTests {
+
+    @Test("Tracemem renders the address and size")
+    func testTracemem() {
+        let script = DBlocks {
+            Probe("syscall::write:entry") {
+                Tracemem("arg1", size: 64)
+            }
+        }
+        #expect(script.source.contains("tracemem(arg1, 64);"))
+    }
+
+    @Test("Copyin assigns into a thread-local")
+    func testCopyin() {
+        let script = DBlocks {
+            Probe("syscall::write:entry") {
+                Copyin(from: "arg1", size: 64, into: .thread("buf"))
+            }
+        }
+        #expect(script.source.contains("self->buf = copyin(arg1, 64);"))
+    }
+
+    @Test("Copyinto fills a pre-allocated destination")
+    func testCopyinto() {
+        let script = DBlocks {
+            Probe("syscall::write:entry") {
+                Copyinto(from: "arg1", size: 64, into: "self->buf")
+            }
+        }
+        #expect(script.source.contains("copyinto(arg1, 64, self->buf);"))
+    }
+
+    @Test("Discard renders the bare action")
+    func testDiscard() {
+        let script = DBlocks {
+            Probe("syscall:::entry") {
+                Discard()
+            }
+        }
+        #expect(script.source.contains("discard();"))
+    }
+
+    @Test("Freopen with format and arg")
+    func testFreopen() {
+        let script = DBlocks {
+            Tick(60, .seconds) {
+                Freopen("/var/log/dtrace-%d.log", "walltimestamp")
+            }
+        }
+        #expect(script.source.contains("freopen(\"/var/log/dtrace-%d.log\", walltimestamp);"))
+    }
+
+    @Test("Freopen.revert produces an empty path")
+    func testFreopenRevert() {
+        let script = DBlocks {
+            Tick(60, .seconds) {
+                Freopen.revert
+            }
+        }
+        #expect(script.source.contains("freopen(\"\");"))
+    }
+
+    @Test("Raise renders signal as integer")
+    func testRaise() {
+        let script = DBlocks {
+            Probe("syscall::open:entry") {
+                Raise(Int32(SIGSTOP))
+            }
+        }
+        #expect(script.source.contains("raise(\(SIGSTOP));"))
+    }
+
+    @Test("System renders format and args")
+    func testSystem() {
+        let script = DBlocks {
+            Probe("fbt::vm_fault:entry") {
+                System("kill -ABRT %d", "pid")
+            }
+        }
+        #expect(script.source.contains("system(\"kill -ABRT %d\", pid);"))
+    }
+}

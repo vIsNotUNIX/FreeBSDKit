@@ -149,3 +149,224 @@ public struct Latency: Sendable {
 extension Latency: ProbeComponentConvertible {
     public func asProbeComponent() -> ProbeComponent { component }
 }
+
+// MARK: - Memory Tracing
+
+/// Traces a region of memory to the trace buffer.
+///
+/// `tracemem(addr, size)` copies `size` bytes from `addr` (in the kernel
+/// or current process address space) into the trace buffer, where it can
+/// be inspected with `dtrace -x bufpolicy=fill`. Pair with `Copyin` if
+/// you need to capture user memory through a kernel pointer first.
+///
+/// ```swift
+/// Probe("syscall::write:entry") {
+///     Tracemem("arg1", size: 64)
+/// }
+/// ```
+public struct Tracemem: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameters:
+    ///   - address: D expression evaluating to the source address.
+    ///   - size: Number of bytes to copy.
+    public init(_ address: String, size: Int) {
+        self.component = ProbeComponent(kind: .action("tracemem(\(address), \(size));"))
+    }
+}
+
+extension Tracemem: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Copies a region of user memory into a clause-local scratch buffer.
+///
+/// `copyin(addr, size)` returns a kernel-side copy of the user buffer.
+/// Pair with `Tracemem` to record the bytes, or assign into a thread-
+/// local variable for later inspection.
+///
+/// ```swift
+/// Probe("syscall::write:entry") {
+///     Tracemem("(uintptr_t)copyin(arg1, 64)", size: 64)
+/// }
+/// ```
+public struct Copyin: Sendable {
+    public let component: ProbeComponent
+
+    /// Copy `size` bytes from a user address into a thread-local
+    /// variable, addressable from later actions in the same probe or
+    /// from a paired return-probe.
+    ///
+    /// - Parameters:
+    ///   - address: D expression evaluating to a user-space address.
+    ///   - size: Number of bytes to copy.
+    ///   - destination: Thread- or clause-local variable to receive the
+    ///     copy.
+    public init(from address: String, size: Int, into destination: Var) {
+        self.component = ProbeComponent(
+            kind: .action("\(destination.expression) = copyin(\(address), \(size));")
+        )
+    }
+}
+
+extension Copyin: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Copies user memory directly into an existing destination buffer.
+///
+/// `copyinto(uaddr, size, kaddr)` copies from a user-space address into
+/// a kernel buffer the script already controls (e.g. a slot in a
+/// thread-local that was sized via `alloca()`). Use this when you need
+/// the data in a known location rather than the scratch buffer
+/// `copyin` returns.
+///
+/// ```swift
+/// Probe("syscall::write:entry") {
+///     // Pre-allocate 64-byte slot in self->buf, then fill it.
+///     Action("self->buf = (char *)alloca(64);")
+///     Copyinto(from: "arg1", size: 64, into: "self->buf")
+/// }
+/// ```
+public struct Copyinto: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameters:
+    ///   - address: D expression evaluating to a user-space address.
+    ///   - size: Number of bytes to copy.
+    ///   - destination: Pre-allocated kernel-side destination buffer.
+    public init(from address: String, size: Int, into destination: String) {
+        self.component = ProbeComponent(
+            kind: .action("copyinto(\(address), \(size), \(destination));")
+        )
+    }
+}
+
+extension Copyinto: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+// MARK: - Buffer Control
+
+/// Discards trace data accumulated by the current probe firing.
+///
+/// `discard()` is the cheap way to suppress output for a probe that
+/// fired but isn't interesting after all — typically used inside a
+/// predicate-driven branch to keep buffer pressure down. Compare with
+/// `Stop`, which stops *all* tracing process-wide.
+///
+/// ```swift
+/// Probe("syscall:::entry") {
+///     When("pid == $target")
+///     Action("/* … record interesting fields … */")
+///     When("self->boring")
+///     Discard()
+/// }
+/// ```
+public struct Discard: Sendable {
+    public let component: ProbeComponent
+
+    public init() {
+        self.component = ProbeComponent(kind: .action("discard();"))
+    }
+}
+
+extension Discard: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Re-points the script's trace output to a new file.
+///
+/// `freopen(format, args…)` closes the current output and opens a new
+/// one at the path produced by the format string. Pass an empty string
+/// to revert to the original destination.
+///
+/// ```swift
+/// // Roll the output every minute.
+/// Tick(60, .seconds) {
+///     Freopen("/var/log/dtrace-%d.log", "walltimestamp")
+/// }
+/// ```
+public struct Freopen: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameters:
+    ///   - format: `printf`-style format that yields the new pathname.
+    ///   - args: D expressions substituted into `format`.
+    public init(_ format: String, _ args: String...) {
+        let argList = args.isEmpty ? "" : ", " + args.joined(separator: ", ")
+        self.component = ProbeComponent(kind: .action("freopen(\"\(format)\"\(argList));"))
+    }
+
+    /// Reverts trace output to the original destination.
+    public static var revert: Freopen {
+        Freopen("")
+    }
+}
+
+extension Freopen: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+// MARK: - Destructive Actions
+//
+// These actions require destructive mode (`-w` on the command line, or
+// `dtrace_destructive_disallow=0` set on the running kernel). Without
+// it the script will fail to enable.
+
+/// Sends a signal to the traced process.
+///
+/// `raise(sig)` is a destructive action: it requires DTrace's
+/// destructive mode (`-w` or the `destructive` option) to be enabled.
+/// Use it sparingly — typically to forcibly stop a process whose state
+/// you've just captured for later inspection.
+///
+/// ```swift
+/// Probe("syscall::open:entry") {
+///     When("execname == \"badness\"")
+///     Raise(SIGSTOP)  // freeze it for later inspection
+/// }
+/// ```
+public struct Raise: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameter signal: Signal number to deliver (e.g. `SIGSTOP`,
+    ///   `SIGTERM`).
+    public init(_ signal: Int32) {
+        self.component = ProbeComponent(kind: .action("raise(\(signal));"))
+    }
+}
+
+extension Raise: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Runs a shell command from a probe.
+///
+/// `system(format, args…)` is a destructive action: it requires
+/// DTrace's destructive mode. The kernel hands the command off to a
+/// privileged userland helper, so it is rate-limited and must not be
+/// used for high-frequency probes. Useful for "snapshot a core file
+/// and continue tracing" patterns.
+///
+/// ```swift
+/// Probe("fbt::vm_fault:entry") {
+///     When("execname == \"target\"")
+///     System("kill -ABRT %d", "pid")
+/// }
+/// ```
+public struct System: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameters:
+    ///   - format: `printf`-style format yielding the shell command.
+    ///   - args: D expressions substituted into `format`.
+    public init(_ format: String, _ args: String...) {
+        let argList = args.isEmpty ? "" : ", " + args.joined(separator: ", ")
+        self.component = ProbeComponent(kind: .action("system(\"\(format)\"\(argList));"))
+    }
+}
+
+extension System: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
