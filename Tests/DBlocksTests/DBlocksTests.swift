@@ -1968,3 +1968,95 @@ struct DBlocksMemoryActionTests {
         #expect(script.source.contains("system(\"kill -ABRT %d\", pid);"))
     }
 }
+
+@Suite("DBlocks Speculation Tests")
+struct DBlocksSpeculationTests {
+
+    @Test("Speculate stages output on a thread-local id")
+    func testSpeculateThreadLocal() {
+        let script = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("spec"), to: "speculation()")
+                Speculate(on: .thread("spec"))
+                Printf("entry pid=%d", "pid")
+            }
+        }
+        let source = script.source
+        #expect(source.contains("self->spec = speculation();"))
+        #expect(source.contains("speculate(self->spec);"))
+        #expect(source.contains("printf(\"entry pid=%d\\n\", pid);"))
+    }
+
+    @Test("Speculate accepts a raw expression")
+    func testSpeculateRawExpression() {
+        let script = DBlocks {
+            Probe("syscall::read:entry") {
+                Speculate(rawExpression: "self->spec_id")
+            }
+        }
+        #expect(script.source.contains("speculate(self->spec_id);"))
+    }
+
+    @Test("CommitSpeculation flushes a thread-local id")
+    func testCommitSpeculation() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 < 0")
+                CommitSpeculation(on: .thread("spec"))
+                Assign(.thread("spec"), to: "0")
+            }
+        }
+        let source = script.source
+        #expect(source.contains("commit(self->spec);"))
+        #expect(source.contains("self->spec = 0;"))
+    }
+
+    @Test("DiscardSpeculation drops a thread-local id")
+    func testDiscardSpeculationThreadLocal() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 >= 0")
+                DiscardSpeculation(on: .thread("spec"))
+            }
+        }
+        #expect(script.source.contains("discard(self->spec);"))
+    }
+
+    @Test("DiscardSpeculation accepts a raw expression")
+    func testDiscardSpeculationRaw() {
+        let script = DBlocks {
+            Probe("syscall::read:return") {
+                DiscardSpeculation(rawExpression: "self->spec_id")
+            }
+        }
+        #expect(script.source.contains("discard(self->spec_id);"))
+    }
+
+    @Test("End-to-end speculation pattern")
+    func testFullSpeculationPattern() {
+        // The canonical "only keep failed reads" speculative tracing
+        // pattern: stage on entry, commit on failure, drop on success.
+        let script = DBlocks {
+            Probe("syscall::read:entry") {
+                Assign(.thread("spec"), to: "speculation()")
+                Speculate(on: .thread("spec"))
+                Printf("entry pid=%d", "pid")
+            }
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 < 0")
+                CommitSpeculation(on: .thread("spec"))
+                Assign(.thread("spec"), to: "0")
+            }
+            Probe("syscall::read:return") {
+                When("self->spec && arg0 >= 0")
+                DiscardSpeculation(on: .thread("spec"))
+                Assign(.thread("spec"), to: "0")
+            }
+        }
+        let source = script.source
+        #expect(source.contains("self->spec = speculation();"))
+        #expect(source.contains("speculate(self->spec);"))
+        #expect(source.contains("commit(self->spec);"))
+        #expect(source.contains("discard(self->spec);"))
+    }
+}

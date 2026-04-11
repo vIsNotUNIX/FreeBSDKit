@@ -185,3 +185,146 @@ public struct Denormalize: Sendable {
 extension Denormalize: ProbeComponentConvertible {
     public func asProbeComponent() -> ProbeComponent { component }
 }
+
+// MARK: - Speculative Tracing
+//
+// DTrace's speculation feature stages probe output in a side buffer.
+// The data is only flushed to the main trace stream when a later probe
+// calls `commit()` on the same speculation ID; if `discard()` is called
+// instead, the staged data is dropped. This lets a script "look ahead":
+// gather expensive context for every entry probe, then only keep it for
+// the entries whose corresponding return probe matches some condition.
+//
+// The typical pattern is:
+//
+//     BEGIN { /* set up nothing — speculation IDs are per-thread */ }
+//
+//     Probe("syscall::read:entry") {
+//         Assign(.thread("spec"), to: "speculation()")
+//         Speculate(on: .thread("spec"))
+//         Printf("entry: pid=%d", "pid")  // staged, not yet visible
+//     }
+//
+//     Probe("syscall::read:return") {
+//         When("self->spec")
+//         When("arg0 < 0")          // only keep failed reads
+//         CommitSpeculation(on: .thread("spec"))
+//         Assign(.thread("spec"), to: "0")
+//     }
+//
+//     Probe("syscall::read:return") {
+//         When("self->spec && arg0 >= 0")
+//         DiscardSpeculation(on: .thread("spec"))
+//         Assign(.thread("spec"), to: "0")
+//     }
+
+// Allocating a speculation ID is just `speculation()` on the right-hand
+// side of an assignment, so we don't expose a separate struct for it.
+// Use `Assign(.thread("spec"), to: "speculation()")` to allocate one
+// for the current thread, then refer to it via `.thread("spec")` in the
+// `Speculate`/`CommitSpeculation`/`DiscardSpeculation` actions below.
+//
+// - Note: There is a bounded number of speculations per session
+//   (`nspec`, default 1). Tune via
+//   `DTraceSession.option("nspec", value: …)` if your probes overlap.
+
+/// Routes the rest of this probe's output into a speculation buffer.
+///
+/// After this action runs, every subsequent printf/trace/aggregation in
+/// the same probe firing is staged in the speculation buffer identified
+/// by the supplied variable. The data only becomes visible to the
+/// consumer if a later probe calls `CommitSpeculation` on the same
+/// variable; otherwise it is dropped automatically (or by an explicit
+/// `DiscardSpeculation`).
+///
+/// ```swift
+/// Probe("syscall::read:entry") {
+///     Assign(.thread("spec"), to: "speculation()")
+///     Speculate(on: .thread("spec"))
+///     Printf("entry: pid=%d", "pid")
+/// }
+/// ```
+public struct Speculate: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameter id: Variable holding the speculation ID returned by
+    ///   `Speculation()`.
+    public init(on id: Var) {
+        self.component = ProbeComponent(kind: .action("speculate(\(id.expression));"))
+    }
+
+    /// Convenience for raw expressions (e.g. when the ID is computed
+    /// inline).
+    public init(rawExpression: String) {
+        self.component = ProbeComponent(kind: .action("speculate(\(rawExpression));"))
+    }
+}
+
+extension Speculate: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Commits a speculation buffer to the main trace stream.
+///
+/// Use this in a return-probe (or any later probe) once you've decided
+/// the speculatively-traced data is interesting after all.
+///
+/// ```swift
+/// Probe("syscall::read:return") {
+///     When("self->spec && arg0 < 0")  // only failed reads
+///     CommitSpeculation(on: .thread("spec"))
+///     Assign(.thread("spec"), to: "0")
+/// }
+/// ```
+public struct CommitSpeculation: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameter id: Variable holding the speculation ID.
+    public init(on id: Var) {
+        self.component = ProbeComponent(kind: .action("commit(\(id.expression));"))
+    }
+
+    /// Convenience for raw expressions.
+    public init(rawExpression: String) {
+        self.component = ProbeComponent(kind: .action("commit(\(rawExpression));"))
+    }
+}
+
+extension CommitSpeculation: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
+
+/// Drops a speculation buffer without flushing it.
+///
+/// Use this when you've decided the staged data isn't worth keeping —
+/// for instance, the matching return-probe saw a successful result and
+/// you only wanted the entry context for failures.
+///
+/// ```swift
+/// Probe("syscall::read:return") {
+///     When("self->spec && arg0 >= 0")  // success → drop entry context
+///     DiscardSpeculation(on: .thread("spec"))
+///     Assign(.thread("spec"), to: "0")
+/// }
+/// ```
+///
+/// - Note: This is **distinct** from the unconditional `Discard()`
+///   action, which throws away the trace buffer for the *current*
+///   probe firing without affecting any speculation buffers.
+public struct DiscardSpeculation: Sendable {
+    public let component: ProbeComponent
+
+    /// - Parameter id: Variable holding the speculation ID.
+    public init(on id: Var) {
+        self.component = ProbeComponent(kind: .action("discard(\(id.expression));"))
+    }
+
+    /// Convenience for raw expressions.
+    public init(rawExpression: String) {
+        self.component = ProbeComponent(kind: .action("discard(\(rawExpression));"))
+    }
+}
+
+extension DiscardSpeculation: ProbeComponentConvertible {
+    public func asProbeComponent() -> ProbeComponent { component }
+}
