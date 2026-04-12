@@ -1039,11 +1039,13 @@ private func typedAggregateWalkCallback(
     let name = String(cString: cdtrace_aggdesc_name(desc))
     let nrecs = Int(cdtrace_aggdesc_nrecs(desc))
 
-    // Need at least one record (the aggregation value).
-    guard nrecs >= 1 else { return DTRACE_AGGWALK_NEXT }
+    // Need at least two records: record 0 is the aggregation ID
+    // (a small integer identifying the @-variable), and the last
+    // record is the aggregation action (count/sum/etc). Records
+    // 1..(nrecs-2) are the actual key tuple elements.
+    guard nrecs >= 2 else { return DTRACE_AGGWALK_NEXT }
 
-    // The last record is the aggregation action. All preceding
-    // records are key tuple elements.
+    // The last record is the aggregation action.
     let aggRec = cdtrace_aggdesc_rec(desc, Int32(nrecs - 1))!
     let actionRaw = cdtrace_recdesc_action(aggRec)
     guard let action = DTraceHandle.AggregationAction(rawValue: actionRaw) else {
@@ -1052,10 +1054,15 @@ private func typedAggregateWalkCallback(
 
     // Parse key tuple: records 0..<(nrecs-1) are key elements.
     // Each key record describes a region in the data buffer.
-    // We read them as strings (for string keys like execname) or
-    // as formatted integers (for numeric keys like pid).
+    //
+    // DTrace key records are DTRACEACT_DIFEXPR (action=1). The
+    // data region contains either a null-terminated string or a
+    // raw integer depending on the D expression type. We detect
+    // strings by checking for a printable first byte and a null
+    // terminator within the record bounds. Everything else is
+    // read as an integer.
     var keys: [String] = []
-    for i in 0..<(nrecs - 1) {
+    for i in 1..<(nrecs - 1) {
         guard let keyRec = cdtrace_aggdesc_rec(desc, Int32(i)) else { continue }
         let offset = Int(cdtrace_recdesc_offset(keyRec))
         let size = Int(cdtrace_recdesc_size(keyRec))
@@ -1063,23 +1070,32 @@ private func typedAggregateWalkCallback(
 
         let keyPtr = rawData.advanced(by: offset)
 
-        // Try to interpret as a null-terminated string first.
-        // If the first byte is printable ASCII or the action is
-        // DIFEXPR with a string-sized record, treat as string.
-        // Otherwise format as an integer.
-        let keyAction = cdtrace_recdesc_action(keyRec)
-        if keyAction == 1 /* DTRACEACT_DIFEXPR */ && size > 8 {
-            // Likely a string (strings are > 8 bytes in DTrace records)
+        // Check if this looks like a null-terminated string:
+        // first byte is printable ASCII (0x20..0x7e) and there's
+        // a NUL within the record bounds.
+        let firstByte = UInt8(bitPattern: keyPtr[0])
+        var hasNul = false
+        if firstByte >= 0x20 && firstByte <= 0x7e {
+            for j in 0..<size {
+                if keyPtr[j] == 0 {
+                    hasNul = true
+                    break
+                }
+            }
+        }
+
+        if hasNul {
             let str = String(cString: keyPtr)
             keys.append(str)
         } else if size <= 8 {
-            // Numeric key — read as int64 from the data buffer
+            // Numeric key — read as int64
             var val: Int64 = 0
             memcpy(&val, keyPtr, Swift.min(size, 8))
             keys.append(String(val))
         } else {
+            // Fallback: try as string anyway
             let str = String(cString: keyPtr)
-            keys.append(str)
+            keys.append(str.isEmpty ? "0" : str)
         }
     }
 
