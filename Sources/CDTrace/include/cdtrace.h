@@ -194,6 +194,32 @@ static inline void cdtrace_program_info(
  * Data consumption
  */
 
+/*
+ * Default chew callbacks. libdtrace's own dt_nullrec() returns
+ * DTRACE_CONSUME_NEXT, which causes the per-record loop in
+ * dt_consume_cpu() to `continue` and SKIP the record entirely —
+ * including the `dtrace_fprintf` call that would have written
+ * printf() action output to fp. So when Swift callers pass NULL
+ * for pfunc/rfunc, no printf output ever appears in fp. We supply
+ * our own "always THIS" defaults to make the FILE* path actually
+ * produce output by default. dtrace(1) avoids this trap by always
+ * passing its own chew/chewrec functions.
+ */
+static inline int cdtrace_default_probe(
+    const dtrace_probedata_t *data __attribute__((unused)),
+    void *arg __attribute__((unused)))
+{
+    return (DTRACE_CONSUME_THIS);
+}
+
+static inline int cdtrace_default_rec(
+    const dtrace_probedata_t *data __attribute__((unused)),
+    const dtrace_recdesc_t *rec __attribute__((unused)),
+    void *arg __attribute__((unused)))
+{
+    return (DTRACE_CONSUME_THIS);
+}
+
 static inline dtrace_workstatus_t cdtrace_work(
     dtrace_hdl_t *dtp,
     FILE *fp,
@@ -201,6 +227,10 @@ static inline dtrace_workstatus_t cdtrace_work(
     dtrace_consume_rec_f *rfunc,
     void *arg)
 {
+    if (pfunc == NULL)
+        pfunc = cdtrace_default_probe;
+    if (rfunc == NULL)
+        rfunc = cdtrace_default_rec;
     return dtrace_work(dtp, fp, pfunc, rfunc, arg);
 }
 
@@ -211,6 +241,10 @@ static inline int cdtrace_consume(
     dtrace_consume_rec_f *rfunc,
     void *arg)
 {
+    if (pfunc == NULL)
+        pfunc = cdtrace_default_probe;
+    if (rfunc == NULL)
+        rfunc = cdtrace_default_rec;
     return dtrace_consume(dtp, fp, pfunc, rfunc, arg);
 }
 
