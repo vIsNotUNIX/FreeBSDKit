@@ -519,6 +519,73 @@ public struct DTraceHandle: ~Copyable {
         }
     }
 
+    // MARK: - Typed Aggregation Walking
+
+    /// The aggregation action type, matching DTrace's `DTRACEAGG_*` constants.
+    public enum AggregationAction: UInt16, Sendable {
+        case count     = 0x0701  // DTRACEAGG_COUNT
+        case min       = 0x0702  // DTRACEAGG_MIN
+        case max       = 0x0703  // DTRACEAGG_MAX
+        case avg       = 0x0704  // DTRACEAGG_AVG
+        case sum       = 0x0705  // DTRACEAGG_SUM
+        case stddev    = 0x0706  // DTRACEAGG_STDDEV
+        case quantize  = 0x0707  // DTRACEAGG_QUANTIZE
+        case lquantize = 0x0708  // DTRACEAGG_LQUANTIZE
+        case llquantize = 0x0709 // DTRACEAGG_LLQUANTIZE
+    }
+
+    /// One typed aggregation record, produced by the typed aggregate walk.
+    public struct AggregationRecord: Sendable {
+        /// Aggregation name (e.g. `""` for anonymous `@`, or `"counts"` for `@counts`).
+        public let name: String
+
+        /// The aggregation function (count, sum, quantize, etc.).
+        public let action: AggregationAction
+
+        /// Key tuple values as strings. For `@[execname, probefunc] = count()`,
+        /// this would be `["nginx", "read"]`.
+        public let keys: [String]
+
+        /// Scalar value for count/sum/min/max/avg/stddev aggregations.
+        /// For quantize/lquantize/llquantize, this is 0 — use `buckets` instead.
+        public let value: Int64
+
+        /// Histogram buckets for quantize/lquantize/llquantize.
+        /// Empty for scalar aggregations.
+        public let buckets: [(upperBound: Int64, count: Int64)]
+    }
+
+    /// Walk aggregation data with typed `AggregationRecord` values.
+    ///
+    /// Unlike the raw `aggregateWalk(_:)`, this overload parses the
+    /// binary aggregation data into typed Swift values: aggregation
+    /// name, action type, key strings, and scalar/histogram values.
+    ///
+    /// - Parameters:
+    ///   - sorted: If true, walks in sorted order (by value).
+    ///   - callback: Called for each typed record. Return `.next` to continue.
+    /// - Throws: `DTraceCoreError.aggregateFailed` if walk fails.
+    public func aggregateWalkTyped(
+        sorted: Bool = true,
+        _ callback: @escaping (AggregationRecord) -> AggregateWalkResult
+    ) throws {
+        guard let h = _handle else { throw DTraceCoreError.invalidHandle }
+
+        var context = TypedAggregateWalkContext(callback: callback)
+
+        let result = withUnsafeMutablePointer(to: &context) { ctxPtr in
+            if sorted {
+                return cdtrace_aggregate_walk_sorted(h, typedAggregateWalkCallback, ctxPtr)
+            } else {
+                return cdtrace_aggregate_walk(h, typedAggregateWalkCallback, ctxPtr)
+            }
+        }
+
+        if result < 0 {
+            throw DTraceCoreError.aggregateFailed(message: lastErrorMessage)
+        }
+    }
+
     // MARK: - Probe Iteration
 
     /// Iterates over all available probes matching a pattern.
@@ -943,6 +1010,159 @@ private func aggregateWalkCallback(
     }
 
     let result = context.pointee.callback(UnsafeRawPointer(ptr), size)
+    return result.rawValue
+}
+
+// MARK: - Typed Aggregation Walk Internals
+
+private struct TypedAggregateWalkContext {
+    var callback: (DTraceHandle.AggregationRecord) -> DTraceHandle.AggregateWalkResult
+}
+
+private func typedAggregateWalkCallback(
+    _ data: UnsafePointer<dtrace_aggdata_t>?,
+    _ arg: UnsafeMutableRawPointer?
+) -> Int32 {
+    guard let arg = arg, let data = data else {
+        return DTRACE_AGGWALK_NEXT
+    }
+
+    let context = arg.assumingMemoryBound(to: TypedAggregateWalkContext.self)
+
+    guard let desc = cdtrace_aggdata_desc(data) else {
+        return DTRACE_AGGWALK_NEXT
+    }
+    guard let rawData = cdtrace_aggdata_data(data) else {
+        return DTRACE_AGGWALK_NEXT
+    }
+
+    let name = String(cString: cdtrace_aggdesc_name(desc))
+    let nrecs = Int(cdtrace_aggdesc_nrecs(desc))
+
+    // Need at least one record (the aggregation value).
+    guard nrecs >= 1 else { return DTRACE_AGGWALK_NEXT }
+
+    // The last record is the aggregation action. All preceding
+    // records are key tuple elements.
+    let aggRec = cdtrace_aggdesc_rec(desc, Int32(nrecs - 1))!
+    let actionRaw = cdtrace_recdesc_action(aggRec)
+    guard let action = DTraceHandle.AggregationAction(rawValue: actionRaw) else {
+        return DTRACE_AGGWALK_NEXT
+    }
+
+    // Parse key tuple: records 0..<(nrecs-1) are key elements.
+    // Each key record describes a region in the data buffer.
+    // We read them as strings (for string keys like execname) or
+    // as formatted integers (for numeric keys like pid).
+    var keys: [String] = []
+    for i in 0..<(nrecs - 1) {
+        guard let keyRec = cdtrace_aggdesc_rec(desc, Int32(i)) else { continue }
+        let offset = Int(cdtrace_recdesc_offset(keyRec))
+        let size = Int(cdtrace_recdesc_size(keyRec))
+        guard size > 0 else { continue }
+
+        let keyPtr = rawData.advanced(by: offset)
+
+        // Try to interpret as a null-terminated string first.
+        // If the first byte is printable ASCII or the action is
+        // DIFEXPR with a string-sized record, treat as string.
+        // Otherwise format as an integer.
+        let keyAction = cdtrace_recdesc_action(keyRec)
+        if keyAction == 1 /* DTRACEACT_DIFEXPR */ && size > 8 {
+            // Likely a string (strings are > 8 bytes in DTrace records)
+            let str = String(cString: keyPtr)
+            keys.append(str)
+        } else if size <= 8 {
+            // Numeric key — read as int64 from the data buffer
+            var val: Int64 = 0
+            memcpy(&val, keyPtr, Swift.min(size, 8))
+            keys.append(String(val))
+        } else {
+            let str = String(cString: keyPtr)
+            keys.append(str)
+        }
+    }
+
+    // Parse the aggregation value.
+    let aggOffset = Int(cdtrace_recdesc_offset(aggRec))
+    let aggSize = Int(cdtrace_recdesc_size(aggRec))
+    var scalarValue: Int64 = 0
+    var buckets: [(upperBound: Int64, count: Int64)] = []
+
+    switch action {
+    case .count, .sum, .min, .max:
+        // Scalar: single int64 at the record offset.
+        if aggSize >= 8 {
+            memcpy(&scalarValue, rawData.advanced(by: aggOffset), 8)
+        }
+
+    case .avg:
+        // Average: two int64s — [count, total]. Value = total/count.
+        if aggSize >= 16 {
+            var count: Int64 = 0
+            var total: Int64 = 0
+            memcpy(&count, rawData.advanced(by: aggOffset), 8)
+            memcpy(&total, rawData.advanced(by: aggOffset + 8), 8)
+            scalarValue = count > 0 ? total / count : 0
+        }
+
+    case .stddev:
+        // Stddev stores [count, total, total_of_squares]. Report total/count as value.
+        if aggSize >= 16 {
+            var count: Int64 = 0
+            var total: Int64 = 0
+            memcpy(&count, rawData.advanced(by: aggOffset), 8)
+            memcpy(&total, rawData.advanced(by: aggOffset + 8), 8)
+            scalarValue = count > 0 ? total / count : 0
+        }
+
+    case .quantize:
+        // Power-of-2 histogram. The data is an array of int64 counts.
+        // Bucket boundaries: ..., -2, -1, 0, 1, 2, 4, 8, 16, ...
+        // Index 0 = negative overflow, index DTRACE_QUANTIZE_ZEROBUCKET = 0
+        // Each bucket i maps to upper bound 2^(i - ZEROBUCKET).
+        let nbuckets = aggSize / 8
+        let zeroBucket = 63  // DTRACE_QUANTIZE_ZEROBUCKET
+        for i in 0..<nbuckets {
+            var count: Int64 = 0
+            memcpy(&count, rawData.advanced(by: aggOffset + i * 8), 8)
+            if count != 0 {
+                let exp = i - zeroBucket
+                let upperBound: Int64
+                if exp <= 0 {
+                    upperBound = Int64(exp)
+                } else {
+                    upperBound = Int64(1) << exp
+                }
+                buckets.append((upperBound: upperBound, count: count))
+            }
+        }
+
+    case .lquantize, .llquantize:
+        // Linear / log-linear quantize. The first int64 in the data
+        // encodes the parameters (base, step, levels). Following
+        // that are count int64s for each bucket.
+        // For now, emit raw bucket indices — proper decoding requires
+        // the lquantize/llquantize parameter encoding.
+        let nbuckets = (aggSize / 8) - 1  // first slot is params
+        for i in 0..<nbuckets {
+            var count: Int64 = 0
+            memcpy(&count, rawData.advanced(by: aggOffset + (i + 1) * 8), 8)
+            if count != 0 {
+                buckets.append((upperBound: Int64(i), count: count))
+            }
+        }
+    }
+
+    let record = DTraceHandle.AggregationRecord(
+        name: name,
+        action: action,
+        keys: keys,
+        value: scalarValue,
+        buckets: buckets
+    )
+
+    let result = context.pointee.callback(record)
     return result.rawValue
 }
 
