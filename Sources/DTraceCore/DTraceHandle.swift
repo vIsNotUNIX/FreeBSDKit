@@ -371,6 +371,23 @@ public struct DTraceHandle: ~Copyable {
         return DTraceWorkStatus(from: status)
     }
 
+    /// Processes available trace data using the buffered output handler.
+    ///
+    /// Passes NULL as the FILE* to `dtrace_work`, which causes
+    /// libdtrace to route all `printf`/`printa` output through the
+    /// handler registered via `onBufferedOutput` instead of writing
+    /// to a file. The handler **must** be registered before calling
+    /// this method; otherwise libdtrace returns an error
+    /// (`EDT_NOBUFFERED`).
+    ///
+    /// - Returns: `.okay` to continue polling, `.done` when tracing
+    ///   finished, `.error` on failure.
+    public func pollBuffered() -> DTraceWorkStatus {
+        guard let h = _handle else { return .error }
+        let status = cdtrace_work(h, nil, nil, nil, nil)
+        return DTraceWorkStatus(from: status)
+    }
+
     /// Deprecated: Use `poll()` instead.
     @available(*, deprecated, renamed: "poll()")
     public func work() -> DTraceWorkStatus {
