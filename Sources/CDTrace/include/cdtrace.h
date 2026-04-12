@@ -214,9 +214,19 @@ static inline int cdtrace_default_probe(
 
 static inline int cdtrace_default_rec(
     const dtrace_probedata_t *data __attribute__((unused)),
-    const dtrace_recdesc_t *rec __attribute__((unused)),
+    const dtrace_recdesc_t *rec,
     void *arg __attribute__((unused)))
 {
+    /*
+     * Match dtrace(1)'s chewrec: skip the epilogue record (rec == NULL)
+     * and the exit-action record (DTRACEACT_EXIT). Without this, exit(0)
+     * produces a spurious "0" line in the output and the epilogue can
+     * trigger unexpected formatting.
+     */
+    if (rec == NULL)
+        return (DTRACE_CONSUME_NEXT);
+    if (rec->dtrd_action == DTRACEACT_EXIT)
+        return (DTRACE_CONSUME_NEXT);
     return (DTRACE_CONSUME_THIS);
 }
 
